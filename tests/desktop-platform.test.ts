@@ -181,13 +181,19 @@ describe("workflow action versions", () => {
 				expected.push("actions/github-script@v9", "actions/upload-artifact@v7", "maxim-lobanov/setup-xcode@v1");
 			}
 			const observed = new Set<string>();
-			for (const job of Object.values(workflow.jobs)) {
+			let hostedNode24Steps = 0;
+			for (const [jobName, job] of Object.entries(workflow.jobs)) {
 				for (const step of job.steps) {
 					if (!step.uses) continue;
 					assert.ok(expected.includes(step.uses), `unexpected Action reference: ${step.uses}`);
 					observed.add(step.uses);
 					if (step.uses === "actions/setup-node@v7") {
-						assert.equal(step.with?.["node-version"], "26");
+						if (filename === "ci.yml" && jobName === "hosted") {
+							assert.equal(step.with?.["node-version"], "24");
+							hostedNode24Steps += 1;
+						} else {
+							assert.equal(step.with?.["node-version"], "26");
+						}
 						assert.equal(step.with?.cache, "npm");
 					}
 					if (step.uses === "actions/upload-artifact@v7") {
@@ -195,6 +201,7 @@ describe("workflow action versions", () => {
 					}
 				}
 			}
+			if (filename === "ci.yml") assert.equal(hostedNode24Steps, 1, "ci.yml hosted job explicitly pins Node 24");
 			assert.deepEqual([...observed].sort(), expected.sort());
 		});
 	}

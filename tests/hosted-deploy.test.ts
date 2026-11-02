@@ -104,6 +104,7 @@ function runInitVolume(f: ReturnType<typeof volumeFixture>, volume: string) {
 		encoding: "utf8",
 		env: {
 			PATH: `${f.bin}:${process.env.PATH ?? ""}`,
+			NODE_ENV: "test",
 			DOCKER_LOG: f.dockerLog,
 			DOCKER_RUN_COUNT: f.runCount,
 			DOCKER_PREEXISTING: f.preexisting ? "1" : "0",
