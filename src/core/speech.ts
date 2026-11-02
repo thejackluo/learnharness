@@ -1,7 +1,7 @@
 import { assessmentSpecOf } from "./assessment.ts";
 import { questionDataOf } from "./canonical-question.ts";
-import type { LhMessage } from "./native-messages.ts";
-import { toolQuestionKind } from "./pending.ts";
+import { failedOutputCallIds, userFacingTextOf, type LhMessage } from "./native-messages.ts";
+import { QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
 
 function inlineSpeechText(text: string): string {
 	return text
@@ -130,19 +130,27 @@ export function speechChunks(text: string, max = 220): string[] {
 
 /** Read only settled assistant prose in the latest user turn. */
 export function replySpeech(messages: readonly LhMessage[]): { key: string; text: string } | null {
-	let lastUserIndex = -1;
+	let lastLearnerInputIndex = -1;
 	for (let i = 0; i < messages.length; i++) {
-		if (messages[i]!.role === "user") lastUserIndex = i;
+		const message = messages[i]!;
+		if (
+			message.role === "user" ||
+			(message.role === "toolResult" && (QUESTION_TOOLS as readonly string[]).includes(message.toolName)) ||
+			(message.role === "custom" && ["practice-thinking", "practice-next"].includes(message.customType))
+		) lastLearnerInputIndex = i;
 	}
-	const turn = messages.slice(lastUserIndex + 1);
+	const turn = messages.slice(lastLearnerInputIndex + 1);
 	if (!turn.length || turn.some((message) => message.id.startsWith("c_"))) return null;
 
 	const assistants = turn.filter((message) => message.role === "assistant");
 	const lastAssistant = assistants.at(-1);
 	if (!lastAssistant || lastAssistant.stopReason === "error" || lastAssistant.stopReason === "aborted") return null;
 
+	const failedOutputCalls = failedOutputCallIds(turn);
 	const text = assistants
-		.flatMap((message) => message.content.filter((block) => block.type === "text").map((block) => speechTextOfMarkdown(block.text)))
+		.filter((message) => message.stopReason !== "error" && message.stopReason !== "aborted")
+		.flatMap((message) => userFacingTextOf(message.content, failedOutputCalls))
+		.map(speechTextOfMarkdown)
 		.filter(Boolean)
 		.join("\n")
 		.trim();

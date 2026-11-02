@@ -19,6 +19,10 @@ function assistant(id: string, content: unknown[], stopReason = "stop"): LhMessa
 	return { id, role: "assistant", content, stopReason, timestamp: 2 } as unknown as LhMessage;
 }
 
+function toolResult(id: string, toolName: string, toolCallId = `${id}-call`, isError = false): LhMessage {
+	return { id, role: "toolResult", toolCallId, toolName, content: [], details: null, isError, timestamp: 3 } as unknown as LhMessage;
+}
+
 test("Markdown speech keeps prose and explicit omission cues, not markup or hidden script text", () => {
 	const text = speechTextOfMarkdown([
 		"# A title",
@@ -83,6 +87,49 @@ test("reply projection is latest-turn assistant text only and rejects temporary 
 	assert.equal(replySpeech([user("u", "question"), assistant("c_tool", [{ type: "text", text: "Answer" }]), { id: "result", role: "toolResult" } as unknown as LhMessage]), null);
 });
 
+test("reply starts after the latest learner answer, including tool and practice thinking messages", () => {
+	const messages = [
+		user("u-1", "First question"),
+		assistant("a-1", [{ type: "text", text: "First reply." }]),
+		toolResult("answer-1", "quiz"),
+		assistant("a-2", [{ type: "text", text: "Second reply." }]),
+		toolResult("answer-2", "ask_user_question"),
+		assistant("a-3", [{ type: "text", text: "Reply after the latest answer." }]),
+	];
+	assert.deepEqual(replySpeech(messages), { key: "reply:a-3", text: "Reply after the latest answer." });
+
+	const practice = [
+		user("u-practice", "Start practice"),
+		assistant("a-before-thinking", [{ type: "text", text: "Earlier feedback." }]),
+		{ id: "thinking", role: "custom", customType: "practice-thinking", content: "Your thinking:\nMy work.", display: true, details: {}, timestamp: 4 } as unknown as LhMessage,
+		assistant("a-after-thinking", [{ type: "text", text: "Feedback after thinking." }]),
+	];
+	assert.deepEqual(replySpeech(practice), { key: "reply:a-after-thinking", text: "Feedback after thinking." });
+});
+
+test("reply reads send_to_user prose, excludes failed output calls and failed assistant fragments", () => {
+	const send = (id: string, text: string) => ({ type: "toolCall", id, name: "send_to_user", arguments: { message: text } });
+	assert.deepEqual(replySpeech([
+		user("u", "Question"),
+		assistant("a-send", [send("send-ok", "Explicit tutor reply.")]),
+	]), { key: "reply:a-send", text: "Explicit tutor reply." });
+	assert.equal(replySpeech([
+		user("u-failed-send", "Question"),
+		assistant("a-failed-send", [send("send-error", "Not delivered.")]),
+		toolResult("send-error-result", "send_to_user", "send-error", true),
+	]), null);
+
+	assert.deepEqual(replySpeech([
+		user("u-retry", "Question"),
+		assistant("a-failed-fragment", [
+			{ type: "text", text: "Failed fragment." },
+			send("send-failed-fragment", "Failed output."),
+		], "error"),
+		toolResult("failed-fragment-result", "send_to_user", "send-failed-fragment", true),
+		assistant("a-retry", [{ type: "text", text: "Successful retry." }]),
+	]), { key: "reply:a-retry", text: "Successful retry." });
+});
+
 test("question prompt follows canonical shuffled options and excludes answer, rubric, and grading data", () => {
 	const input = {
 		question: "Choose the visible claim.",
@@ -109,7 +156,7 @@ test("question prompt follows canonical shuffled options and excludes answer, ru
 
 	const ask = questionSpeech("ask_user_question", "ask-call", {
 		question: "Which description fits?",
-		options: [{ label: "One", description: "Visible option detail" }],
+		options: [{ label: "One", description: "Visible option detail" }, { label: "Two" }],
 		correctAnswer: "PRIVATE",
 	});
 	assert.match(ask!.text, /Option 1: One Visible option detail/);
