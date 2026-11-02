@@ -30,6 +30,8 @@ export interface TargetEvidenceInput {
 	items: { skillId: string; item: TargetEvidenceItem }[];
 	/** Learner-made links whose source no longer resolves, per skill id. */
 	unavailableLinks: Map<string, number>;
+	/** The learner profile could not be read, so no learner-made link is known. */
+	linksUnavailable?: boolean;
 	coverage: { scannedChats: number; totalChats: number; unreadableChats: number };
 }
 
@@ -64,7 +66,7 @@ export interface TargetAdaptationView {
 	rationale: string[];
 	sample: AdaptationSampleItem[];
 	counts: { current: number; historical: number; unavailableLinks: number };
-	/** Direct prerequisites without unaided supporting evidence — check before relying on them. */
+	/** Direct prerequisites without unaided, auto-graded support — check before relying on them. */
 	unverifiedPrerequisites: { skillId: string; title: string; advice: SkillAdvice }[];
 	/** Candidate next steps toward the map's goals, offered only on unaided support. */
 	nextSteps: { skillId: string; title: string; goalId: string }[];
@@ -171,7 +173,7 @@ export function projectTargetAdaptation(input: {
 	evidence: TargetEvidenceInput;
 }): TargetAdaptationView {
 	const { target, map, evidence } = input;
-	const availability = evidence.coverage.unreadableChats > 0 || evidence.coverage.scannedChats < evidence.coverage.totalChats ? "partial" : "complete";
+	const availability = evidence.linksUnavailable || evidence.coverage.unreadableChats > 0 || evidence.coverage.scannedChats < evidence.coverage.totalChats ? "partial" : "complete";
 	const status = input.mapUnavailable ? "mapUnavailable" : subjectSkillTargetStatus(map, target);
 	const skill = map?.skills.find((candidate) => candidate.id === target.skillId) ?? null;
 	const base: TargetAdaptationView = {
@@ -208,13 +210,14 @@ export function projectTargetAdaptation(input: {
 	if (current > sample.length) base.rationale.push(`Based on the ${sample.length} most recent of ${current} current observations.`);
 	if (historical > 0) base.rationale.push(`${historical} observation${historical === 1 ? " was" : "s were"} attached to an earlier objective revision and ${historical === 1 ? "is" : "are"} not counted.`);
 	if (base.counts.unavailableLinks > 0) base.rationale.push(`${base.counts.unavailableLinks} linked source${base.counts.unavailableLinks === 1 ? " is" : "s are"} no longer available and ${base.counts.unavailableLinks === 1 ? "is" : "are"} not counted.`);
-	if (availability === "partial") base.rationale.push(`Only ${evidence.coverage.scannedChats - evidence.coverage.unreadableChats} of ${evidence.coverage.totalChats} sessions were read, so other evidence may exist.`);
+	if (evidence.linksUnavailable) base.rationale.push("Your learner profile cannot be read, so evidence you linked to skills is not counted.");
+	if (evidence.coverage.unreadableChats > 0 || evidence.coverage.scannedChats < evidence.coverage.totalChats) base.rationale.push(`Only ${evidence.coverage.scannedChats - evidence.coverage.unreadableChats} of ${evidence.coverage.totalChats} sessions were read, so other evidence may exist.`);
 
 	const titleOf = (id: string) => map.skills.find((candidate) => candidate.id === id)?.title ?? id;
 	for (const edge of map.edges) {
 		if (edge.dependent !== skill.id) continue;
 		const prerequisiteAdvice = adviseFromEvidence(currentSample(map, edge.prerequisite, evidence).sample);
-		if (prerequisiteAdvice.move !== "advance") {
+		if (prerequisiteAdvice.move !== "advance" || prerequisiteAdvice.qualified) {
 			base.unverifiedPrerequisites.push({ skillId: edge.prerequisite, title: titleOf(edge.prerequisite), advice: prerequisiteAdvice });
 		}
 	}
@@ -264,9 +267,9 @@ export function projectTargetAdaptationContext(view: TargetAdaptationView): stri
 		}
 	}
 	if (view.unverifiedPrerequisites.length) {
-		lines.push("", "Prerequisites without unaided supporting evidence — check before relying on them");
+		lines.push("", "Prerequisites without unaided, auto-graded support — check before relying on them");
 		for (const prerequisite of view.unverifiedPrerequisites.slice(0, 8)) {
-			lines.push(`- ${learnerOneLine(prerequisite.title)}: ${adaptationMoveLabel(prerequisite.advice.move).toLowerCase()}`);
+			lines.push(`- ${learnerOneLine(prerequisite.title)}: ${prerequisite.advice.qualified ? "AI-evaluated support only — confirm" : adaptationMoveLabel(prerequisite.advice.move).toLowerCase()}`);
 		}
 	}
 	if (view.nextSteps.length) {

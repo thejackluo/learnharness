@@ -82,9 +82,9 @@ export function SessionTargetPanel({ chatId, refreshKey }: { chatId: string; ref
 				) : null}
 				{view.unverifiedPrerequisites.length > 0 && (
 					<div>
-						<p className="font-medium">Prerequisites without unaided supporting evidence</p>
+						<p className="font-medium">Prerequisites to confirm before relying on them</p>
 						<ul className="list-disc pl-5">
-							{view.unverifiedPrerequisites.map((item) => <li key={item.skillId}>{item.title}: {adaptationMoveLabel(item.advice.move).toLowerCase()}</li>)}
+							{view.unverifiedPrerequisites.map((item) => <li key={item.skillId}>{item.title}: {item.advice.qualified ? "AI-evaluated support only" : adaptationMoveLabel(item.advice.move).toLowerCase()}</li>)}
 						</ul>
 					</div>
 				)}

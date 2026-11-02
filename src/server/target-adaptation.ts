@@ -50,10 +50,13 @@ function gatherEvidence(mapId: string, excludeChatId: string): TargetEvidenceInp
 	};
 	const unavailableLinks = new Map<string, number>();
 	let profileAssociations: { evidenceId: string; target: LearningTargetRef }[] = [];
+	let linksUnavailable = false;
 	try {
 		const read = stores.learnerProfileStore.read();
 		if (read.state === "ok" || read.state === "absent") profileAssociations = read.profile.associations;
+		else linksUnavailable = true;
 	} catch (error) {
+		linksUnavailable = true;
 		console.error("[target] profile read failed:", error);
 	}
 	for (const association of profileAssociations) {
@@ -90,7 +93,7 @@ function gatherEvidence(mapId: string, excludeChatId: string): TargetEvidenceInp
 			if (target?.mapId === mapId) add(target.skillId, target.skillRevision, observation, "tutor");
 		}
 	}
-	return { items: [...byKey.values()], unavailableLinks, coverage: { scannedChats, totalChats: ids.length, unreadableChats } };
+	return { items: [...byKey.values()], unavailableLinks, linksUnavailable, coverage: { scannedChats, totalChats: ids.length, unreadableChats } };
 }
 
 /**

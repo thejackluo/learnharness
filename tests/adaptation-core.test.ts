@@ -161,3 +161,16 @@ test("tutor attribution requires both a session target and an explicit onTarget 
 	assert.deepEqual(byCall.get("e1")?.attributedTarget, target());
 	assert.ok(deriveChatObservations(record(messages, false)).every((o) => o.attributedTarget === undefined));
 });
+
+test("prerequisites with AI-evaluated support only stay on the confirm list; an unreadable profile is partial", () => {
+	const view = projectTargetAdaptation({
+		target: target(),
+		map: map(),
+		evidence: { ...evidence([{ skillId: "processes", item: item(obs("criterion", "met"), 1) }]), linksUnavailable: true },
+	});
+	assert.deepEqual(view.unverifiedPrerequisites.map((p) => [p.skillId, p.advice.move, p.advice.qualified]), [["processes", "advance", true]]);
+	assert.match(projectTargetAdaptationContext(view), /Processes: AI-evaluated support only — confirm/);
+	assert.equal(view.availability, "partial");
+	assert.ok(view.rationale.some((line) => /learner profile cannot be read/.test(line)));
+	assert.ok(!view.rationale.some((line) => /sessions were read/.test(line)));
+});
