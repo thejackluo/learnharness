@@ -43,13 +43,13 @@ function writeAtomic(file: string, value: unknown): void {
 }
 
 export function createOwnerStore(directory: string): OwnerStore {
-	const ownerFile = path.join(directory, OWNER_FILE);
-	const sessionsFile = path.join(directory, SESSIONS_FILE);
+	const ownerFile = path.join(/*turbopackIgnore: true*/ directory, OWNER_FILE);
+	const sessionsFile = path.join(/*turbopackIgnore: true*/ directory, SESSIONS_FILE);
 
 	return {
 		readOwner() {
 			try {
-				const raw: unknown = JSON.parse(fs.readFileSync(ownerFile, "utf8"));
+				const raw: unknown = JSON.parse(fs.readFileSync(/*turbopackIgnore: true*/ ownerFile, "utf8"));
 				if (isValidOwnerVerifier(raw)) return raw;
 				console.error("[owner] owner verifier is invalid; hosted startup must refuse");
 			} catch (error) {
@@ -65,7 +65,7 @@ export function createOwnerStore(directory: string): OwnerStore {
 		},
 		readSessions() {
 			try {
-				const raw: unknown = JSON.parse(fs.readFileSync(sessionsFile, "utf8"));
+				const raw: unknown = JSON.parse(fs.readFileSync(/*turbopackIgnore: true*/ sessionsFile, "utf8"));
 				if (!isRecord(raw) || raw.version !== 1 || !Array.isArray(raw.sessions)) {
 					console.error("[owner] sessions record is invalid; treating sessions as revoked");
 					return [];
@@ -81,7 +81,7 @@ export function createOwnerStore(directory: string): OwnerStore {
 		writeSessions(sessions) {
 			let raw: unknown;
 			try {
-				raw = JSON.parse(fs.readFileSync(sessionsFile, "utf8"));
+				raw = JSON.parse(fs.readFileSync(/*turbopackIgnore: true*/ sessionsFile, "utf8"));
 			} catch (error) {
 				if ((error as NodeJS.ErrnoException).code !== "ENOENT") raw = null;
 			}
@@ -95,8 +95,14 @@ export function createOwnerStore(directory: string): OwnerStore {
 }
 
 export const ownerStore: OwnerStore = {
-	readOwner: () => createOwnerStore(process.env.LH_OWNER_DIR ?? path.join(process.cwd(), "owner")).readOwner(),
-	writeOwner: (verifier) => createOwnerStore(process.env.LH_OWNER_DIR ?? path.join(process.cwd(), "owner")).writeOwner(verifier),
-	readSessions: () => createOwnerStore(process.env.LH_OWNER_DIR ?? path.join(process.cwd(), "owner")).readSessions(),
-	writeSessions: (sessions) => createOwnerStore(process.env.LH_OWNER_DIR ?? path.join(process.cwd(), "owner")).writeSessions(sessions),
+	readOwner: () => createOwnerStore(ownerDirectory()).readOwner(),
+	writeOwner: (verifier) => createOwnerStore(ownerDirectory()).writeOwner(verifier),
+	readSessions: () => createOwnerStore(ownerDirectory()).readSessions(),
+	writeSessions: (sessions) => createOwnerStore(ownerDirectory()).writeSessions(sessions),
 };
+
+function ownerDirectory(): string {
+	const directory = process.env.LH_OWNER_DIR;
+	if (!directory || !path.isAbsolute(directory)) throw new Error("LH_OWNER_DIR must be an absolute path.");
+	return directory;
+}

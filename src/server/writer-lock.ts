@@ -2,7 +2,6 @@ import * as fs from "node:fs";
 import * as net from "node:net";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
-import { PATHS } from "../../config.ts";
 
 const LOCK_NAME = ".lh-writer.sock";
 const LOCK_STATE = Symbol.for("lh.writerLock");
@@ -75,7 +74,7 @@ export function isWriterLockHeld(): boolean {
 	return lockState().held;
 }
 
-export async function acquireWriterLock(directory = PATHS.data): Promise<WriterLock> {
+export async function acquireWriterLock(directory: string): Promise<WriterLock> {
 	if (process.platform === "win32") throw new Error("Hosted writer locking requires Unix domain sockets.");
 	if (lockState().held) throw new Error("This LearnHarness process already holds the writer lock.");
 
