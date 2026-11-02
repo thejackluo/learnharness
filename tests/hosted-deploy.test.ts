@@ -7,6 +7,7 @@ import { test } from "node:test";
 
 const repo = path.resolve(".");
 const deploy = path.join(repo, "scripts/hosted/deploy.sh");
+const initVolume = path.join(repo, "scripts/hosted/init-volume.sh");
 
 function fixture(mode = "healthy") {
 	const root = mkdtempSync(path.join(tmpdir(), "lh-deploy-test-"));
@@ -68,6 +69,48 @@ function run(f: ReturnType<typeof fixture>, extra: Record<string, string> = {}) 
 	});
 }
 
+function volumeFixture(preexisting = false) {
+	const root = mkdtempSync(path.join(tmpdir(), "lh-volume-test-"));
+	const bin = path.join(root, "bin");
+	mkdirSync(bin, { recursive: true });
+	const dockerLog = path.join(root, "docker.log");
+	const runCount = path.join(root, "docker-run.count");
+	const docker = path.join(bin, "docker");
+	writeFileSync(docker, `#!/bin/sh
+printf '%s\\n' "$*" >> "$DOCKER_LOG"
+if [ "$1" = volume ] && [ "$2" = inspect ]; then
+  [ "$DOCKER_PREEXISTING" = 1 ]
+  exit $?
+fi
+if [ "$1" = volume ] && [ "$2" = create ]; then exit 0; fi
+if [ "$1" = volume ] && [ "$2" = rm ]; then exit 0; fi
+if [ "$1" = run ]; then
+  n=0
+  [ ! -f "$DOCKER_RUN_COUNT" ] || n=$(cat "$DOCKER_RUN_COUNT")
+  n=$((n + 1))
+  printf '%s' "$n" > "$DOCKER_RUN_COUNT"
+  [ "$n" -lt 2 ]
+  exit $?
+fi
+exit 90
+`, { mode: 0o700 });
+	chmodSync(docker, 0o700);
+	return { root, bin, dockerLog, runCount, preexisting };
+}
+
+function runInitVolume(f: ReturnType<typeof volumeFixture>, volume: string) {
+	return spawnSync("bash", [initVolume, "--volume", volume, "--image", "synthetic:hosted"], {
+		cwd: repo,
+		encoding: "utf8",
+		env: {
+			PATH: `${f.bin}:${process.env.PATH ?? ""}`,
+			DOCKER_LOG: f.dockerLog,
+			DOCKER_RUN_COUNT: f.runCount,
+			DOCKER_PREEXISTING: f.preexisting ? "1" : "0",
+		},
+	});
+}
+
 test("deploy fails closed when required deployment configuration is missing", () => {
 	const result = spawnSync("bash", [deploy], { cwd: repo, encoding: "utf8", env: { PATH: process.env.PATH ?? "", NODE_ENV: "test" } });
 	assert.notEqual(result.status, 0);
@@ -99,6 +142,39 @@ test("deploy rolls back to the prior image after a health failure", () => {
 		const commands = readFileSync(f.sshLog, "utf8");
 		assert.match(commands, /LH_IMAGE='registry\.invalid\/learnharness@sha256:bbbb/);
 		assert.match(result.stderr, /Rolling back to the previous image/);
+	} finally {
+		rmSync(f.root, { recursive: true, force: true });
+	}
+});
+
+test("init-volume removes a newly created volume when owner provisioning fails", () => {
+	const f = volumeFixture();
+	const volume = "lh-volume-provision-failure";
+	try {
+		const result = runInitVolume(f, volume);
+		assert.equal(result.error, undefined, result.error?.message);
+		assert.notEqual(result.status, 0);
+		const commands = readFileSync(f.dockerLog, "utf8").trim().split("\n");
+		assert.ok(commands.includes(`volume create ${volume}`), commands.join("\n"));
+		assert.equal(readFileSync(f.runCount, "utf8"), "2");
+		assert.ok(commands.includes(`volume rm ${volume}`), commands.join("\n"));
+	} finally {
+		rmSync(f.root, { recursive: true, force: true });
+	}
+});
+
+test("init-volume refuses a pre-existing volume without removing it", () => {
+	const f = volumeFixture(true);
+	const volume = "lh-volume-already-exists";
+	try {
+		const result = runInitVolume(f, volume);
+		assert.equal(result.error, undefined, result.error?.message);
+		assert.equal(result.status, 2);
+		assert.match(result.stderr, /Refusing to initialize an existing volume/);
+		const commands = readFileSync(f.dockerLog, "utf8").trim().split("\n");
+		assert.ok(commands.includes(`volume inspect ${volume}`), commands.join("\n"));
+		assert.equal(commands.includes(`volume create ${volume}`), false);
+		assert.equal(commands.includes(`volume rm ${volume}`), false);
 	} finally {
 		rmSync(f.root, { recursive: true, force: true });
 	}
