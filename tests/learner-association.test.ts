@@ -155,15 +155,23 @@ test("learner context reads only the newest 20 readable chats", () => {
 	for (let index = 0; index < 25; index++) chatStore.createChat(`Context source ${index}`);
 
 	const originalGetChat = chatStore.getChat;
+	const originalListChats = chatStore.listChats;
 	let getChatCalls = 0;
+	let listChatsCalls = 0;
 	chatStore.getChat = (id) => {
 		getChatCalls++;
 		return originalGetChat(id);
 	};
+	chatStore.listChats = () => {
+		listChatsCalls++;
+		return originalListChats();
+	};
 	try {
 		learnerContextFor("current-session");
 		assert.equal(getChatCalls, 20);
+		assert.equal(listChatsCalls, 0);
 	} finally {
 		chatStore.getChat = originalGetChat;
+		chatStore.listChats = originalListChats;
 	}
 });

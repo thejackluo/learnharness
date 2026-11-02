@@ -82,6 +82,7 @@ describe("turn settlement recovery", () => {
 	it("does not contain a canonical write failure as an empty successful persist", () => {
 		const store = {
 			getChat: () => ({ messages: [] }),
+			listChatIdsByRecency: () => [],
 			saveMessages() { throw new Error("synthetic disk failure"); },
 		} as unknown as ChatStore;
 		const message = { role: "assistant", content: [{ type: "text", text: "Synthetic reply" }], stopReason: "stop", timestamp: 1 } as AgentMessage;

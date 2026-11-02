@@ -55,6 +55,7 @@ function fakeStores(
 	const chatStore: ChatStore = {
 		listChats: () =>
 			(over.chats ?? []).map((c) => ({ ...c, messageCount: 0 }) as unknown as ChatSummary),
+		listChatIdsByRecency: () => (over.chats ?? []).map((c) => c.id),
 		getChat: (id: string) =>
 			((over.chats ?? []).find((c) => c.id === id) as unknown as ChatSummary) ?? undefined,
 	} as unknown as ChatStore;

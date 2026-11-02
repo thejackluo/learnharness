@@ -41,6 +41,8 @@ export interface ChatStore {
 	getChat(id: string): ChatRecord | null;
 	/** All sessions, newest activity first (the sidebar's list view). */
 	listChats(): ChatSummary[];
+	/** chat ids ordered by file mtime, newest first; does not read records */
+	listChatIdsByRecency(): string[];
 	/** Every chat filename in ascending id order, including unreadable records. */
 	listChatIds(): string[];
 	/** Persist the full native message list (the record IS the agent

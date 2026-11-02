@@ -57,7 +57,7 @@ test("hosted registration and direct boundaries deny before filesystem, network,
 			let engineCalls = 0;
 			const deliveries: string[] = [];
 			const runner = createJobRunner({
-				chatStore: {} as ChatStore,
+				chatStore: { listChatIdsByRecency: () => [] } as unknown as ChatStore,
 				jobStore: {
 					getJob: () => job,
 					updateJob: (_id: string, patch: JobPatch) => { updates.push(patch); return job; },

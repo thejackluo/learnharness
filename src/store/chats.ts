@@ -131,6 +131,21 @@ function listChatIds(): string[] {
 	}
 }
 
+function listChatIdsByRecency(): string[] {
+	try {
+		return fs.readdirSync(PATHS.chats)
+			.filter((file) => file.endsWith(".json"))
+			.map((file) => ({
+				id: file.slice(0, -5),
+				mtimeMs: fs.statSync(path.join(PATHS.chats, file)).mtimeMs,
+			}))
+			.sort((a, b) => b.mtimeMs - a.mtimeMs || a.id.localeCompare(b.id))
+			.map(({ id }) => id);
+	} catch {
+		return [];
+	}
+}
+
 /** Persist the full native message list (the record IS the agent state —
  *  Wave B: replay is state.messages = record.messages). SILENT by the
  *  events law — see the SILENCE LAW comment at createChat. */
@@ -220,6 +235,7 @@ export const chatStore: ChatStore = {
 	createChat,
 	getChat,
 	listChats,
+	listChatIdsByRecency,
 	listChatIds,
 	saveMessages,
 	saveTree,

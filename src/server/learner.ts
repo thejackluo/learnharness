@@ -272,9 +272,9 @@ export function learnerContextFor(excludeChatId: string): string | null {
 		const profileRead = stores.learnerProfileStore.read();
 		const profile = readableProfile(profileRead);
 		const contextSources: { record: ChatRecord; observations: LearnerObservation[] }[] = [];
-		for (const chat of stores.chatStore.listChats()) {
-			if (chat.id === excludeChatId) continue;
-			const record = stores.chatStore.getChat(chat.id);
+		for (const chatId of stores.chatStore.listChatIdsByRecency()) {
+			if (chatId === excludeChatId) continue;
+			const record = stores.chatStore.getChat(chatId);
 			if (!record) continue;
 			const derived = safeDeriveChatObservations(record);
 			if (!derived) continue;
