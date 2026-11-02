@@ -28,7 +28,7 @@ export async function validateHostedImportFiles(files: readonly File[]): Promise
 			file.name === ".." ||
 			file.name.startsWith(".") ||
 			/[\/\\\u0000-\u001f\u007f]/.test(file.name) ||
-			!/\.(?:md|txt)$/i.test(file.name)
+			!/\.(?:md|markdown|txt)$/i.test(file.name)
 		) return invalid("Invalid filename or file type.");
 		const bytes = new Uint8Array(await file.arrayBuffer());
 		if (bytes.includes(0)) return invalid("Files must be UTF-8 text.");

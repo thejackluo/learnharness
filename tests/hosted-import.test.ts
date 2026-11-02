@@ -5,12 +5,14 @@ import { readHostedImportRequest, validateHostedImportFiles } from "../src/serve
 test("hosted note imports accept bounded UTF-8 markdown and text files", async () => {
 	const result = await validateHostedImportFiles([
 		new File(["# Lesson notes\nhello"], "notes.MD"),
+		new File(["## Markdown extension"], "notes.markdown"),
 		new File(["plain text"], "notes.txt"),
 	]);
 	assert.deepEqual(result, {
 		ok: true,
 		files: [
 			{ name: "notes.MD", text: "# Lesson notes\nhello" },
+			{ name: "notes.markdown", text: "## Markdown extension" },
 			{ name: "notes.txt", text: "plain text" },
 		],
 	});
