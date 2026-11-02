@@ -267,3 +267,65 @@ test("appended evidence pages stay ordered and deduplicated", async () => {
 		globalThis.fetch = originalFetch;
 	}
 });
+
+test("import drafts can be removed and the import cancelled without any write", async () => {
+	const requests: string[] = [];
+	globalThis.fetch = async (input, init) => {
+		const url = String(input);
+		requests.push(`${init?.method ?? "GET"} ${url}`);
+		if (url === "/api/learner/profile") return Response.json({ state: "absent", profile: emptyLearnerProfile("2026-03-01T00:00:00.000Z") });
+		if (url.startsWith("/api/learner/evidence")) {
+			return Response.json({
+				availability: "complete",
+				observations: [],
+				nextCursor: null,
+				coverage: { scannedChats: 0, totalChats: 0, unreadableChats: 0 },
+			});
+		}
+		if (url === "/api/learner/import/preview") {
+			return Response.json({
+				drafts: [
+					{ sourceName: "first.md", text: "First draft", bytes: 11 },
+					{ sourceName: "second.txt", text: "Second draft", bytes: 12 },
+				],
+			});
+		}
+		throw new Error(`Unexpected learner request: ${url}`);
+	};
+
+	let root: Root | undefined;
+	const host = document.createElement("div");
+	document.body.appendChild(host);
+	try {
+		root = createRoot(host);
+		await act(async () => { root!.render(createElement(LearnerSection)); });
+		const fileInput = host.querySelector<HTMLInputElement>("#learner-import-files")!;
+		assert.match(fileInput.getAttribute("accept") ?? "", /\.markdown/);
+		Object.defineProperty(fileInput, "files", {
+			configurable: true,
+			value: [new File(["first"], "first.md"), new File(["second"], "second.txt")],
+		});
+		await act(async () => { fileInput.dispatchEvent(new window.Event("change", { bubbles: true })); });
+		const buttons = (label: string) => [...host.querySelectorAll<HTMLButtonElement>("button")]
+			.filter((element) => element.textContent?.trim() === label);
+		await act(async () => { buttons("Preview selected files")[0]!.click(); });
+		assert.equal(buttons("Remove draft").length, 2);
+
+		await act(async () => { buttons("Remove draft")[0]!.click(); });
+		const remaining = host.querySelector<HTMLTextAreaElement>("#learner-import-draft-0");
+		assert.equal(remaining?.value, "Second draft");
+		assert.equal(host.querySelector("#learner-import-draft-1"), null);
+
+		await act(async () => { buttons("Cancel import")[0]!.click(); });
+		assert.equal(host.querySelector("#learner-import-draft-0"), null);
+		assert.equal(buttons("Confirm reviewed excerpts").length, 0);
+		assert.equal(buttons("Cancel import").length, 0);
+		const freshInput = host.querySelector<HTMLInputElement>("#learner-import-files")!;
+		assert.notEqual(freshInput, fileInput);
+		assert.ok(requests.every((request) => !request.includes("/api/learner/import/confirm") && !request.startsWith("PUT ")));
+	} finally {
+		await act(async () => { root?.unmount(); });
+		host.remove();
+		globalThis.fetch = originalFetch;
+	}
+});

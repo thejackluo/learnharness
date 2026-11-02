@@ -66,8 +66,10 @@ export async function PUT(request: Request) {
 						item.familiarity === existing.familiarity &&
 						item.note === existing.note;
 					return {
-						...item,
 						id: existing?.id ?? crypto.randomUUID(),
+						topic: item.topic,
+						familiarity: item.familiarity,
+						...(item.note !== undefined ? { note: item.note } : {}),
 						updatedAt: unchanged ? existing.updatedAt : now,
 					};
 				})

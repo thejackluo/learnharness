@@ -13,7 +13,7 @@ import {
 
 type EditableTopic = Omit<LearnerTopicClaim, "id" | "note" | "updatedAt"> & { id?: string; note: string };
 type EditableExcerpt = LearnerProfileExcerpt;
-type ImportDraft = { sourceName: string; text: string; bytes: number };
+type ImportDraft = { sourceName: string; text: string; bytes: number; key?: string };
 type Coverage = { scannedChats: number; totalChats: number; unreadableChats: number };
 
 interface LearnerSectionBodyProps {
@@ -22,6 +22,8 @@ interface LearnerSectionBodyProps {
 	topics?: EditableTopic[];
 	excerpts?: EditableExcerpt[];
 	drafts?: ImportDraft[];
+	hasSelectedFiles?: boolean;
+	importInputKey?: number;
 	observations?: LearnerObservation[];
 	coverage?: Coverage;
 	availability?: "complete" | "partial";
@@ -46,6 +48,8 @@ interface LearnerSectionBodyProps {
 	onFilesChange?: (files: FileList | null) => void;
 	onPreview?: () => void;
 	onDraftChange?: (index: number, text: string) => void;
+	onDraftRemove?: (index: number) => void;
+	onImportCancel?: () => void;
 	onConfirm?: () => void;
 	onSave?: () => void;
 	onReload?: () => void;
@@ -101,6 +105,8 @@ export function LearnerSectionBody({
 	topics = [],
 	excerpts = [],
 	drafts = [],
+	hasSelectedFiles = false,
+	importInputKey = 0,
 	observations = [],
 	coverage = NO_COVERAGE,
 	availability = "complete",
@@ -125,6 +131,8 @@ export function LearnerSectionBody({
 	onFilesChange = NOOP,
 	onPreview = NOOP,
 	onDraftChange = NOOP,
+	onDraftRemove = NOOP,
+	onImportCancel = NOOP,
 	onConfirm = NOOP,
 	onSave = NOOP,
 	onReload = NOOP,
@@ -274,9 +282,10 @@ export function LearnerSectionBody({
 					<div className="flex flex-col gap-2 rounded-sm border border-border/60 p-3">
 						<label htmlFor="learner-import-files" className="text-xs text-muted-foreground">Review text or Markdown files before saving</label>
 						<input
+							key={importInputKey}
 							id="learner-import-files"
 							type="file"
-							accept=".txt,.md,text/plain,text/markdown"
+							accept=".txt,.md,.markdown,text/plain,text/markdown"
 							multiple
 							onChange={(event) => onFilesChange(event.currentTarget.files)}
 							className="text-xs file:mr-3 file:rounded-sm file:border file:border-border file:bg-background file:px-2 file:py-1"
@@ -285,8 +294,13 @@ export function LearnerSectionBody({
 							{previewing ? "Preparing preview…" : "Preview selected files"}
 						</button>
 						{drafts.map((draft, index) => (
-							<div key={`${draft.sourceName}-${index}`} className="flex flex-col gap-2 border-t border-border/60 pt-3">
-								<label htmlFor={`learner-import-draft-${index}`} className="text-xs text-muted-foreground">{draft.sourceName} · {utf8Bytes(draft.text)} bytes</label>
+							<div key={draft.key ?? `${draft.sourceName}-${index}`} className="flex flex-col gap-2 border-t border-border/60 pt-3">
+								<div className="flex items-center justify-between gap-3">
+									<label htmlFor={`learner-import-draft-${index}`} className="min-w-0 truncate text-xs text-muted-foreground">{draft.sourceName} · {utf8Bytes(draft.text)} bytes</label>
+									<button type="button" onClick={() => onDraftRemove(index)} className="shrink-0 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
+										Remove draft
+									</button>
+								</div>
 								<textarea
 									id={`learner-import-draft-${index}`}
 									value={draft.text}
@@ -296,10 +310,17 @@ export function LearnerSectionBody({
 								/>
 							</div>
 						))}
-						{drafts.length > 0 && (
-							<button type="button" onClick={onConfirm} disabled={confirming || !editable} className="self-start rounded-sm border border-border px-2.5 py-1.5 text-xs hover:bg-accent disabled:opacity-50">
-								{confirming ? "Saving excerpts…" : "Confirm reviewed excerpts"}
-							</button>
+						{(drafts.length > 0 || hasSelectedFiles) && (
+							<div className="flex flex-wrap gap-2">
+								{drafts.length > 0 && (
+									<button type="button" onClick={onConfirm} disabled={confirming || !editable} className="rounded-sm border border-border px-2.5 py-1.5 text-xs hover:bg-accent disabled:opacity-50">
+										{confirming ? "Saving excerpts…" : "Confirm reviewed excerpts"}
+									</button>
+								)}
+								<button type="button" onClick={onImportCancel} disabled={confirming} className="rounded-sm border border-border px-2.5 py-1.5 text-xs hover:bg-accent disabled:opacity-50">
+									Cancel import
+								</button>
+							</div>
 						)}
 					</div>
 					<p className="text-right text-xs text-muted-foreground">{excerptBytes.toLocaleString()} / {LEARNER_LIMITS.excerptBytes.toLocaleString()} UTF-8 bytes</p>
@@ -381,6 +402,7 @@ export function LearnerSection() {
 	const [excerpts, setExcerpts] = useState<EditableExcerpt[]>([]);
 	const [drafts, setDrafts] = useState<ImportDraft[]>([]);
 	const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+	const [importInputKey, setImportInputKey] = useState(0);
 	const [observations, setObservations] = useState<LearnerObservation[]>([]);
 	const [coverage, setCoverage] = useState<Coverage>(NO_COVERAGE);
 	const [availability, setAvailability] = useState<"complete" | "partial">("partial");
@@ -524,12 +546,19 @@ export function LearnerSection() {
 			const response = await fetch("/api/learner/import/preview", { method: "POST", body: form });
 			const body = await response.json() as { drafts?: ImportDraft[]; error?: string };
 			if (!response.ok || !body.drafts) throw new Error(body.error ?? `Import preview failed (${response.status}).`);
-			setDrafts(body.drafts);
+			const batch = importInputKey;
+			setDrafts(body.drafts.map((draft, index) => ({ ...draft, key: `${batch}-${index}` })));
 		} catch (previewError) {
 			setError(previewError instanceof Error ? previewError.message : "Unable to preview selected files.");
 		} finally {
 			setPreviewing(false);
 		}
+	}
+
+	function clearImport() {
+		setDrafts([]);
+		setSelectedFiles([]);
+		setImportInputKey((key) => key + 1);
 	}
 
 	async function confirmDrafts() {
@@ -563,8 +592,7 @@ export function LearnerSection() {
 			}
 			if (!response.ok || !body.profile) throw new Error(body.error ?? `Import confirmation failed (${response.status}).`);
 			applyConfirmedExcerpts(body.profile, knownExcerptIds);
-			setDrafts([]);
-			setSelectedFiles([]);
+			clearImport();
 		} catch (confirmError) {
 			setError(confirmError instanceof Error ? confirmError.message : "Unable to confirm learner import.");
 		} finally {
@@ -579,6 +607,8 @@ export function LearnerSection() {
 			topics={topics}
 			excerpts={excerpts}
 			drafts={drafts}
+			hasSelectedFiles={selectedFiles.length > 0}
+			importInputKey={importInputKey}
 			observations={observations}
 			coverage={coverage}
 			availability={availability}
@@ -606,6 +636,8 @@ export function LearnerSection() {
 			}}
 			onPreview={() => void previewFiles()}
 			onDraftChange={(index, text) => setDrafts((previous) => previous.map((draft, i) => i === index ? { ...draft, text, bytes: utf8Bytes(text) } : draft))}
+			onDraftRemove={(index) => setDrafts((previous) => previous.filter((_, i) => i !== index))}
+			onImportCancel={clearImport}
 			onConfirm={() => void confirmDrafts()}
 			onSave={() => void saveProfile()}
 			onReload={() => void reloadProfile()}

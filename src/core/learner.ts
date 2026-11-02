@@ -268,6 +268,18 @@ function capText(value: string, chars: number): string {
 	return cleaned.slice(0, chars);
 }
 
+function oneLine(value: string): string {
+	return cleanText(value).replace(/\s+/g, " ").trim();
+}
+
+/** Learner-written text is quoted line by line so it cannot pose as a heading or an observation. */
+function quoted(value: string, chars: number): string {
+	return capText(value.replace(/\r\n?|[\u2028\u2029]/g, "\n"), chars)
+		.split("\n")
+		.map((line) => `> ${line}`)
+		.join("\n");
+}
+
 function day(value: string): string {
 	return value.slice(0, 10);
 }
@@ -287,7 +299,7 @@ function observationLine(observation: LearnerObservation): string {
 			? "criterion · unassessed"
 			: `criterion · ${observation.award}/${observation.maxPoints}`
 		: `${observation.kind} · ${observation.outcome}`;
-	return `- ${day(observation.observedAt)} · ${cleanText(observation.chatTitle)} · ${result} · ${provenanceLabel(observation.provenance)}`;
+	return `- ${day(observation.observedAt)} · ${oneLine(observation.chatTitle)} · ${result} · ${provenanceLabel(observation.provenance)}`;
 }
 
 export function projectLearnerContext(
@@ -297,23 +309,22 @@ export function projectLearnerContext(
 ): string | null {
 	const lines = [PROJECTION_HEADER];
 	if (profile?.background.trim()) {
-		lines.push("", "Background", capText(profile.background, 1500));
+		lines.push("", "Background", quoted(profile.background, 1500));
 	}
 	if (profile?.coursework.trim()) {
-		lines.push("", "Coursework", capText(profile.coursework, 1500));
+		lines.push("", "Coursework", quoted(profile.coursework, 1500));
 	}
 	if (profile?.topics.length) {
 		const topics = profile.topics.slice(0, 40);
 		lines.push("", "Self-reported familiarity");
 		for (const topic of topics) {
-			lines.push(`- ${cleanText(topic.topic)}: ${topic.familiarity} (self-report, ${day(topic.updatedAt)})`);
+			lines.push(`- ${oneLine(topic.topic)}: ${topic.familiarity} (self-report, ${day(topic.updatedAt)})`);
 		}
 	}
 	if (profile?.excerpts.length) {
 		lines.push("", "Confirmed excerpts");
 		for (const excerpt of profile.excerpts.slice(0, 6)) {
-			const text = capText(excerpt.text, 300).replace(/\n/g, "\n> ");
-			lines.push(`- ${cleanText(excerpt.sourceName)}`, `> ${text}`);
+			lines.push(`- ${oneLine(excerpt.sourceName)}`, quoted(excerpt.text, 300));
 		}
 	}
 	if (observations.length) {

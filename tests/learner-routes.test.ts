@@ -161,6 +161,29 @@ test("profile GET/PUT handles empty, valid, invalid, oversized, malformed and st
 	await json(oversized);
 });
 
+test("profile PUT persists only known topic fields", async () => {
+	const current = stores.learnerProfileStore.read();
+	assert.ok(current.state === "absent" || current.state === "ok");
+	const response = await profileRoute.PUT(jsonRequest("PUT", {
+		expectedRevision: current.profile.revision,
+		background: current.profile.background,
+		coursework: current.profile.coursework,
+		topics: [{
+			topic: "Geometry",
+			familiarity: "seen",
+			smuggled: "SMUGGLED_TOPIC_FIELD".repeat(1000),
+			updatedAt: "1999-01-01T00:00:00.000Z",
+		}],
+		excerpts: current.profile.excerpts.map(({ id, text }) => ({ id, text })),
+	}));
+	assert.equal(response.status, 200);
+	const saved = await json(response);
+	assert.deepEqual(Object.keys(saved.profile.topics[0]).sort(), ["familiarity", "id", "topic", "updatedAt"]);
+	assert.notEqual(saved.profile.topics[0].updatedAt, "1999-01-01T00:00:00.000Z");
+	const stored = fs.readFileSync(path.join(TMP_DATA, "learner", "profile.json"), "utf8");
+	assert.ok(!stored.includes("SMUGGLED_TOPIC_FIELD"));
+});
+
 test("confirm appends reviewed excerpts verbatim, validates names and limits, and checks revisions", async () => {
 	const initial = await stores.learnerProfileStore.read();
 	assert.equal(initial.state, "ok");
