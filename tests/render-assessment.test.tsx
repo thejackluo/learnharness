@@ -65,6 +65,18 @@ test("fractional maxima and incomplete feedback render without floating-point ar
 	}
 });
 
+test("hundredth coverage stays visible while odd legacy maxima still render", () => {
+	const bounded = structuredClone(parts);
+	bounded[0]!.criteria[0]!.maxPoints = 100;
+	bounded[1]!.criteria[0]!.maxPoints = 0.01;
+	const boundedSpec = assessmentSpecOf({ parts: bounded })!;
+	const scored = scoreEvaluation(boundedSpec, [{ ...awards[0]!, award: 100 }, { ...awards[1]!, award: null }]);
+	const feedback = renderToStaticMarkup(<AssessmentFeedback evaluation={{ ...evaluation, spec: boundedSpec, ...scored }} />);
+	assert.match(feedback, /100\/100 assessed, 0.01 pts unassessed/);
+	bounded[1]!.criteria[0]!.maxPoints = 0.0000000001;
+	assert.doesNotThrow(() => renderToStaticMarkup(<QuestionDock toolName="recall" toolCallId="legacy-odd" input={{ ...input, parts: bounded }} expanded onExpand={() => {}} onSubmit={() => {}} />));
+});
+
 test("practice prompt keeps hidden solution and evidence private; legacy answers gain no badges or rubric", () => {
 	const problem = { statement: "Visible problem", modelSolution: "SECRET SOLUTION", parts };
 	const markup = renderToStaticMarkup(<ProblemCard part={{ type: "tool-problem", toolCallId: "source", state: "output-available", input: problem, output: null }} />);

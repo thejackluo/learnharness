@@ -9,13 +9,18 @@ export const assessmentPartsSchema = Type.Array(Type.Object({
 	id,
 	label: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
 	prompt: text,
-	criteria: Type.Array(Type.Object({ id, description: text, maxPoints: Type.Number({ exclusiveMinimum: 0, maximum: 100 }), expectedEvidence: text }), { minItems: 1, maxItems: 8 }),
+	criteria: Type.Array(Type.Object({ id, description: text, maxPoints: Type.Number({ exclusiveMinimum: 0, maximum: 100, description: "Points in increments of 0.01 (at most two decimal places)." }), expectedEvidence: text }), { minItems: 1, maxItems: 8 }),
 }), { minItems: 1, maxItems: 8 });
 
 export const assessmentDisplayPartsSchema = Type.Array(Type.Object({
 	id: Type.String(), label: Type.Optional(Type.String()), prompt: Type.String(),
 	criteria: Type.Array(Type.Object({ id: Type.String(), description: Type.String(), maxPoints: Type.Number({ exclusiveMinimum: 0 }), expectedEvidence: Type.String() }), { minItems: 1 }),
 }), { minItems: 1 });
+
+function hasHundredthPrecision(points: number): boolean {
+	const hundredths = Math.round(points * 100);
+	return Number.isFinite(points) && (points === 0 || hundredths !== 0) && Math.abs(points * 100 - hundredths) < 1e-9;
+}
 
 export function assessmentSpecProblems(parts: unknown): string[] {
 	if (parts === undefined) return [];
@@ -30,7 +35,8 @@ export function assessmentSpecProblems(parts: unknown): string[] {
 		for (const c of part.criteria) {
 			if (criterionIds.has(c.id)) problems.push(`duplicate criterion ${c.id}`);
 			criterionIds.add(c.id);
-			if (!Number.isFinite(c.maxPoints) || !c.description.trim() || !c.expectedEvidence.trim()) problems.push(`invalid criterion ${c.id}`);
+			if (!hasHundredthPrecision(c.maxPoints)) problems.push(`criterion ${c.id} maxPoints must use increments of 0.01`);
+			if (!c.description.trim() || !c.expectedEvidence.trim()) problems.push(`invalid criterion ${c.id}`);
 		}
 	}
 	if (criterionIds.size > 32) problems.push("at most 32 criteria are allowed");
@@ -63,14 +69,14 @@ export function evaluationProblems(spec: AssessmentSpecV1, awards: readonly Crit
 		const c = criteria.find(c => c.id === a.criterionId);
 		if (!c || seen.has(a.criterionId)) problems.push("unknown or duplicate criterion");
 		seen.add(a.criterionId);
-		if (a.award !== null && (typeof a.award !== "number" || !Number.isFinite(a.award) || a.award < 0 || (c && a.award > c.maxPoints))) problems.push("award outside committed bounds");
+		if (a.award !== null && (typeof a.award !== "number" || !hasHundredthPrecision(a.award) || a.award < 0 || (c && a.award > c.maxPoints))) problems.push("award must be within committed bounds in increments of 0.01");
 		if (typeof a.feedback !== "string" || !a.feedback.trim() || a.feedback.length > 4000) problems.push("feedback is required and bounded");
 	}
 	return problems;
 }
 
 export function sumAssessmentPoints(points: readonly number[]): number {
-	return Number(points.reduce((sum, points) => sum + points, 0).toPrecision(12));
+	return points.reduce((sum, points) => sum + Math.round(points * 100), 0) / 100;
 }
 
 export function scoreEvaluation(spec: AssessmentSpecV1, awards: readonly CriterionAward[]) {

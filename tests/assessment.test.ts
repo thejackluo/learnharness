@@ -84,6 +84,32 @@ test("fractional criterion sums have stable totals and assessed coverage", () =>
 	assert.deepEqual(scoreEvaluation(fractional, [criteria[0]!, { ...criteria[1]!, award: null }]).totals, { awarded: 0.1, assessedMax: 0.1, max: 0.3, assessedCount: 1, criterionCount: 2, complete: false });
 });
 
+test("strict points use hundredths without dropping a small committed criterion", () => {
+	const bounded = structuredClone(parts);
+	bounded[0]!.criteria[0]!.maxPoints = 100;
+	bounded[1]!.criteria[0]!.maxPoints = 0.0000000001;
+	assert.ok(assessmentSpecProblems(bounded).length, "tiny maxima must not pass authoring");
+	assert.ok(assessmentSpecOf({ parts: bounded }), "legacy display parsing stays lenient");
+	bounded[1]!.criteria[0]!.maxPoints = 0.01;
+	assert.deepEqual(assessmentSpecProblems(bounded), []);
+	const hundredths = assessmentSpecOf({ parts: bounded })!;
+	const complete = scoreEvaluation(hundredths, [{ ...awards[0]!, award: 100 }, { ...awards[1]!, award: 0.01 }]);
+	assert.equal(complete.totals.awarded, 100.01);
+	assert.equal(complete.totals.assessedMax, 100.01);
+	assert.equal(complete.totals.max, 100.01);
+	assert.equal(complete.totals.complete, true);
+	const incomplete = scoreEvaluation(hundredths, [{ ...awards[0]!, award: 100 }, { ...awards[1]!, award: null }]);
+	assert.equal(incomplete.totals.assessedMax, 100);
+	assert.equal(incomplete.totals.max, 100.01);
+	assert.equal(incomplete.totals.complete, false);
+	for (const points of [0.001, 0.0000000001, 1e-15]) {
+		bounded[1]!.criteria[0]!.maxPoints = points;
+		assert.ok(assessmentSpecProblems(bounded).length);
+		assert.ok(evaluationProblems(spec, [{ ...awards[0]!, award: points }, awards[1]!]).length);
+	}
+	assert.deepEqual(evaluationProblems(spec, [{ ...awards[0]!, award: 0.29 }, awards[1]!]), []);
+});
+
 test("canonical answers ignore forged verdicts, labels, commitments and timestamps; reject invalid and repeated input", () => {
 	const input = { question: "Choose A", options: [{ label: "A", value: "a" }, { label: "B", value: "b" }], correctAnswer: "a", explanation: "A is right" };
 	const source = call("probe", input);

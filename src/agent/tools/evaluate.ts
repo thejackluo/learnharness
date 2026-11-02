@@ -8,7 +8,7 @@ import { invalidInputResult } from "../tool-execute.ts";
 export const evaluateInputSchema = Type.Object({
 	sourceCallId: Type.String({ minLength: 1 }),
 	responseId: Type.String({ minLength: 1 }),
-	criteria: Type.Array(Type.Object({ criterionId: Type.String(), award: Type.Union([Type.Number(), Type.Null()]), feedback: Type.String({ minLength: 1, maxLength: 4000 }) }), { minItems: 1, maxItems: 32 }),
+	criteria: Type.Array(Type.Object({ criterionId: Type.String(), award: Type.Union([Type.Number({ description: "Points in increments of 0.01 (at most two decimal places)." }), Type.Null()]), feedback: Type.String({ minLength: 1, maxLength: 4000 }) }), { minItems: 1, maxItems: 32 }),
 	summary: Type.Optional(Type.String({ maxLength: 4000 })),
 });
 
