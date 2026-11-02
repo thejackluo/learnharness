@@ -41,12 +41,10 @@ export function activityTool(posted: PostedActivities): AgentTool<typeof activit
 /** Pose-time check of an explanation's stimulus: the exact activity call,
  *  this chat, successful — posted this turn or persisted earlier. */
 export function stimulusPoseProblem(ctx: ActivityContext, posted: PostedActivities, ref: TeachingStimulusRef | undefined): string | undefined {
-	if (!ref) return undefined;
-	const messages = ctx.chatStore.getChat(ctx.chatId)?.messages ?? [];
-	if (posted.has(ref.toolCallId)) {
-		const reused = messages.some((m) => m.role === "assistant" && Array.isArray(m.content) && m.content.some((p: { type?: string; id?: string }) => p?.type === "toolCall" && p.id === ref.toolCallId));
-		return reused ? `stimulus: call id ${ref.toolCallId} is used more than once in this session` : undefined;
-	}
-	const resolved = resolveTeachingStimulus(messages, ref);
+	// A this-turn activity wins: its raw provider id may repeat an older one,
+	// and settlement rewrites this reference to the activity's minted id
+	// (server/pi/call-ids.ts).
+	if (!ref || posted.has(ref.toolCallId)) return undefined;
+	const resolved = resolveTeachingStimulus(ctx.chatStore.getChat(ctx.chatId)?.messages ?? [], ref);
 	return resolved.ok ? undefined : `stimulus: ${resolved.problem}`;
 }

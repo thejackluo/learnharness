@@ -123,8 +123,10 @@ test("explain stimulus must name a successful activity in this chat (or posted t
 	assert.match(stimulusPoseProblem(other, posted, ref)!, /no activity call/);
 	posted.set("act-1", normalizeActivity(activityInput));
 	assert.equal(stimulusPoseProblem(store([]), posted, ref), undefined);
-	// A provider that reuses a call id: never pick one of the two.
-	assert.match(stimulusPoseProblem(store(activityMessages()), posted, ref)!, /used more than once/);
+	// A this-turn activity wins over a persisted call with the same raw id
+	// (settlement rewrites the reference to its minted id).
+	assert.equal(stimulusPoseProblem(store(activityMessages()), posted, ref), undefined);
+	// A legacy record that reuses a call id: never pick one of the two.
 	assert.match(stimulusPoseProblem(store([...activityMessages(), ...activityMessages()]), new Map(), ref)!, /used more than once/);
 	assert.match(resolveTeachingStimulus([...activityMessages(), call("explain", {}, "act-1")] as never, ref).ok ? "ok" : "ambiguous", /ambiguous/);
 	// Through the real teach explain: the pose is rejected without a source.
