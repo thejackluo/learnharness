@@ -33,6 +33,7 @@ import {
 	type QuestionFormDraft,
 	type QuestionData,
 	type QuizToolInput,
+	type ActivityGuide,
 	type SelectMode,
 	type Phase3,
 } from "@/src/core";
@@ -96,6 +97,7 @@ export interface QuestionDockProps {
 	 *  and say so in the hint row. The server registry is the real gate;
 	 *  this is the affordance. */
 	compactionRunning?: boolean;
+	stimulusGuide?: ActivityGuide;
 }
 
 export function QuestionDock({
@@ -112,6 +114,7 @@ export function QuestionDock({
 	phase = "probe",
 	dictationClaim = true,
 	compactionRunning = false,
+	stimulusGuide,
 }: QuestionDockProps) {
 	// The probe-phase names (owner, 2026-10-09) canonicalize onto their
 	// teach twins for every dock concern — parse dispatch, labels, kinds:
@@ -168,6 +171,7 @@ export function QuestionDock({
 					onEscape={onEscape}
 					dictationClaim={dictationClaim}
 					compactionRunning={compactionRunning}
+					stimulusGuide={stimulusGuide}
 				/>
 			</div>
 		</>
@@ -265,8 +269,10 @@ function QuestionDockForm({
 	onEscape,
 	dictationClaim = true,
 	compactionRunning = false,
+	stimulusGuide,
 }: Omit<QuestionDockProps, "expanded" | "onExpand" | "reveal">) {
 	const kind = toolQuestionKind(toolName);
+	const stimulusRef = teachingStimulusRefOf(input);
 
 	// Canonical QuestionData, built once per question. Quiz options are
 	// deterministically shuffled (seeded by toolCallId) so position never leaks
@@ -810,8 +816,8 @@ function QuestionDockForm({
 			    send. Select modes get "Your thinking" (Enter makes a newline — it
 			    is for dumping, soon dictated; the button submits); text mode
 			    keeps "Your answer" with Enter-to-submit. */}
-			{teachingStimulusRefOf(input) && (
-				<div className="px-4 pt-2"><ActivityStimulusNote toolCallId={teachingStimulusRefOf(input)!.toolCallId} /></div>
+			{stimulusRef && (
+				<div className="px-4 pt-2"><ActivityStimulusNote toolCallId={stimulusRef.toolCallId} title={stimulusGuide?.title} objective={stimulusGuide?.objective} /></div>
 			)}
 			{assessmentSpecOf(input)?.parts.map(part => (
 				<div key={part.id} className="px-4 py-2 text-sm">

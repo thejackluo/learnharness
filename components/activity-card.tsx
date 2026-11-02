@@ -134,11 +134,12 @@ export function ActivityCard({ part }: ArtifactPartProps) {
 }
 
 /** The dock/answer reference to the activity an explanation is about. */
-export function ActivityStimulusNote({ toolCallId, title }: { toolCallId: string; title?: string }) {
+export function ActivityStimulusNote({ toolCallId, title, objective }: { toolCallId: string; title?: string; objective?: string }) {
 	return (
 		<div className="text-xs text-muted-foreground" data-testid="activity-stimulus">
 			About the activity{title ? <> “{title}”</> : " above"} ·{" "}
 			<a href={`#activity-${toolCallId}`} className="underline">show activity</a>
+			{objective !== undefined && <div className="whitespace-pre-wrap">Goal: {objective}</div>}
 		</div>
 	);
 }

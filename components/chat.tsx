@@ -38,6 +38,8 @@ import {
 	isProviderKeyRefusal,
 	firstSourceTextParts,
 	messageAnchorId,
+	resolveTeachingStimulus,
+	teachingStimulusRefOf,
 	textPartMessageId,
 	kbdEventForAction as kbdEventForChat,
 	type ChatInput,
@@ -59,7 +61,7 @@ import { ThinkingCard, type PracticeThinkingData } from "@/components/practice-c
 import { GraphContextCard, type GraphContextData } from "@/components/graph-context-card";
 import { TopBar } from "@/components/top-bar";
 import { SessionTargetPanel } from "@/components/target-adaptation";
-import type { ArtifactPartProps, JobRecord, Phase3, QuestionAnswerData, QuestionFormDraft, TurnUsage, SessionPricing } from "@/src/core";
+import type { ActivityGuide, ArtifactPartProps, JobRecord, Phase3, QuestionAnswerData, QuestionFormDraft, TurnUsage, SessionPricing } from "@/src/core";
 import type { LhViewMessage } from "@/src/core";
 import { PhaseChip, PhaseDivider } from "@/components/phase-divider";
 import {
@@ -446,6 +448,12 @@ export function Chat({
 	}, []);
 
 	const pending = findPendingToolCall(messages);
+	const stimulusGuide = useMemo(() => {
+		const ref = pending ? teachingStimulusRefOf(pending.input) : undefined;
+		if (!ref || !nativeMessages.length) return undefined;
+		const result = resolveTeachingStimulus(nativeMessages, ref);
+		return result.ok ? result.snapshot.guide : undefined;
+	}, [pending?.toolCallId, pending?.input, nativeMessages]);
 	// The abort handler reads the pending question from a ref (the window
 	// listener is mount-scoped; the value it needs is render-scoped).
 	const pendingRef = useRef(pending);
@@ -1680,6 +1688,7 @@ export function Chat({
 					initialQuestionDraft={pending ? questionDraft(pending.toolCallId)?.form : undefined}
 					onSaveQuestionDraft={(form) => { if (pending) saveQuestionDraft(pending.toolCallId, { form }); }}
 					practice={activeProblem}
+					stimulusGuide={stimulusGuide}
 					compactionRunning={compacting}
 					onSubmitThinking={submitThinking}
 					chatId={chatId}
@@ -1907,6 +1916,7 @@ export function shouldStampGeometryMute(nextH: number, prevH: number, pending: b
 
 function DockOverlay({
 	pending,
+	stimulusGuide,
 	initialQuestionDraft,
 	onSaveQuestionDraft,
 	practice,
@@ -1932,6 +1942,7 @@ function DockOverlay({
 	queuedSteers,
 }: {
 	pending: ReturnType<typeof findPendingToolCall>;
+	stimulusGuide?: ActivityGuide;
 	initialQuestionDraft?: QuestionFormDraft;
 	onSaveQuestionDraft: (draft: QuestionFormDraft) => void;
 	/** Compaction running for this chat (round 14) — the docks' submit
@@ -2372,6 +2383,7 @@ function DockOverlay({
 									toolName={pending.tool as "quiz" | "probe" | "ask_user_question" | "explain" | "recall"}
 									toolCallId={pending.toolCallId}
 									input={pending.input as never}
+									stimulusGuide={stimulusGuide}
 									expanded={expanded}
 									reveal={revealPending}
 									phase={phase}

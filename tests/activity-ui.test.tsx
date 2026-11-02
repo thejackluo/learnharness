@@ -78,10 +78,16 @@ test("keyboard case switching changes the figure, table and caption", async () =
 });
 
 test("the dock and answered card reference the exact activity via the shared explanation field", () => {
-	const input = { type: "check", nodeId: "n1", question: "Explain the change", correctAnswer: "slope", parts: [{ id: "p", prompt: "Why", criteria: [{ id: "c", description: "d", maxPoints: 1, expectedEvidence: "e" }] }], stimulus: { kind: "teaching-stimulus", toolCallId: "act-1" } };
-	const dock = renderToStaticMarkup(<QuestionDock toolName="explain" toolCallId="q1" input={input as never} expanded onExpand={() => {}} onSubmit={() => {}} />);
+	const input = { type: "check", nodeId: "n1", question: "Explain the change", correctAnswer: "correct answer stays server-only", parts: [{ id: "p", prompt: "Why", criteria: [{ id: "c", description: "d", maxPoints: 1, expectedEvidence: "expected evidence stays server-only" }] }], stimulus: { kind: "teaching-stimulus", toolCallId: "act-1" } };
+	const dock = renderToStaticMarkup(<QuestionDock toolName="explain" toolCallId="q1" input={input as never} stimulusGuide={{ title: "<b>Slopes</b>", objective: "Notice <i>k</i>", instructions: "x" }} expanded onExpand={() => {}} onSubmit={() => {}} />);
 	assert.equal((dock.match(/<textarea/g) ?? []).length, 1);
 	assert.match(dock, /href="#activity-act-1"/);
+	assert.match(dock, /&lt;b&gt;Slopes&lt;\/b&gt;/);
+	assert.match(dock, /Goal: Notice &lt;i&gt;k&lt;\/i&gt;/);
+	assert.doesNotMatch(dock, /<\/?[bi](?:\s|>)/i);
+	assert.doesNotMatch(dock, /correct answer stays server-only|expected evidence stays server-only/);
+	const withoutGuide = renderToStaticMarkup(<QuestionDock toolName="explain" toolCallId="q1" input={input as never} expanded onExpand={() => {}} onSubmit={() => {}} />);
+	assert.match(withoutGuide, /About the activity above/);
 	const answer = { ...buildAnswer(questionDataOf("explain", "q1", input)!, { text: "because" }), stimulus: { kind: "teaching-stimulus" as const, messageId: "result-act-1", toolCallId: "act-1", guide: { title: "<b>T</b>", objective: "o", instructions: "i" }, provenance: "appRenderedActivity" as const } };
 	const answered = renderToStaticMarkup(<AnsweredCard answer={answer} input={input} />);
 	assert.match(answered, /&lt;b&gt;T&lt;\/b&gt;/);
