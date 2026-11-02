@@ -272,19 +272,17 @@ export function learnerContextFor(excludeChatId: string): string | null {
 		const profileRead = stores.learnerProfileStore.read();
 		const profile = readableProfile(profileRead);
 		const contextSources: { record: ChatRecord; observations: LearnerObservation[] }[] = [];
-		for (const chatId of stores.chatStore.listChatIds()) {
-			if (chatId === excludeChatId) continue;
-			const record = stores.chatStore.getChat(chatId);
+		for (const chat of stores.chatStore.listChats()) {
+			if (chat.id === excludeChatId) continue;
+			const record = stores.chatStore.getChat(chat.id);
 			if (!record) continue;
 			const derived = safeDeriveChatObservations(record);
 			if (!derived) continue;
 			contextSources.push({ record, observations: derived });
+			if (contextSources.length >= 20) break;
 		}
 		const observations: LearnerObservation[] = [];
-		const recentSources = contextSources
-			.sort((a, b) => b.record.updatedAt.localeCompare(a.record.updatedAt))
-			.slice(0, 20);
-		for (const source of recentSources) {
+		for (const source of contextSources) {
 			for (const observation of source.observations) {
 				observations.push(withTargets(observation, profile?.associations ?? []));
 			}

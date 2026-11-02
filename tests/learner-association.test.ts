@@ -150,3 +150,20 @@ test("malformed chat derivation is unreadable per source without dropping other 
 	const context = learnerContextFor("current-session");
 	assert.ok(context?.includes(`${validChat.title} · choice · correct · auto-graded`));
 });
+
+test("learner context reads only the newest 20 readable chats", () => {
+	for (let index = 0; index < 25; index++) chatStore.createChat(`Context source ${index}`);
+
+	const originalGetChat = chatStore.getChat;
+	let getChatCalls = 0;
+	chatStore.getChat = (id) => {
+		getChatCalls++;
+		return originalGetChat(id);
+	};
+	try {
+		learnerContextFor("current-session");
+		assert.equal(getChatCalls, 20);
+	} finally {
+		chatStore.getChat = originalGetChat;
+	}
+});
