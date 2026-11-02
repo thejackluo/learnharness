@@ -112,10 +112,11 @@ export function proxy(request: NextRequest): NextResponse {
 	if (method !== "GET" && method !== "HEAD" && !sameOriginWrite(request, publicOrigin)) {
 		return hostedResponse(request, jsonError(403, "Same-origin request required."));
 	}
+	const passiveMethod = method === "GET" || method === "HEAD";
 	const isPublic =
-		(method === "GET" && pathname === "/login") ||
+		(passiveMethod && pathname === "/login") ||
 		(method === "POST" && pathname === "/api/auth/login") ||
-		(method === "GET" && pathname === "/api/health");
+		(passiveMethod && pathname === "/api/health");
 	if (isPublic) return hostedResponse(request);
 
 	const token = request.cookies.get(OWNER_SESSION_COOKIE)?.value;

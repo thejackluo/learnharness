@@ -48,6 +48,14 @@ test("hosted proxy redirects anonymous pages safely and returns no-store JSON fo
 	assert.equal(api.headers.get("cache-control"), "private, no-store");
 });
 
+test("hosted public login and health routes allow HEAD without a session", () => {
+	for (const url of ["https://lh.invalid/login", "https://lh.invalid/api/health"]) {
+		const response = proxy(new NextRequest(url, { method: "HEAD" }));
+		assert.equal(response.status, 200);
+		assert.match(response.headers.get("content-security-policy") ?? "", /nonce-/);
+	}
+});
+
 test("RSC and prefetched private pages redirect with origin-locked, sanitized next values", () => {
 	const requestHeaders: Record<string, string>[] = [{ rsc: "1" }, { "next-router-prefetch": "1" }];
 	for (const headers of requestHeaders) {
