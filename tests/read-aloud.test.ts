@@ -154,3 +154,68 @@ test("browser adapter is absent without browser speech synthesis and tab hiding 
 	cancelSpeechWhenHidden("hidden", () => cancellations++);
 	assert.equal(cancellations, 1);
 });
+
+test("stopKey cancels only the playback started for that key", () => {
+	const adapter = new FakeSpeechAdapter([voice("local", "en-US", true, true)]);
+	const controller = new ReadAloudController(adapter, memoryStorage());
+	controller.read("prompt:q", "Prompt sentence.");
+	controller.stopKey("reply:other");
+	assert.equal(controller.getSnapshot().speakingKey, "prompt:q");
+	assert.equal(adapter.cancelled, 1, "only read()'s own pre-stop cancelled");
+	controller.stopKey("prompt:q");
+	assert.equal(controller.getSnapshot().speakingKey, null);
+	assert.equal(adapter.cancelled, 2);
+	controller.destroy();
+});
+
+test("browser adapter speaks only through a local native voice and settles its held utterance", () => {
+	const spoken: Array<{ text: string; voice: unknown; onend: (() => void) | null; onerror: (() => void) | null }> = [];
+	let cancels = 0;
+	const local = { voiceURI: "local", name: "Local", lang: "en-US", localService: true, default: true };
+	const remote = { voiceURI: "remote", name: "Remote", lang: "en-US", localService: false, default: false };
+	const synthesis = {
+		getVoices: () => [local, remote],
+		speak: (utterance: (typeof spoken)[number]) => { spoken.push(utterance); },
+		cancel: () => { cancels++; },
+		addEventListener: () => {},
+		removeEventListener: () => {},
+	};
+	const globals = globalThis as Record<string, unknown>;
+	const previous = { window: globals.window, SpeechSynthesisUtterance: globals.SpeechSynthesisUtterance };
+	globals.window = { speechSynthesis: synthesis };
+	globals.SpeechSynthesisUtterance = class {
+		voice: unknown = null;
+		onend: (() => void) | null = null;
+		onerror: (() => void) | null = null;
+		constructor(readonly text: string) {}
+	};
+	try {
+		const adapter = browserSpeechAdapter();
+		assert.ok(adapter);
+		assert.deepEqual(adapter.voices().map((item) => item.voiceURI), ["local", "remote"]);
+		const events: string[] = [];
+		const handlers = { onEnd: () => events.push("end"), onError: () => events.push("error") };
+
+		adapter.speak("Remote is refused.", { ...remote }, handlers);
+		assert.equal(spoken.length, 0, "a remote voice is never handed to synthesis");
+		assert.deepEqual(events, ["error"]);
+
+		adapter.speak("Local chunk.", { ...local }, handlers);
+		assert.equal(spoken.length, 1);
+		assert.equal(spoken[0]!.text, "Local chunk.");
+		assert.equal(spoken[0]!.voice, local);
+		spoken[0]!.onend?.();
+		assert.deepEqual(events, ["error", "end"]);
+
+		adapter.speak("Cancelled chunk.", { ...local }, handlers);
+		adapter.cancel();
+		assert.equal(cancels, 1);
+		spoken[1]!.onerror?.();
+		assert.deepEqual(events, ["error", "end", "error"], "the controller's generation guard owns late errors");
+	} finally {
+		globals.window = previous.window;
+		globals.SpeechSynthesisUtterance = previous.SpeechSynthesisUtterance;
+		if (previous.window === undefined) delete globals.window;
+		if (previous.SpeechSynthesisUtterance === undefined) delete globals.SpeechSynthesisUtterance;
+	}
+});

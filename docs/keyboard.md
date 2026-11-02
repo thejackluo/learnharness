@@ -33,10 +33,11 @@ second pillar of input).
   round) → stop manual read-aloud → abort turn (local stream only — a
   server-side wake turn has no client request to abort). Every
   element/document-level Esc handler that acts calls
-  `e.stopPropagation()` so the window chain never double-fires. A field
-  only claims Esc for dictation while dictation is active; otherwise it
-  falls through to the window chain. The session search claims Esc to
-  blur back to normal.
+  `e.stopPropagation()` so the window chain never double-fires. The
+  composer claims Esc only while dictation is active; otherwise it falls
+  through to the window chain. Dock answer fields always claim Esc: they
+  stop dictation, else read-aloud, and never abort the turn. The session
+  search claims Esc to blur back to normal.
 - **Focus ring**: browser Tab-focus is gone, so `:focus-visible` stays
   unstyled (an earlier experimental outline was live-rejected — inputs
   showed a red ring on plain click-focus).

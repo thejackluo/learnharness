@@ -1,10 +1,12 @@
 "use client";
 
+import { useEffect } from "react";
 import { SquareIcon, Volume2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useDictationActive } from "@/components/dictation-state";
 import {
 	cancelSpeech,
+	cancelSpeechFor,
 	readSpeech,
 	selectReadAloudVoice,
 	useReadAloud,
@@ -53,6 +55,11 @@ export function ReadAloudButton({
 }) {
 	const state = useReadAloud();
 	const dictationActive = useDictationActive();
+	const speechKey = speech?.key;
+	// Unmounting or swapping the source text stops its playback.
+	useEffect(() => () => {
+		if (speechKey) cancelSpeechFor(speechKey);
+	}, [speechKey]);
 	const speaking = !!speech && state.speakingKey === speech.key;
 	const reason = readAloudDisabledReason({ speech, dictationActive, support: state.support, disabledReason });
 	const disabled = !speech || !!disabledReason || dictationActive || state.support !== "ready";

@@ -67,6 +67,9 @@ export function browserSpeechAdapter(): SpeechAdapter | null {
 		return null;
 	}
 	const synthesis = window.speechSynthesis;
+	// Chromium drops end/error events for utterances it has garbage-collected,
+	// which would strand playback after the first chunk; hold the live one.
+	let current: SpeechSynthesisUtterance | null = null;
 	return {
 		voices: () =>
 			synthesis.getVoices().map((voice) => ({
@@ -84,11 +87,19 @@ export function browserSpeechAdapter(): SpeechAdapter | null {
 			}
 			const utterance = new SpeechSynthesisUtterance(text);
 			utterance.voice = nativeVoice;
-			utterance.onend = handlers.onEnd;
-			utterance.onerror = handlers.onError;
+			const settle = (handler: () => void) => () => {
+				if (current === utterance) current = null;
+				handler();
+			};
+			utterance.onend = settle(handlers.onEnd);
+			utterance.onerror = settle(handlers.onError);
+			current = utterance;
 			synthesis.speak(utterance);
 		},
-		cancel: () => synthesis.cancel(),
+		cancel: () => {
+			current = null;
+			synthesis.cancel();
+		},
 		onVoicesChanged: (callback) => {
 			synthesis.addEventListener("voiceschanged", callback);
 			return () => synthesis.removeEventListener("voiceschanged", callback);
@@ -239,6 +250,11 @@ export class ReadAloudController {
 		if (this.snapshot.speakingKey) this.publish({ ...this.snapshot, speakingKey: null });
 	}
 
+	/** Stop only when this key is still the one being read. */
+	stopKey(key: string): void {
+		if (this.snapshot.speakingKey === key) this.stop();
+	}
+
 	destroy(): void {
 		this.stop();
 		this.unsubscribeVoices?.();
@@ -286,6 +302,11 @@ export function selectReadAloudVoice(voiceURI: string): void {
 
 export function cancelSpeech(): void {
 	singleton?.stop();
+}
+
+/** Cancel playback started from a control that is going away. */
+export function cancelSpeechFor(key: string): void {
+	singleton?.stopKey(key);
 }
 
 export function cancelDictationOrSpeech(

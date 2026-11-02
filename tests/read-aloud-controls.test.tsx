@@ -50,3 +50,71 @@ test("Escape fallback gives active dictation precedence, then speech, then turn 
 	assert.deepEqual(events, ["lh:kbd-abort-turn"]);
 	assert.equal(prevented, 2);
 });
+
+test("unmounting or swapping a Read control stops only its own playback", async () => {
+	const { act } = await import("react");
+	const { parseHTML } = await import("linkedom");
+	const dom = parseHTML("<html><body><div id='root'></div></body></html>");
+	const events: string[] = [];
+	Object.defineProperty(dom.window, "speechSynthesis", {
+		configurable: true,
+		value: {
+			getVoices: () => [{ voiceURI: "local", name: "Local", lang: "en-US", localService: true, default: true }],
+			speak: (utterance: { text: string }) => events.push(`speak:${utterance.text}`),
+			cancel: () => events.push("cancel"),
+			addEventListener: () => {},
+			removeEventListener: () => {},
+		},
+	});
+	const globals = globalThis as Record<string, unknown>;
+	for (const [key, value] of Object.entries({
+		window: dom.window,
+		document: dom.document,
+		navigator: { language: "en-US", userAgent: "" },
+		IS_REACT_ACT_ENVIRONMENT: true,
+		SpeechSynthesisUtterance: class {
+			voice: unknown = null;
+			onend: (() => void) | null = null;
+			onerror: (() => void) | null = null;
+			constructor(readonly text: string) {}
+		},
+	})) {
+		Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+	}
+	const { createRoot } = await import("react-dom/client");
+	const { readSpeech, useReadAloud } = await import("../components/read-aloud.ts");
+	let speakingKey: string | null = null;
+	function Probe() {
+		speakingKey = useReadAloud().speakingKey;
+		return null;
+	}
+	const root = createRoot(dom.document.getElementById("root")!);
+	const render = (speech: { key: string; text: string } | null) =>
+		act(async () => {
+			root.render(<><Probe />{speech && <ReadAloudButton speech={speech} label="Read prompt" />}</>);
+		});
+
+	await render({ key: "prompt:a", text: "Prompt A." });
+	await act(async () => { readSpeech("reply:other", "Other reply."); });
+	assert.equal(speakingKey, "reply:other");
+	await render(null);
+	assert.equal(speakingKey, "reply:other", "a control does not stop speech it did not start");
+
+	await render({ key: "prompt:a", text: "Prompt A." });
+	const button = dom.document.querySelector("button")!;
+	assert.equal(button.hasAttribute("disabled"), false);
+	await act(async () => { button.dispatchEvent(new dom.window.Event("click", { bubbles: true })); });
+	assert.equal(speakingKey, "prompt:a");
+	events.length = 0;
+	await render({ key: "prompt:b", text: "Prompt B." });
+	assert.equal(speakingKey, null, "a swapped prompt stops the stale prompt's playback");
+	assert.deepEqual(events, ["cancel"]);
+
+	await act(async () => { dom.document.querySelector("button")!.dispatchEvent(new dom.window.Event("click", { bubbles: true })); });
+	assert.equal(speakingKey, "prompt:b");
+	await act(async () => { root.unmount(); });
+	assert.equal(speakingKey, "prompt:b", "the probe unmounted too; check the controller directly");
+	const { isSpeaking } = await import("../components/read-aloud.ts");
+	assert.equal(isSpeaking(), false, "unmounting the control stops its playback");
+	for (const key of ["window", "document", "navigator", "IS_REACT_ACT_ENVIRONMENT", "SpeechSynthesisUtterance"]) delete globals[key];
+});
