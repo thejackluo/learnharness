@@ -395,6 +395,15 @@ export function LearnerSection() {
 		setConflictProfile(null);
 	}
 
+	function applyConfirmedExcerpts(next: LearnerProfileV1) {
+		setProfile((current) => current
+			? { ...current, revision: next.revision, excerpts: next.excerpts }
+			: next);
+		setProfileState("ok");
+		setExcerpts(next.excerpts.map((excerpt) => ({ ...excerpt })));
+		setConflictProfile(null);
+	}
+
 	const reloadProfile = useCallback(async () => {
 		setLoading(true);
 		setError(null);
@@ -537,7 +546,7 @@ export function LearnerSection() {
 				throw new Error(body.error ?? "Profile changed in another tab.");
 			}
 			if (!response.ok || !body.profile) throw new Error(body.error ?? `Import confirmation failed (${response.status}).`);
-			applyProfile(body.profile);
+			applyConfirmedExcerpts(body.profile);
 			setDrafts([]);
 			setSelectedFiles([]);
 		} catch (confirmError) {
