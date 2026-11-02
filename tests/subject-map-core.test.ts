@@ -19,7 +19,7 @@ import {
 const NOW = "2026-11-02T00:00:00.000Z";
 
 function skill(id: string, objective = `Explain ${id}`) {
-	return { id, title: id.toUpperCase(), objective };
+	return { id, title: id.toUpperCase(), objective, revision: 1 };
 }
 
 function definition(skills: string[], edges: [string, string][], goals: string[] = []) {
