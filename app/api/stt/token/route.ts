@@ -35,6 +35,6 @@ export async function POST(request: Request): Promise<Response> {
 	if (!sameOrigin(request, hosted)) return response({ message: "Same-origin request required." }, 403);
 	const session = hosted ? requireOwnerRequest(request) : null;
 	if (hosted && !session) return response({ message: "Sign in required." }, 401);
-	const result = await sttTokenService.mint(session?.id ?? mode);
+	const result = await sttTokenService.mint(hosted ? "owner" : mode);
 	return response(result.body, result.status);
 }

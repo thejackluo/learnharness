@@ -31,7 +31,7 @@ function retryAfter(events: number[], now: number): number {
 	return Math.max(1, Math.ceil((events[0]! + WINDOW_MS - now) / 1000));
 }
 
-function rateLimitResponse(request: Request): Response | null {
+function reserveAttempt(request: Request): Response | (() => void) {
 	const now = Date.now();
 	const state = limits();
 	state.owner = state.owner.filter((time) => now - time < WINDOW_MS);
@@ -50,16 +50,15 @@ function rateLimitResponse(request: Request): Response | null {
 			headers: { "Retry-After": String(retryAfter(state.owner, now)), "Cache-Control": "no-store" },
 		});
 	}
-	return null;
-}
-
-function failedAttempt(request: Request): void {
-	const now = Date.now();
-	const state = limits();
-	const key = clientBucket(request);
-	const recentClient = (state.clients.get(key) ?? []).filter((time) => now - time < WINDOW_MS);
-	state.clients.set(key, [...recentClient, now]);
-	state.owner = [...state.owner.filter((time) => now - time < WINDOW_MS), now];
+	clientEvents.push(now);
+	state.owner.push(now);
+	return () => {
+		const currentClientEvents = state.clients.get(key);
+		const clientIndex = currentClientEvents?.indexOf(now) ?? -1;
+		if (currentClientEvents && clientIndex !== -1) currentClientEvents.splice(clientIndex, 1);
+		const ownerIndex = state.owner.indexOf(now);
+		if (ownerIndex !== -1) state.owner.splice(ownerIndex, 1);
+	};
 }
 
 async function readLimitedBody(request: Request): Promise<string | null | "too-large"> {
@@ -98,8 +97,8 @@ export async function POST(request: Request): Promise<Response> {
 	if (runtimeMode() !== "hosted") {
 		return Response.json({ error: "Not found." }, { status: 404, headers: { "Cache-Control": "no-store" } });
 	}
-	const limited = rateLimitResponse(request);
-	if (limited) return limited;
+	const reservation = reserveAttempt(request);
+	if (reservation instanceof Response) return reservation;
 	const body = await readLimitedBody(request);
 	if (body === "too-large") {
 		return Response.json({ error: "Request body too large." }, { status: 413, headers: { "Cache-Control": "no-store" } });
@@ -111,9 +110,9 @@ export async function POST(request: Request): Promise<Response> {
 		passphrase = undefined;
 	}
 	if (typeof passphrase !== "string" || !(await verifyOwnerPassphrase(passphrase))) {
-		failedAttempt(request);
 		return Response.json({ error: "Sign-in failed." }, { status: 401, headers: { "Cache-Control": "no-store" } });
 	}
+	reservation();
 	const presented = validateOwnerSession(presentedToken(request));
 	if (presented) revokeOwnerSession(presented.id);
 	const { token } = createOwnerSession();

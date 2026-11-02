@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { after, test } from "node:test";
+import { after, afterEach, beforeEach, test } from "node:test";
 
 const root = mkdtempSync(path.join(tmpdir(), "lh-login-route-"));
 mkdirSync(path.join(root, "owner"));
@@ -16,6 +16,17 @@ const [{ POST }, { makeOwnerVerifier, createOwnerSession, validateOwnerSession }
 	import("../src/server/owner-auth.ts"),
 	import("../src/store/owner.ts"),
 ]);
+
+const limiterKey = Symbol.for("lh.loginRateLimits");
+const global = globalThis as unknown as Record<PropertyKey, unknown>;
+
+beforeEach(() => {
+	delete global[limiterKey];
+});
+
+afterEach(() => {
+	delete global[limiterKey];
+});
 
 after(() => {
 	rmSync(root, { recursive: true, force: true });
@@ -60,10 +71,6 @@ test("login enforces streamed size, generic errors, secure cookie, and session r
 
 test("login rate limits a client bucket and the owner-wide bucket", async () => {
 	const previousHops = process.env.LH_TRUSTED_PROXY_HOPS;
-	const limiterKey = Symbol.for("lh.loginRateLimits");
-	const global = globalThis as unknown as Record<PropertyKey, unknown>;
-	const previousLimits = global[limiterKey];
-	delete global[limiterKey];
 	process.env.LH_TRUSTED_PROXY_HOPS = "1";
 	const attempt = (ip: string) => POST(new Request("http://localhost/api/auth/login", {
 		method: "POST",
@@ -82,7 +89,43 @@ test("login rate limits a client bucket and the owner-wide bucket", async () => 
 	} finally {
 		if (previousHops === undefined) delete process.env.LH_TRUSTED_PROXY_HOPS;
 		else process.env.LH_TRUSTED_PROXY_HOPS = previousHops;
-		if (previousLimits === undefined) delete global[limiterKey];
-		else global[limiterKey] = previousLimits;
+	}
+});
+
+test("login reserves client attempts before concurrent passphrase verification", async () => {
+	await ownerStore.writeOwner(await makeOwnerVerifier("synthetic owner passphrase"));
+	const previousHops = process.env.LH_TRUSTED_PROXY_HOPS;
+	process.env.LH_TRUSTED_PROXY_HOPS = "1";
+	try {
+		const responses = await Promise.all(Array.from({ length: 10 }, () => POST(new Request("http://localhost/api/auth/login", {
+			method: "POST",
+			headers: { "content-type": "application/json", "x-forwarded-for": "198.51.100.10" },
+			body: JSON.stringify({ passphrase: "wrong passphrase" }),
+		}))));
+		assert.equal(responses.filter((response) => response.status === 401).length, 5);
+		assert.equal(responses.filter((response) => response.status === 429).length, 5);
+	} finally {
+		if (previousHops === undefined) delete process.env.LH_TRUSTED_PROXY_HOPS;
+		else process.env.LH_TRUSTED_PROXY_HOPS = previousHops;
+	}
+});
+
+test("successful login releases its reserved attempt", async () => {
+	await ownerStore.writeOwner(await makeOwnerVerifier("synthetic owner passphrase"));
+	const previousHops = process.env.LH_TRUSTED_PROXY_HOPS;
+	process.env.LH_TRUSTED_PROXY_HOPS = "1";
+	const attempt = (passphrase: string) => POST(new Request("http://localhost/api/auth/login", {
+		method: "POST",
+		headers: { "content-type": "application/json", "x-forwarded-for": "198.51.100.11" },
+		body: JSON.stringify({ passphrase }),
+	}));
+	try {
+		for (let i = 0; i < 4; i++) assert.equal((await attempt("wrong passphrase")).status, 401);
+		assert.equal((await attempt("synthetic owner passphrase")).status, 200);
+		assert.equal((await attempt("wrong passphrase")).status, 401);
+		assert.equal((await attempt("wrong passphrase")).status, 429);
+	} finally {
+		if (previousHops === undefined) delete process.env.LH_TRUSTED_PROXY_HOPS;
+		else process.env.LH_TRUSTED_PROXY_HOPS = previousHops;
 	}
 });
