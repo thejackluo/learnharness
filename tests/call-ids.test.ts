@@ -88,6 +88,7 @@ describe("ToolCallIdUniquifier", () => {
 		const old = { id: "m0", role: "assistant", content: [{ type: "toolCall", id: "call_0", name: "explain", arguments: { stimulus } }] } as any;
 		u.event(asEvent({ type: "message_start", message: act }));
 		u.event(asEvent({ type: "message_end", message: act }));
+		u.event(asEvent({ type: "tool_execution_end", toolCallId: "call_0", toolName: "activity", result: {}, isError: false }));
 		u.event(asEvent({ type: "message_start", message: explain }));
 		const wire = (u.event(asEvent({ type: "message_end", message: explain })) as any).message.content[0];
 		assert.equal(wire.id, "call_0~3");
@@ -101,6 +102,18 @@ describe("ToolCallIdUniquifier", () => {
 		const other = { id: "m3", role: "assistant", content: [{ type: "toolCall", id: "x", name: "explain", arguments: { stimulus: { kind: "teaching-stimulus", toolCallId: "nope" } } }] } as any;
 		u.event(asEvent({ type: "message_start", message: other }));
 		assert.equal((u.event(asEvent({ type: "message_end", message: other })) as any).message, other);
+	});
+
+	it("a FAILED this-turn activity never captures a reference to the persisted one", () => {
+		const u = new ToolCallIdUniquifier(["call_0"]);
+		const act = { id: "m1", role: "assistant", content: [{ type: "toolCall", id: "call_0", name: "activity", arguments: {} }] } as any;
+		const explain = { id: "m2", role: "assistant", content: [{ type: "toolCall", id: "q", name: "explain", arguments: { stimulus: { kind: "teaching-stimulus", toolCallId: "call_0" } } }] } as any;
+		u.event(asEvent({ type: "message_start", message: act }));
+		u.event(asEvent({ type: "message_end", message: act }));
+		u.event(asEvent({ type: "tool_execution_end", toolCallId: "call_0", toolName: "activity", result: {}, isError: true }));
+		u.event(asEvent({ type: "message_start", message: explain }));
+		assert.equal((u.event(asEvent({ type: "message_end", message: explain })) as any).message, explain);
+		assert.equal((u.remapSettled([act, explain]) as any[])[1].content[0].arguments.stimulus.toolCallId, "call_0");
 	});
 
 	it("mint candidates skip ids already used (a provider that counts globally can't be ambushed)", () => {

@@ -75,8 +75,10 @@ export class ToolCallIdUniquifier {
 	 *  tool_execution events (which fire after its message_end but before
 	 *  the next message_start). */
 	private epoch: Map<string, string> | null = null;
-	/** This turn's `activity` calls: provider id → minted id (latest wins,
-	 *  matching the in-turn source the teach explain validated against). */
+	/** This turn's SUCCESSFUL `activity` executions: provider id → minted id
+	 *  (latest wins, matching the in-turn source the teach explain validated
+	 *  against). Recorded at execution end, where the name and outcome are
+	 *  final; a failed activity never captures a reference. */
 	private readonly activityMints = new Map<string, string>();
 
 	constructor(usedIds: Iterable<string>) {
@@ -127,7 +129,6 @@ export class ToolCallIdUniquifier {
 			if (mapped === undefined) {
 				mapped = this.claim(orig);
 				table!.set(orig, mapped);
-				if ((block as { name?: unknown }).name === "activity") this.activityMints.set(orig, mapped);
 			}
 			const args = this.remapStimulus((block as { arguments?: unknown }).arguments);
 			if (mapped === orig && args === (block as { arguments?: unknown }).arguments) return block;
@@ -165,8 +166,9 @@ export class ToolCallIdUniquifier {
 			case "tool_execution_start":
 			case "tool_execution_update":
 			case "tool_execution_end": {
-				const { toolCallId } = event as { toolCallId: string };
+				const { toolCallId, toolName, isError } = event as { toolCallId: string; toolName?: string; isError?: boolean };
 				const mapped = this.epoch?.get(toolCallId) ?? toolCallId;
+				if (event.type === "tool_execution_end" && toolName === "activity" && isError !== true) this.activityMints.set(toolCallId, mapped);
 				if (mapped === toolCallId) return event;
 				return { ...(event as object), toolCallId: mapped } as AgentEvent;
 			}
