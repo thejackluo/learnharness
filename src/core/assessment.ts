@@ -1,5 +1,6 @@
 import { Type } from "typebox";
 import { Value } from "typebox/value";
+import { healEncodedArguments } from "./argument-heal.ts";
 import type { AssessmentSpecV1, CriterionAward, CriterionOutcome } from "./contracts/assessment.ts";
 
 const id = Type.String({ pattern: "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,47}$" });
@@ -38,11 +39,14 @@ export function assessmentSpecProblems(parts: unknown): string[] {
 
 export function assessmentSpecOf(input: unknown): AssessmentSpecV1 | undefined {
 	if (!input || typeof input !== "object" || !("parts" in input) || input.parts === undefined) return undefined;
-	if (!Value.Check(assessmentDisplayPartsSchema, input.parts)) return undefined;
-	const partIds = input.parts.map(p => p.id);
-	const criteria = input.parts.flatMap(p => p.criteria);
+	const healed = healEncodedArguments(input, Type.Object({ parts: assessmentDisplayPartsSchema })) as { parts: unknown };
+	const parts = structuredClone(healed.parts);
+	Value.Convert(assessmentDisplayPartsSchema, parts);
+	if (!Value.Check(assessmentDisplayPartsSchema, parts)) return undefined;
+	const partIds = parts.map(p => p.id);
+	const criteria = parts.flatMap(p => p.criteria);
 	if (new Set(partIds).size !== partIds.length || new Set(criteria.map(c => c.id)).size !== criteria.length || criteria.some(c => !Number.isFinite(c.maxPoints))) return undefined;
-	return { version: 1, parts: structuredClone(input.parts) as AssessmentSpecV1["parts"] };
+	return { version: 1, parts };
 }
 
 export function criterionOutcome(award: number | null, max: number): CriterionOutcome {

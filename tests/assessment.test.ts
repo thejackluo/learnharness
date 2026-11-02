@@ -191,6 +191,34 @@ test("legacy projection preserves history without inventing rubric or verified p
 	assert.equal(legacy.gradingProvenance, undefined);
 });
 
+test("encoded persisted rubrics remain answerable and evaluable for explain, recall and problem", async () => {
+	const encoded = { ...free, parts: JSON.stringify(parts) };
+	for (const name of ["explain", "recall"]) {
+		const source = call(name, encoded);
+		const question = questionDataOf(name, "source", encoded);
+		assert.ok(question, `${name} must parse the boundary-healed pending call`);
+		assert.deepEqual(assessmentSpecOf(encoded), spec);
+		const answer = buildAnswer(question, { text: "My shared answer" });
+		const response = inputAppends({ messages: [source] }, { type: "answer", toolCallId: "source", answer })[0]!;
+		const output = await evaluator([source, response]).execute(`eval-${name}`, { sourceCallId: "source", responseId: response.id, criteria: awards });
+		assert.equal((output.details as AssessmentEvaluationV1).totals.awarded, 3);
+	}
+	const input = { statement: "Work both parts", mode: "composition", modelSolution: "Hidden", parts: JSON.stringify(parts) };
+	const chat = chatStore.createChat("encoded practice", "practice");
+	const registry = practiceTools({ chatId: chat.id, chatStore });
+	const prepared = registry.problem!.prepareArguments!(input);
+	const posed = await registry.problem!.execute("source", prepared);
+	assert.notEqual(posed.isError, true);
+	assert.deepEqual(assessmentSpecOf(input), spec);
+	const response = newThinkingMessage("source", "My practice answer");
+	chatStore.saveMessages(chat.id, [call("problem", input), result("source", "problem", null), response]);
+	const output = await registry.evaluate!.execute("eval-problem", { sourceCallId: "source", responseId: response.id, criteria: awards });
+	assert.equal((output.details as AssessmentEvaluationV1).totals.awarded, 3);
+	assert.equal(assessmentSpecOf({ parts: "not JSON" }), undefined);
+	assert.equal(questionDataOf("recall", "bad", { ...free, parts: "not JSON" }), undefined);
+	assert.equal(encoded.parts, JSON.stringify(parts), "parsing must not rewrite persisted arguments");
+});
+
 test("faux tutor submit, reattach and restart preserve exactly one canonical answer and evaluation", async () => {
 	const { handleChatRequest } = await import("../src/server/chat-handler.ts");
 	const { runningTurn } = await import("../src/server/turn-runs.ts");

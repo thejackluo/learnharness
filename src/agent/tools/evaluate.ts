@@ -23,7 +23,7 @@ export function evaluateTool(ctx: { chatId: string; chatStore: { getChat(id: str
 			const calls = messages.flatMap(m => m.role === "assistant" ? m.content.filter(b => b.type === "toolCall") : []);
 			const source = calls.find(c => c.id === input.sourceCallId);
 			const spec = source && ["explain", "recall", "problem"].includes(source.name) ? assessmentSpecOf(source.arguments) : undefined;
-			if (!source || !spec || assessmentSpecProblems((source.arguments as { parts?: unknown }).parts).length) return invalidInputResult("evaluate", ["source must be a persisted rubric-bearing explain, recall, or problem call"]);
+			if (!source || !spec || assessmentSpecProblems(spec.parts).length) return invalidInputResult("evaluate", ["source must be a persisted rubric-bearing explain, recall, or problem call"]);
 			const response = messages.find(m => m.id === input.responseId);
 			const successfulSource = messages.some(m => m.role === "toolResult" && m.toolCallId === source.id && !m.isError);
 			const answer = response?.role === "toolResult" ? response.details as { kind?: unknown; dismissed?: unknown } | undefined : undefined;
