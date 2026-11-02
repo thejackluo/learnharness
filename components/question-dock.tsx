@@ -289,7 +289,7 @@ function QuestionDockForm({
 	 * in time — submit reads these, kept current at every write site. */
 	const thinkingTextRef = useRef(initialDraft?.thinking ?? "");
 	const answerTextRef = useRef(initialDraft?.text ?? "");
-	// Confidence (owner, 2026-10-01; optional since PR 5): an index into
+	// Confidence (owner, 2026-10-01; unset by default since PR 5): an index into
 	// CONFIDENCE_STOPS, or null until the learner sets it — an untouched
 	// slider states nothing, while a deliberate 50 is a real coin flip. The
 	// dock unmounts between questions, so each question starts unset.
@@ -742,9 +742,9 @@ function QuestionDockForm({
 								step={1}
 								value={CONFIDENCE_STOPS[confIdx ?? DEFAULT_CONFIDENCE_INDEX]}
 								disabled={sel.dontKnow}
-								aria-label="Confidence (optional) — the probability your selected answer is correct"
+								aria-label="Confidence — the probability your selected answer is correct (unset states nothing)"
 								aria-valuetext={confIdx === null ? "not set" : `${CONFIDENCE_STOPS[confIdx]} percent`}
-								title="Optional: the probability your selected answer is correct — 50% is a coin flip. Set with ←/→ or by clicking; leave unset to state nothing."
+								title="The probability your selected answer is correct — 50% is a coin flip. Set with ←/→ or by clicking; leave unset to state nothing."
 								data-testid="confidence-slider"
 								onChange={(e) => {
 									// Snap to the nearest stop; the rendered VALUE is the stop's own
@@ -795,8 +795,8 @@ function QuestionDockForm({
 								Clear
 							</button>
 						) : (
-							<span className="shrink-0 text-xs text-muted-foreground" data-testid="confidence-optional">
-								{sel.dontKnow ? "" : "optional"}
+							<span className="shrink-0 text-xs text-muted-foreground" data-testid="confidence-unset">
+								{sel.dontKnow ? "" : "not set"}
 							</span>
 						)}
 					</div>

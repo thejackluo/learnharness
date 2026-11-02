@@ -183,6 +183,7 @@ describe("the source-derived segment list", () => {
 				"shared/16-mental-model.md",
 				"shared/20-question-tools.md",
 				"shared/25-confidence.md",
+				"shared/26-target-evidence.md",
 				"shared/30-learner-files.md",
 				"shared/40-formatting.md",
 			],

@@ -38,7 +38,7 @@ function arrow(key: "ArrowRight" | "ArrowLeft") {
 test("confidence stays unset until used; an explicit 50 stays 50", async () => {
 	const untouched = await answerWith(async (host) => {
 		assert.equal(host.querySelector('[data-testid="confidence-value"]')!.textContent, "—");
-		assert.ok(host.querySelector('[data-testid="confidence-optional"]'));
+		assert.ok(host.querySelector('[data-testid="confidence-unset"]'));
 	});
 	assert.equal(untouched.confidence, undefined);
 	assert.ok(!("confidence" in untouched));
