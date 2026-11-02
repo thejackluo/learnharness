@@ -5,6 +5,7 @@
  */
 
 export * from "./chat-handler.ts";
+export * from "./learner.ts";
 export * from "./runtime.ts";
 export * from "./owner-auth.ts";
 export * from "./writer-lock.ts";

@@ -12,6 +12,15 @@ export type HostedImportResult =
 	| { ok: true; files: HostedImportFile[] }
 	| { ok: false; status: 400 | 413; error: string };
 
+export function isValidHostedImportName(name: string): boolean {
+	return name.length <= 255 &&
+		name !== "." &&
+		name !== ".." &&
+		!name.startsWith(".") &&
+		!/[\/\\\u0000-\u001f\u007f]/.test(name) &&
+		/\.(?:md|markdown|txt)$/i.test(name);
+}
+
 function invalid(error: string): HostedImportResult {
 	return { ok: false, status: 400, error };
 }
@@ -22,14 +31,7 @@ export async function validateHostedImportFiles(files: readonly File[]): Promise
 	if (total > MAX_FILE_BYTES) return { ok: false, status: 413, error: "Imported files exceed the 1 MiB limit." };
 	const output: HostedImportFile[] = [];
 	for (const file of files) {
-		if (
-			file.name.length > 255 ||
-			file.name === "." ||
-			file.name === ".." ||
-			file.name.startsWith(".") ||
-			/[\/\\\u0000-\u001f\u007f]/.test(file.name) ||
-			!/\.(?:md|markdown|txt)$/i.test(file.name)
-		) return invalid("Invalid filename or file type.");
+		if (!isValidHostedImportName(file.name)) return invalid("Invalid filename or file type.");
 		const bytes = new Uint8Array(await file.arrayBuffer());
 		if (bytes.includes(0)) return invalid("Files must be UTF-8 text.");
 		let text: string;

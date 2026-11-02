@@ -1,4 +1,5 @@
 export * from "./contracts/assessment.ts";
+export * from "./contracts/learner.ts";
 /**
  * Shared contracts — the single source of truth every component codes against.
  *

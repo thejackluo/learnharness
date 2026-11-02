@@ -25,6 +25,8 @@ import type {
 	SessionCheckpoint,
 	TurnUsage,
 	NotesSource,
+	LearnerProfileRead,
+	LearnerProfileV1,
 } from "./contracts.ts";
 import type { UserSettings } from "./settings.ts";
 
@@ -39,6 +41,8 @@ export interface ChatStore {
 	getChat(id: string): ChatRecord | null;
 	/** All sessions, newest activity first (the sidebar's list view). */
 	listChats(): ChatSummary[];
+	/** Every chat filename in ascending id order, including unreadable records. */
+	listChatIds(): string[];
 	/** Persist the full native message list (the record IS the agent
 	 * state — Wave B, owner-approved 2026-09-26). */
 	saveMessages(id: string, messages: LhMessage[]): void;
@@ -63,6 +67,14 @@ export interface ChatStore {
 	 *  job cleanup are the caller's choreography (core/graph-deletion.ts +
 	 *  the DELETE route), not the store's. */
 	deleteChat(id: string): boolean;
+}
+
+export interface LearnerProfileStore {
+	read(): LearnerProfileRead;
+	replace(
+		next: Omit<LearnerProfileV1, "version" | "revision" | "updatedAt">,
+		expectedRevision: number,
+	): LearnerProfileV1;
 }
 
 // ─── GraphStore — the append-only evidence ledgers (data/graph) ──────────────

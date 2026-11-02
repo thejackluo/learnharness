@@ -120,6 +120,17 @@ function listChats(): ChatSummary[] {
 	}
 }
 
+function listChatIds(): string[] {
+	try {
+		return fs.readdirSync(PATHS.chats)
+			.filter((file) => file.endsWith(".json"))
+			.map((file) => file.slice(0, -5))
+			.sort();
+	} catch {
+		return [];
+	}
+}
+
 /** Persist the full native message list (the record IS the agent state —
  *  Wave B: replay is state.messages = record.messages). SILENT by the
  *  events law — see the SILENCE LAW comment at createChat. */
@@ -209,6 +220,7 @@ export const chatStore: ChatStore = {
 	createChat,
 	getChat,
 	listChats,
+	listChatIds,
 	saveMessages,
 	saveTree,
 	saveSettings,

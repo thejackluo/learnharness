@@ -1,4 +1,5 @@
 export * from "./assessment.ts";
+export * from "./learner.ts";
 export * from "./canonical-question.ts";
 /**
  * THE CORE PUBLIC API — the only module the shell (app/, components/) may
