@@ -148,6 +148,5 @@ test("malformed chat derivation is unreadable per source without dropping other 
 	assert.ok(!page.sources.some((source) => source.chatId === malformedChat.id));
 
 	const context = learnerContextFor("current-session");
-	assert.match(context ?? "", /Evidence source · choice · correct · auto-graded/);
-	assert.ok(validChat.id);
+	assert.ok(context?.includes(`${validChat.title} · choice · correct · auto-graded`));
 });
