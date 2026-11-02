@@ -31,7 +31,7 @@ export async function scanPayload(root, sentinels = []) {
 			if (entry.name === "owner.json" || entry.name === "sessions.json") issues.push(`${relative}: owner state`);
 			if (entry.name === ".lh-writer.sock") issues.push(`${relative}: writer lock`);
 			if (entry.isDirectory() && entry.name === "data") {
-				for (const child of ["chats", "graph", "jobs"]) {
+				for (const child of ["chats", "graph", "jobs", "maps"]) {
 					if (fs.existsSync(path.join(file, child))) issues.push(`${relative}/${child}: learner records`);
 				}
 			}

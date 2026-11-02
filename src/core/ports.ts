@@ -27,6 +27,11 @@ import type {
 	NotesSource,
 	LearnerProfileRead,
 	LearnerProfileV1,
+	SubjectMapDefinition,
+	SubjectMapLinks,
+	SubjectMapRead,
+	SubjectMapSummary,
+	SubjectMapV1,
 } from "./contracts.ts";
 import type { UserSettings } from "./settings.ts";
 
@@ -77,6 +82,22 @@ export interface LearnerProfileStore {
 		next: Omit<LearnerProfileV1, "version" | "revision" | "updatedAt">,
 		expectedRevision: number,
 	): LearnerProfileV1;
+}
+
+// ─── SubjectMapStore — learner-authored prerequisite maps (data/maps) ──────
+
+export type SubjectMapWrite = SubjectMapDefinition & { links: SubjectMapLinks };
+
+export interface SubjectMapStore {
+	/** Every map file, newest update first; unreadable files are listed by state. */
+	list(): SubjectMapSummary[];
+	read(id: string): SubjectMapRead;
+	/** Creates a map with a fresh id at revision 1 and no learner links. */
+	create(definition: SubjectMapDefinition): SubjectMapV1;
+	/** Compare-and-swap on the map revision; throws on conflict or an unwritable file. */
+	replace(id: string, next: SubjectMapWrite, expectedRevision: number): SubjectMapV1;
+	/** Compare-and-swap delete. */
+	remove(id: string, expectedRevision: number): void;
 }
 
 // ─── GraphStore — the append-only evidence ledgers (data/graph) ──────────────

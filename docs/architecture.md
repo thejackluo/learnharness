@@ -29,6 +29,7 @@ Hold the architecture along two orthogonal axes:
 |---|---|---|
 | **Classroom** — session engine | `data/chats/*.json` | the turn pipeline, prober→teacher, plan tree, questions, phases |
 | **Learner** — profile | `data/learner/profile.json` | editable learner context and import confirmations; evidence remains derived from chats |
+| **Maps** — subject reference maps | `data/maps/*.json` | learner-authored prerequisite DAGs, goals and explicit proposition/topic links; never mastery, never a second evidence ledger |
 | **Workbench** — background labor | `data/jobs/*.json` | job runner, researcher/demo-builder/visual-maker, steer delivery |
 | **Library** — world model | `data/graph/*` ledgers | extraction pipeline (sole graph writer), derivation, birth-session clusters |
 | **Practice** — problem sets | `data/practice/*.json` | partitioner→generator→grader pipeline, self-contained sets (§7) |
@@ -157,12 +158,13 @@ flowchart TB
 - `contracts/models.ts` — client-safe model-catalog shapes
 - `contracts/practice.ts` — problem sets, reasoning chains, params, grade scores
 - `contracts/learner.ts` — revisioned learner profile, evidence observations, and familiarity claims
+- `contracts/subject-map.ts` — subject reference maps (skills with objective revisions, prerequisite edges, goals, retired-id tombstones, learner links) and the portable curriculum format
 
 ---
 
 ## 3. Ports, adapters, and the composition roots
 
-Storage is **per-entity semantic ports**, never one generic interface: `ChatStore`, `GraphStore`, `JobStore`, `PracticeStore`, `LearnerProfileStore` (`src/core/ports.ts` — types only). The fs adapters (`src/store/{chats,graph,jobs,practice,learner}.ts`) implement them and contain persistence and nothing else. One more adapter (`src/store/render-settings.ts`) is a portless free function re-exported through the server barrel — a deliberate pragmatic bypass, documented here so nobody mistakes it for the pattern.
+Storage is **per-entity semantic ports**, never one generic interface: `ChatStore`, `GraphStore`, `JobStore`, `PracticeStore`, `LearnerProfileStore`, `SubjectMapStore` (`src/core/ports.ts` — types only). The fs adapters (`src/store/{chats,graph,jobs,practice,learner,subject-maps}.ts`) implement them and contain persistence and nothing else. One more adapter (`src/store/render-settings.ts`) is a portless free function re-exported through the server barrel — a deliberate pragmatic bypass, documented here so nobody mistakes it for the pattern.
 
 **Idioms.** Graph evidence lives in **append-only JSONL ledgers** (corrupt-line-tolerant reads; strict shape guards drop invalid lines, never guess). Chats, jobs, positions, sources, and the settings blobs are whole-file read-modify-write JSON. All writes are synchronous, single-process (atomicity rides the Node event loop). Merge/dedup/derivation semantics are **reader-side, in core** — the store never decides.
 
@@ -318,6 +320,7 @@ sequenceDiagram
 
 - **Client-side question tools** (`quiz`, `ask_user_question`) have no server execute: the call streams to the browser, the learner answers in the dock, the client grades via `question-core` and returns the verdict with `addToolOutput`, which fires the continuation. A pending quiz persisted in the record is exactly what makes **resume mid-question free**. Deterministic seeded shuffling (keyed by toolCallId) keeps server and client renders identical.
 - **Learner profile and evidence**: `/api/learner/profile` stores editable background, coursework, topic familiarity, confirmed excerpts, and evidence associations in one revision-checked profile. Import preview writes nothing; confirmation validates and appends reviewed excerpts. `/api/learner/evidence` derives source-linked observations from canonical chat results; it is not a second grade ledger. Per-turn context is bounded, labeled untrusted, excludes the current chat, and is injected only at model-message conversion—not into the system prompt or persisted history. Unreadable chat records keep evidence coverage partial.
+- **Subject maps**: `/api/maps` and `/api/maps/[id]` store learner-authored prerequisite DAGs separately from the proposition graph and plan trees. Writes use ETag/If-Match (missing → 428, stale → 412 with the current map); corrupt or future files are listed but never rewritten. `core/subject-map.ts` validates bounds/ids/edges/cycles, bumps a skill's `revision` only when its objective changes, tombstones removed ids, and derives goal closure with shortest prerequisite paths. Each skill shows three independent axes: encounter (explicitly linked graph propositions), dated self-report (explicitly linked profile topics) and criterion evidence (profile associations via `POST/DELETE /api/learner/evidence/[id]/targets`, which resolves the skill's current revision before calling the learner association service). Evidence at an older revision is historical (review needed); deleted sources and unreadable profiles read as unavailable, not empty. Curriculum preview writes nothing; export (`/api/maps/[id]/export`) omits every learner link. No model calls, no default curriculum, no graph writes.
 - **The prober→teacher handoff**: the first turn(s) run the prober (floor/ceiling via quiz, goal via ask); `probe_done` (server-executed) files the assessment and queues a handoff steer; from the first `tool-probe_done` part in the transcript, the handler builds the teacher agent for every later turn. Phases (`core/phases.ts`) fold strictly: probe → plan → teach.
 - **The formal plan tree is author-once**: the teacher authors the session's dependency map with a single schema-validated `plan_init` tool (a mermaid-subset graph, parsed deterministically with line-numbered errors, validated as a DAG). Progress is never mutated — statuses (`current`/`visited`/upcoming) are **derived** from tagged quiz calls in the transcript; the tree panel and the plan blocks render that derivation.
 - **Job tools are server-executed, ack-and-steer**: `research`/`demo`/`visual` resolve immediately mid-turn with a fire-and-forget ack (the teacher keeps teaching); `spawn(job, input)` fires the background runner.
