@@ -27,7 +27,7 @@ export function ReadingThinkingField({
 }: {
 	value: string;
 	onChange: (v: string) => void;
-	/** Esc in the field stops dictation (threaded from the page's hook). */
+	/** Esc stops dictation, or read-aloud when dictation is idle. */
 	onEscape?: () => void;
 	/** The check waits CLOSED — Enter opens it (owner, keyboard round
 	 *  2026-10-06). The caller finishes any live dictation FIRST (the

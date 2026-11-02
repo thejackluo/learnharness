@@ -29,9 +29,9 @@ import { dockStateKey } from "@/components/dock-state-key";
 import { clearOpeningPrompt, readOpeningPromptEntry, stashOpeningPrompt, OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { forwardDockWheel, useDockHeight } from "@/components/dock-height";
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
-import { DictationBar, finishDictation, joinDictation, useDictation } from "@/components/dictation";
+import { DictationBar, finishDictation, isDictationActive, joinDictation, useDictation } from "@/components/dictation";
 import { ReadAloudButton } from "@/components/read-aloud-controls";
-import { cancelSpeech } from "@/components/read-aloud";
+import { cancelDictationOrSpeech, cancelSpeech } from "@/components/read-aloud";
 import { useFieldCycle } from "@/components/field-cycle";
 import { JobsContext } from "@/components/jobs-context";
 import { StatsBar } from "@/components/stats-bar";
@@ -714,6 +714,10 @@ export function Chat({
 		// send resuming after `await finish()` reads the dictated tail.
 		append: (t) => applyText(joinDictation(textRef.current, t)),
 	});
+	const escapeVoice = useCallback(
+		() => cancelDictationOrSpeech(isDictationActive, dictation.cancel, cancelSpeech),
+		[dictation.cancel],
+	);
 	/* When a dictation run ends, the bare composer takes focus (owner
 	 * 2026-10-01) — the hands are already on the keyboard from the stop.
 	 * Falling edge of `active` only (idle→idle never focuses), and ONLY the
@@ -1729,7 +1733,7 @@ export function Chat({
 					pricing={pricing}
 					onReserve={setDockReserve}
 					dictationSlot={<DictationBar dictation={dictation} />}
-					dictationCancel={dictation.active ? dictation.cancel : undefined}
+					dictationCancel={escapeVoice}
 					queuedSteers={visibleQueuedSteers(steerQueue, nativeMessages)}
 					setupCta={
 						zeroKeys ? (
@@ -2008,8 +2012,7 @@ function DockOverlay({
 	/** The dictation strip (STT wave): rendered in the stats bar's middle
 	 *  slot — the mic button + live meter (components/dictation.tsx). */
 	dictationSlot?: React.ReactNode;
-	/** Esc in a pending question's field stops dictation (the strip is the
-	 *  stats bar's; the stop belongs to the page-owned hook, threaded down). */
+	/** Esc stops dictation, or read-aloud when dictation is idle. */
 	dictationCancel?: () => void;
 	/** The queued-steer indicator's lines (composer steering, 2026-10-03):
 	 *  already filtered by visibleQueuedSteers — only undrained steers. */

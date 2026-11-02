@@ -288,6 +288,15 @@ export function cancelSpeech(): void {
 	singleton?.stop();
 }
 
+export function cancelDictationOrSpeech(
+	dictationActive: () => boolean,
+	cancelDictation: () => void,
+	stopSpeech: () => void,
+): void {
+	if (dictationActive()) cancelDictation();
+	else stopSpeech();
+}
+
 export function isSpeaking(): boolean {
 	return singleton?.getSnapshot().speakingKey !== null && singleton !== null;
 }
