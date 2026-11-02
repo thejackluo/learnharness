@@ -8,6 +8,7 @@ export type { WebSearchResult };
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
+import { assertCapability } from "../capabilities.ts";
 
 /**
  * Server-side web tools for the researcher sub-agent — a minimal port of the
@@ -54,6 +55,7 @@ function truncate(text: string): string {
 /** Jina Reader fallback for JS-rendered pages (no deps — plain fetch). */
 async function fetchViaJina(url: string): Promise<string | null> {
 	try {
+		assertCapability("remoteResearch");
 		const res = await fetch(`https://r.jina.ai/${url}`, {
 			headers: { Accept: "text/markdown", "X-No-Cache": "true" },
 			signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
@@ -81,6 +83,7 @@ function htmlToMarkdown(html: string): { title: string; content: string } | null
 }
 
 async function fetchAndExtract(url: string): Promise<string> {
+	assertCapability("remoteResearch");
 	const resp = await fetch(url, {
 		headers: {
 			"User-Agent": USER_AGENT,
@@ -144,6 +147,7 @@ export function createWebTools(search: () => SearchProvider | null): Record<stri
 				"Returns an array of results with title, url, and snippet.",
 			parameters: webSearchInput,
 			execute: serverExecute("web_search", webSearchInput, async ({ query, count }): Promise<WebSearchResult[] | string> => {
+				assertCapability("remoteResearch");
 				const provider = search();
 				if (!provider) {
 					return (

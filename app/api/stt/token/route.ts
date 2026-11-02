@@ -1,48 +1,40 @@
-/**
- * POST-less BYOK mint: the renderer never holds the real Deepgram key.
- *
- * The key lives server-side only (auth.json → process.env in the desktop
- * app; .env.local in dev — same seam as OPENROUTER_API_KEY). A dictation
- * run starts here: mint a short-lived access token (TTL 300s — a run can
- * outlast the 30s default), the renderer opens its WebSocket to Deepgram
- * with it, and audio flows renderer → Deepgram directly, never through
- * this server. The token is only checked at the WebSocket handshake, so
- * long dictation sessions survive the TTL fine (Deepgram docs).
- *
- * NOTE: the key needs ≥ Member permission in the Deepgram console to call
- * /auth/grant (their docs, token-based auth FAQ) — plain read/transcribe
- * keys return FORBIDDEN here.
- */
-import { keyValue } from "@/src/server";
+import { requireOwnerRequest, runtimeMode, sttTokenService } from "@/src/server";
 
-export async function GET() {
-	const key = keyValue("DEEPGRAM_API_KEY");
-	if (!key) {
-		return Response.json(
-			{ message: "No DEEPGRAM_API_KEY — add it to auth.json (desktop) or .env.local (dev)." },
-			{ status: 503 },
-		);
-	}
+export const dynamic = "force-dynamic";
 
-	try {
-		const res = await fetch("https://api.deepgram.com/v1/auth/grant", {
-			method: "POST",
-			headers: { Authorization: `Token ${key}`, "Content-Type": "application/json" },
-			body: JSON.stringify({ ttl_seconds: 300 }),
-		});
-		if (!res.ok) {
-			const detail = await res.text();
-			return Response.json(
-				{ message: `Deepgram token grant failed (${res.status}): ${detail.slice(0, 200)}` },
-				{ status: 502 },
-			);
-		}
-		const data = (await res.json()) as { access_token?: string };
-		if (!data.access_token) {
-			return Response.json({ message: "Deepgram grant returned no token" }, { status: 502 });
-		}
-		return Response.json({ token: data.access_token });
-	} catch {
-		return Response.json({ message: "Deepgram unreachable" }, { status: 502 });
-	}
+function response(body: { token?: string; message?: string }, status: number, extra: HeadersInit = {}): Response {
+	return Response.json(body, { status, headers: { "Cache-Control": "no-store", ...extra } });
+}
+
+function methodNotAllowed(): Response {
+	return response({ message: "Method not allowed." }, 405, { Allow: "POST" });
+}
+
+function sameOrigin(request: Request, hosted: boolean): boolean {
+	const expected = hosted ? process.env.LH_PUBLIC_ORIGIN : new URL(request.url).origin;
+	if (!expected || request.headers.get("origin") !== expected) return false;
+	const fetchSite = request.headers.get("sec-fetch-site");
+	return fetchSite === null || (hosted ? fetchSite === "same-origin" : fetchSite !== "cross-site");
+}
+
+export function GET(): Response {
+	return methodNotAllowed();
+}
+
+export function HEAD(): Response {
+	return methodNotAllowed();
+}
+
+export function OPTIONS(): Response {
+	return methodNotAllowed();
+}
+
+export async function POST(request: Request): Promise<Response> {
+	const mode = runtimeMode();
+	const hosted = mode === "hosted";
+	if (!sameOrigin(request, hosted)) return response({ message: "Same-origin request required." }, 403);
+	const session = hosted ? requireOwnerRequest(request) : null;
+	if (hosted && !session) return response({ message: "Sign in required." }, 401);
+	const result = await sttTokenService.mint(hosted ? "owner" : mode);
+	return response(result.body, result.status);
 }

@@ -13,7 +13,7 @@
  * healthy. The dock's chips + graph refetch track progress live through
  * /api/graph/status, as with session runs.
  */
-import { extraction, NotesImportError } from "@/src/server";
+import { extraction, NotesImportError, readHostedImportRequest, runtimeMode } from "@/src/server";
 import {
 	ModelsNotConfiguredError,
 	PROVIDER_KEY_MISSING_CODE,
@@ -41,8 +41,18 @@ interface ImportResult {
 }
 
 export async function POST(request: Request) {
-	const form = await request.formData();
-	const files = form.getAll("files").filter((f): f is File => f instanceof File);
+	const mode = runtimeMode();
+	let files: { name: string; readText: () => Promise<string> }[];
+	if (mode === "hosted") {
+		const result = await readHostedImportRequest(request);
+		if (!result.ok) return Response.json({ error: result.error }, { status: result.status, headers: { "Cache-Control": "no-store" } });
+		files = result.files.map((file) => ({ name: file.name, readText: async () => file.text }));
+	} else {
+		const form = await request.formData();
+		files = form.getAll("files")
+			.filter((f): f is File => f instanceof File)
+			.map((file) => ({ name: file.name, readText: () => file.text() }));
+	}
 	if (files.length === 0) {
 		return Response.json({ results: [] as ImportResult[], error: "no files" }, { status: 400 });
 	}
@@ -55,7 +65,7 @@ export async function POST(request: Request) {
 			if (!next) return;
 			const { file, requestIndex } = next;
 			try {
-				const text = await file.text();
+				const text = await file.readText();
 				const stats = await extraction.importNotes({ filePath: file.name, text });
 				results.push({ filePath: file.name, requestIndex, outcome: "completed", ok: true, stats });
 			} catch (err) {

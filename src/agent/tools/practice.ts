@@ -15,6 +15,8 @@
  */
 
 import { Type, type Static } from "typebox";
+import { assessmentPartsSchema, assessmentSpecProblems } from "../../core/assessment.ts";
+import { evaluateTool } from "./evaluate.ts";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { resolveTargetId } from "../../core/chains.ts";
 import { readTool } from "./read.ts";
@@ -27,6 +29,7 @@ import { activeProblemOf } from "../../core/native-messages.ts";
 import type { LhMessage } from "../../core/native-messages.ts";
 import { concludeResult, invalidInputResult, problemResult } from "../tool-execute.ts";
 import { healEncodedArguments, healToolRecord } from "./heal.ts";
+import { capabilityFilter } from "../capabilities.ts";
 
 
 /** The record-reading context the gates need (the plan-tools idiom). */
@@ -70,6 +73,7 @@ export function createPracticeGate(ctx: PracticeToolContext): PracticeGate {
 // ─── problem: the pose ───────────────────────────────────────────────────────
 
 export const problemInputObject = Type.Object({
+	parts: Type.Optional(assessmentPartsSchema),
 	statement: Type.String({
 		description:
 			"REQUIRED — the problem as the learner sees it (markdown + LaTeX). Must be self-contained and " +
@@ -134,6 +138,8 @@ export function problemTool(
 			return { ...(healed as Record<string, unknown>), target: normalized } as never;
 		},
 		execute: async (_toolCallId, input) => {
+			const problems = assessmentSpecProblems(input.parts);
+			if (problems.length) return invalidInputResult("problem", problems);
 			if (gate.problemActive) {
 				return invalidInputResult("problem", [
 					"a problem is already active — call conclude on it before posing the next one",
@@ -235,7 +241,8 @@ export function practiceTools(ctx: PracticeToolContext): Record<string, AgentToo
 	// the standard argument heal over the WHOLE registry. problem/conclude
 	// keep their own (target-normalizing) prepareArguments as the composed
 	// inner pass; the double heal is idempotent by construction.
-	return healToolRecord({
+	return capabilityFilter(healToolRecord({
+		evaluate: evaluateTool(ctx),
 		problem: problemTool(gate, ctx.graphNodes),
 		conclude: concludeTool(gate),
 		read: readTool,
@@ -245,5 +252,5 @@ export function practiceTools(ctx: PracticeToolContext): Record<string, AgentToo
 		...(jobs?.research ? { research: jobs.research } : {}),
 		...(jobs ? { pdf: jobs.pdf! } : {}),
 		...(ctx.graph ? proberGraphTools(ctx.graph) : {}),
-	});
+	}));
 }

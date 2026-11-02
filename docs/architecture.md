@@ -2,6 +2,8 @@
 
 Status: **the canonical architecture spec** — describes the as-built system, verified against the code by a full audit on 2026-09-18 (every file under `src/`, `app/`, `components/`, `electron/`, `scripts/`, the lint config, and the test suite; `lint` and `typecheck` clean on the audited tree). The pre-audit spec is archived at [`docs/archive/architecture-2026-09-08.md`](archive/architecture-2026-09-08.md) — history only. Product reasoning lives in [`docs/vision.md`](vision.md); file-by-file layout lives in the README.
 
+The single-owner Docker deployment, persistent state volume, and encrypted backup/restore path are described in [`docs/hosting.md`](hosting.md).
+
 **What this is.** A standalone learning app (web + Electron desktop): the learner's knowledge accumulates into one persistent, cross-session knowledge graph, built from tutoring sessions in which a teacher agent authors a formal, visible dependency tree (the plan tree) and verifies understanding with structured questions. The graph is the home page; the session is the classroom; everything else serves those two.
 
 **Design principles, in priority order:**
@@ -525,6 +527,12 @@ The bus itself is a `globalThis`-backed listener set (the Next per-entry-module 
 ---
 
 ## 11. Testing
+
+### Mixed assessment
+
+`agent.assessmentMode` optionally selects `choice`, `free`, or `mixed`; absence retains the legacy `agent.tools.explain` fallback. Mixed registers both existing graded instruments without changing question pacing. Free-response and practice authoring may commit an `AssessmentSpecV1` rubric (stable part/criterion ids, maxima and expected evidence); multipart prompts use one shared response field. Optional learning-target and teaching-stimulus references are reserved by the contract, not authored yet.
+
+Answer events reconstruct their question and grade from the persisted pending call, using only learner input from the client. MC results are deterministic; client verdicts, labels, commitments and timestamps are not authoritative. The normal tutor's `evaluate` tool references a persisted rubric and a submitted response id and records one `AssessmentEvaluationV1` per response. It validates identities, coverage and bounded finite awards, not the truth of AI judgment. Pure scoring derives criterion outcomes and assessed coverage; null awards remain incomplete. Legacy calls without parts gain neither rubrics nor verified grades. Evaluation is not a question tool and does not gate the composer.
 
 All deterministic, no network: engines are injected (pi-ai's **faux provider** — `createFauxCore`/`setResponses` — wrapped as the `PiEngine` production uses), `globalThis.fetch` is stubbed where transport matters, and pure logic gets in-memory port implementations. Suites either mirror production wiring with the real fs adapters (backup-and-clear of the ledgers they touch) or swap in-memory ports deliberately ("this suite never touches data/graph"). Four strata:
 

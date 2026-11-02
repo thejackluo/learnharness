@@ -13,12 +13,15 @@
  * wrapper over the server barrel (the import law); tests drive the seams
  * (turn-runs + ui-stream) directly.
  */
-import { getChat, runningTurn, piTurnResponse, settledTurnResponse } from "@/src/server";
+import { getChat, guardOwnerStream, requireOwnerRequest, runningTurn, piTurnResponse, runtimeMode, settledTurnResponse } from "@/src/server";
 
-export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
+export async function GET(request: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
+	if (runtimeMode() === "hosted" && !requireOwnerRequest(request)) {
+		return Response.json({ error: "Sign in required." }, { status: 401, headers: { "Cache-Control": "no-store" } });
+	}
 	const { id } = await ctx.params;
 	if (!getChat(id)) return Response.json({ error: "Unknown chat" }, { status: 404 });
 	const handle = runningTurn(id);
-	if (!handle) return settledTurnResponse(id);
-	return piTurnResponse(handle);
+	const response = handle ? piTurnResponse(handle) : settledTurnResponse(id);
+	return guardOwnerStream(request, response);
 }

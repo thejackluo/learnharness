@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { standardFontsDir } from "./pdf-ops";
+import { agentCapabilities, CapabilityDeniedError, assertCapability } from "../capabilities.ts";
 
 /**
  * Verification engines for sub-agents: demos use the app's own Electron
@@ -161,6 +162,7 @@ const BROWSER_SERVICE_TIMEOUT_MS = 15_000;
 let browserServiceProc: import("node:child_process").ChildProcess | null = null;
 
 async function connectBrowserService(): Promise<import("puppeteer-core").Browser | null> {
+	assertCapability("serverBrowser");
 	const puppeteer = (await import("puppeteer-core")).default;
 	const { spawn } = await import("node:child_process");
 	let port: number | null = null;
@@ -281,6 +283,7 @@ function tempDir(prefix: string): string {
 // ─── Demo execution ──────────────────────────────────────────────────────────
 
 async function runDemo(html: string, opts: RunDemoOptions = {}): Promise<DemoRunResult> {
+	assertCapability("serverBrowser");
 	const settleMs = opts.settleMs ?? 2000;
 	const dir = tempDir("lh-demo-");
 	const file = path.join(dir, "demo.html");
@@ -413,6 +416,7 @@ function crc32(buf: Buffer): number {
 }
 
 async function renderSvg(svg: string, opts: RenderSvgOptions = {}): Promise<Buffer> {
+	assertCapability("serverBrowser");
 	// NATIVE FIRST (Wave E stage 2, owner 2026-10-10): resvg rasterizes
 	// static SVG in-process — visual-maker SVGs never execute script, so a
 	// browser adds nothing but a process. White background mirrors the old
@@ -474,6 +478,7 @@ async function renderPdfPages(
 	pages: number[],
 	opts: RenderPdfOptions = {},
 ): Promise<RenderedPdfPage[]> {
+	assertCapability("serverBrowser");
 	const dpi = opts.dpi ?? 150;
 	// NATIVE CANVAS (Wave E, owner 2026-10-10): pdfjs paints into
 	// @napi-rs/canvas in this process — no browser involved. pdfjs-dist v6's
@@ -522,11 +527,13 @@ async function renderPdfPages(
 
 export const realHeadless: HeadlessApi = {
 	available() {
+		if (!agentCapabilities().serverBrowser) return false;
 		// The helper binary exists by construction in the packaged app; in dev
 		// it resolves via the electron package. System Chrome widens coverage.
 		return browserServiceBinary() !== null || resolveChromeExecutablePath() !== null;
 	},
 	unavailableReason() {
+		if (!agentCapabilities().serverBrowser) return new CapabilityDeniedError("serverBrowser").message;
 		return browserServiceBinary() === null && resolveChromeExecutablePath() === null ? NO_CHROME_MESSAGE : null;
 	},
 	runDemo,

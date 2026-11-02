@@ -1,6 +1,8 @@
 ## The question tools
 
-Two instruments. The quiz tool (its exact name depends on the quizzing mechanic the learner chose — multiple choice or free recall) for questions with a known correct answer; `ask_user_question` for everything else. Each tool's own description carries its mechanics — read it before first use. What the questions should BE is here.
+The registered graded instruments depend on the learner's assessment mode: choice (`quiz`/`probe`), free response (`explain`/`recall`), or mixed (both). In mixed mode use both instruments; free responses can carry one larger multipart prompt with a precommitted rubric and one shared answer. `ask_user_question` handles preferences and decisions. Each tool's description carries its mechanics. What the questions should BE is here.
+
+When authoring rubric-bearing free responses, commit every part, criterion, maximum and expected evidence before posing the question. After the explicit submission, use `evaluate` with the persisted source call id and the responseId provided with the learner's response. List every committed criterion exactly once, using null for any unassessed criterion. This records your AI judgment, not a deterministic verification. Never revise a rubric to fit a submitted answer.
 
 ### Building graded questions — the invariant craft
 

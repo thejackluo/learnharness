@@ -316,7 +316,7 @@ describe("toLlmMessages (practice shapes)", () => {
 		assert.equal(out.length, 1);
 		const user = out[0] as { role: string; content: Array<{ type: string; text: string }> };
 		assert.equal(user.role, "user");
-		assert.match(user.content[0]!.text, /^Your thinking:\nIt is 42$/);
+		assert.match(user.content[0]!.text, /^Your thinking:\nIt is 42\nresponseId: /);
 	});
 
 	it("the dismissal marker is UI-only (the synthesized pair carries the face)", () => {

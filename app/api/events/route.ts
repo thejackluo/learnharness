@@ -6,10 +6,10 @@
  * server seam (events-stream.ts); the framework route stays a thin
  * wrapper (the import law; tests drive the seam directly).
  */
-import { eventsResponse } from "@/src/server";
+import { eventsResponse, guardOwnerStream } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
-export function GET(): Response {
-	return eventsResponse();
+export function GET(request: Request): Response {
+	return guardOwnerStream(request, eventsResponse());
 }

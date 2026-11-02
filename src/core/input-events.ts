@@ -1,3 +1,6 @@
+import { deterministicAnswer, questionDataOf } from "./canonical-question.ts";
+import { dismissedAnswer } from "./question-core.ts";
+import { assessmentSpecOf } from "./assessment.ts";
 /**
  * THE INPUT-EVENTS CONTRACT (Wave B, owner ruling 2026-09-26: "input
  * events now, in the same pass"): POST /api/chat carries `{chatId, input}`
@@ -149,7 +152,9 @@ export function dismissAppends(record: { messages: LhMessage[] }, input: Dismiss
 	if (input.answer.kind !== toolQuestionKind(pending.tool)) {
 		throw new ChatInputError("dismiss input's answer kind does not match the question");
 	}
-	return [newAnswerResult(input.toolCallId, pending.tool, input.answer)];
+	const question = questionDataOf(pending.tool, pending.toolCallId, pending.input);
+	if (!question) throw new ChatInputError("pending question is malformed");
+	return [newAnswerResult(input.toolCallId, pending.tool, dismissedAnswer(question.kind, question.question))];
 }
 
 /** A malformed input event (the honest 400 — the orphan-trap discipline). */
@@ -213,7 +218,19 @@ export function inputAppends(
 			if (!pending || pending.toolCallId !== input.toolCallId) {
 				throw new ChatInputError("answer input targets no pending question call");
 			}
-			return [newAnswerResult(input.toolCallId, pending.tool, input.answer)];
+			const q = questionDataOf(pending.tool, pending.toolCallId, pending.input);
+			const a = input.answer;
+			if (!q || a.kind !== q.kind || a.dismissed) throw new ChatInputError("answer kind or pending question is invalid");
+			if (!Array.isArray(a.answers)) throw new ChatInputError("answers must be an array");
+			const values = a.answers.map(a => a?.value);
+			if (values.some(v => typeof v !== "string" || !q.options.some(o => o.value === v)) || new Set(values).size !== values.length) throw new ChatInputError("unknown or duplicate selection");
+			if (q.mode === "single-select" && values.length > 1) throw new ChatInputError("single-select accepts one value");
+			for (const key of ["text", "other", "thinking", "readingThinking"] as const) {
+				if (a[key] !== undefined && typeof a[key] !== "string") throw new ChatInputError(`${key} must be text`);
+			}
+			if (q.mode === "text" ? !a.text?.trim() || values.length > 0 : !values.length && a.dontKnow !== true && !(q.kind === "ask" && a.other?.trim())) throw new ChatInputError("empty or invalid answer");
+			if (a.confidence !== undefined && !Number.isFinite(a.confidence)) throw new ChatInputError("confidence must be finite");
+			return [newAnswerResult(input.toolCallId, pending.tool, deterministicAnswer(q, { values, dontKnow: a.dontKnow === true, other: q.kind === "ask" ? a.other : undefined, text: q.mode === "text" ? a.text : undefined, thinking: a.thinking, readingThinking: a.readingThinking, confidence: a.confidence }, pending.tool), assessmentSpecOf(pending.input) !== undefined)];
 		}
 		case "continue":
 			return dismissalConclusion(record);

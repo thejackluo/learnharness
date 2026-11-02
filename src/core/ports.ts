@@ -222,3 +222,25 @@ export interface AuthStore {
 	deleteAuthVar(name: string): void;
 }
 
+export interface OwnerVerifier {
+	version: 1;
+	revision: string;
+	scrypt: { N: number; r: number; p: number; keyLen: number };
+	salt: string;
+	hash: string;
+}
+
+export interface OwnerSession {
+	id: string;
+	tokenHash: string;
+	createdAt: number;
+	lastSeenAt: number;
+	verifierRevision: string;
+}
+
+export interface OwnerStore {
+	readOwner(): OwnerVerifier | null;
+	writeOwner(verifier: OwnerVerifier): void;
+	readSessions(): OwnerSession[];
+	writeSessions(sessions: OwnerSession[]): void;
+}

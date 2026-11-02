@@ -19,6 +19,7 @@
 
 import { Type, type Static } from "typebox";
 import { stripModelValueDebris } from "./value-debris.ts";
+import { assessmentDisplayPartsSchema, assessmentPartsSchema, assessmentSpecProblems } from "./assessment.ts";
 
 // ─── shared types ───────────────────────────────────────────────────────────
 
@@ -301,6 +302,7 @@ export const quizDisplayInputSchema = Type.Object({
 // not in the system prompt.
 
 export const explainInputBase = Type.Object({
+	parts: Type.Optional(assessmentPartsSchema),
 	question: Type.String({
 		description:
 			"The single question to ask. ONE question per turn: ask, then end your turn — the answer determines the next.",
@@ -344,16 +346,17 @@ export const explainInputObject = Type.Object({
  *  The PROBE recall parses against the bare base. */
 export const explainDisplayInputSchema = Type.Object({
 	...explainInputBase.properties,
+	parts: Type.Optional(assessmentDisplayPartsSchema),
 	type: Type.Optional(Type.String()),
 });
 
 /** The explain authoring contract: the commitment must exist. Empty
  *  result = an explain the dock can arm and the model can grade against. */
-export function explainInputProblems(input: { correctAnswer: string }): string[] {
+export function explainInputProblems(input: { correctAnswer: string; parts?: unknown }): string[] {
 	if (input.correctAnswer.trim().length === 0) {
 		return ["correctAnswer is required — commit to the full correct answer BEFORE posing the question."];
 	}
-	return [];
+	return assessmentSpecProblems(input.parts);
 }
 
 /** The tool names that carry the quizzing mechanic — the teach seam
@@ -434,6 +437,7 @@ export interface QuestionData {
  *  NO questionId (owner, tool-result diet 2026-10-02): it was the
  *  toolCallId restated — the toolResult message already carries it. */
 export interface QuestionAnswerData {
+	gradingProvenance?: "deterministic";
 	kind: QuestionKind;
 	/** The persisted call's tool NAME (owner, 2026-10-09): probe-phase
 	 *  calls are `probe`/`recall`, teach calls `quiz`/`explain` — the

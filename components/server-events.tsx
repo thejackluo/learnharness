@@ -26,6 +26,8 @@
  */
 import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { SERVER_EVENT_TYPES, type ServerEventType, type ServerEvents } from "@/src/core";
+import { redirectOnUnauthorized } from "@/components/auth-response";
+import { useRuntimeOptional } from "@/components/runtime";
 
 /** The minimal source surface the provider consumes — EventSource behind
  *  this in production, fakes in tests. */
@@ -33,6 +35,7 @@ export interface NotifySource {
 	close(): void;
 	onOpen(cb: () => void): void;
 	onEvent(name: string, cb: (data: string) => void): void;
+	onError?(cb: () => void): void;
 }
 
 export function openEventsChannel(): NotifySource {
@@ -44,6 +47,9 @@ export function openEventsChannel(): NotifySource {
 		},
 		onEvent: (name, cb) => {
 			es.addEventListener(name, (ev) => cb((ev as MessageEvent).data));
+		},
+		onError: (cb) => {
+			es.onerror = () => cb();
 		},
 	};
 }
@@ -121,7 +127,21 @@ export function useNotifyHub() { return useContext(EventsContext); }
 
 export function ServerEventsProvider({ children, connect }: { children: ReactNode; connect?: () => NotifySource }) {
 	const hub = useMemo(() => createNotifyHub(), []);
-	useEffect(() => wireSource((connect ?? openEventsChannel)(), hub), [hub, connect]);
+	const runtime = useRuntimeOptional();
+	useEffect(() => {
+		const source = (connect ?? openEventsChannel)();
+		const disconnect = wireSource(source, hub);
+		let checking = false;
+		source.onError?.(() => {
+			if (runtime?.mode !== "hosted" || checking) return;
+			checking = true;
+			void fetch("/api/activity", { cache: "no-store" })
+				.then((response) => { redirectOnUnauthorized(response, runtime.mode); })
+				.catch(() => undefined)
+				.finally(() => { checking = false; });
+		});
+		return disconnect;
+	}, [hub, connect, runtime?.mode]);
 	return <EventsContext.Provider value={hub}>{children}</EventsContext.Provider>;
 }
 
