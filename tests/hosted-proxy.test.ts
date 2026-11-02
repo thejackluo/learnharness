@@ -48,6 +48,19 @@ test("hosted proxy redirects anonymous pages safely and returns no-store JSON fo
 	assert.equal(api.headers.get("cache-control"), "private, no-store");
 });
 
+test("hosted learner profile routes require a session and same-origin writes", () => {
+	const anonymous = proxy(new NextRequest("https://lh.invalid/api/learner/profile"));
+	assert.equal(anonymous.status, 401);
+	assert.equal(anonymous.headers.get("cache-control"), "private, no-store");
+
+	const crossOrigin = proxy(new NextRequest("https://lh.invalid/api/learner/profile", {
+		method: "PUT",
+		headers: { origin: "https://elsewhere.invalid" },
+	}));
+	assert.equal(crossOrigin.status, 403);
+	assert.equal(crossOrigin.headers.get("cache-control"), "private, no-store");
+});
+
 test("hosted public login and health routes allow HEAD without a session", () => {
 	for (const url of ["https://lh.invalid/login", "https://lh.invalid/api/health"]) {
 		const response = proxy(new NextRequest(url, { method: "HEAD" }));
