@@ -341,6 +341,10 @@ export function SubjectMapEditor({ mapId }: { mapId: string }) {
 			setSources((previous) => ({ ...previous, profileRevision: profile.revision, topics: profile.topics }));
 			return void load();
 		}
+		if (response.status === 409 && body.code === "skill_revision_conflict") {
+			setNotice("The skill objective changed elsewhere; reloaded the latest version. Review it and try again.");
+			return void load();
+		}
 		if (body.code === "revision_conflict") {
 			setNotice("Your learner profile changed elsewhere; reloaded it. Try again.");
 			return void loadSources();
@@ -452,7 +456,7 @@ export function SubjectMapEditor({ mapId }: { mapId: string }) {
 							onEdit={edit}
 							onLink={(kind, refId) => void changeLink("POST", kind, skill.id, refId)}
 							onUnlink={(kind, refId) => void changeLink("DELETE", kind, skill.id, refId)}
-							onAttachEvidence={(evidenceId) => void changeEvidence("POST", evidenceId, { mapId: map.id, skillId: skill.id })}
+							onAttachEvidence={(evidenceId) => void changeEvidence("POST", evidenceId, { mapId: map.id, skillId: skill.id, skillRevision: map.skills.find((saved) => saved.id === skill.id)?.revision })}
 							onDetachEvidence={(item) => void changeEvidence("DELETE", item.evidenceId, {
 								target: { kind: "subject-skill", mapId: map.id, skillId: skill.id, skillRevision: item.skillRevision },
 							})}

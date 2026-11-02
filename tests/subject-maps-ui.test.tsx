@@ -144,6 +144,44 @@ test("map editor lists gaps with goal paths, text statuses, escaped titles and h
 	}
 });
 
+test("evidence attachment sends the saved objective revision and reloads after a stale objective conflict", async () => {
+	let mapReads = 0;
+	let attachedBody: unknown;
+	const updatedMap = { ...map, revision: 5, skills: map.skills.map((skill) => skill.id === "proc" ? { ...skill, revision: 2, objective: "Compare processes" } : skill) };
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		const url = String(input);
+		if (url === "/api/maps/map_ui") {
+			mapReads++;
+			const current = mapReads === 1 ? map : updatedMap;
+			return Response.json({ state: "ok", map: current, view: { ...view, skills: view.skills.map((entry) => ({ ...entry, skill: current.skills.find((skill) => skill.id === entry.skill.id) })) } });
+		}
+		if (init?.method === "POST") {
+			attachedBody = JSON.parse(String(init.body));
+			return Response.json({ code: "skill_revision_conflict", current: updatedMap.skills[0] }, { status: 409 });
+		}
+		if (url.startsWith("/api/learner/evidence")) return Response.json({ observations: [observation], nextCursor: null });
+		if (url === "/api/graph") return Response.json({ propositions: [] });
+		if (url === "/api/learner/profile") return Response.json({ state: "ok", profile: { revision: 3, topics: [] } });
+		throw new Error(`unexpected ${url}`);
+	}) as typeof fetch;
+	try {
+		const { root, container } = await mount(createElement(SubjectMapEditor, { mapId: "map_ui" }));
+		const select = container.querySelector('select[id$="-evidence"]')!;
+		await act(async () => {
+			select.querySelectorAll("option").forEach((option) => { option.selected = option.value === observation.id; });
+			select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+		});
+		await click(select.parentElement!.querySelector("button")!);
+		assert.deepEqual(attachedBody, { mapId: map.id, skillId: "proc", skillRevision: 1, expectedRevision: 3 });
+		assert.equal(mapReads, 2);
+		assert.match(container.textContent ?? "", /skill objective changed elsewhere; reloaded the latest version/);
+		assert.equal((container.querySelector('textarea[id$="-objective"]') as HTMLTextAreaElement).value, "Compare processes");
+		await act(async () => root.unmount());
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
 test("maps index lists unreadable files honestly and unlinking a deleted-map link sends the exact target", async () => {
 	const requests: { url: string; method: string; body: string | null }[] = [];
 	const target = { kind: "subject-skill", mapId: "map_gone", skillId: "sched", skillRevision: 2 };

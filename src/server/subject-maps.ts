@@ -9,6 +9,7 @@ import type {
 } from "../core/contracts.ts";
 import type { LearningTargetRef } from "../core/contracts/learning-target.ts";
 import { SUBJECT_MAP_LIMITS } from "../core/contracts/subject-map.ts";
+import type { SubjectSkill } from "../core/contracts/subject-map.ts";
 import {
 	jsonDepthExceeds,
 	parsePortableSubjectMap,
@@ -49,6 +50,13 @@ export class SubjectSkillUnavailableError extends Error {
 	constructor(public readonly skillId: string, public readonly status: SubjectSkillTargetStatus) {
 		super("Subject skill is not current in this map.");
 		this.name = "SubjectSkillUnavailableError";
+	}
+}
+
+export class SubjectSkillRevisionConflictError extends Error {
+	constructor(public readonly current: SubjectSkill) {
+		super("The skill objective changed since you loaded it.");
+		this.name = "SubjectSkillRevisionConflictError";
 	}
 }
 
@@ -246,12 +254,16 @@ export function attachSkillEvidence(input: {
 	evidenceId: string;
 	mapId: string;
 	skillId: string;
+	skillRevision?: number;
 	expectedRevision: number;
 }): LearnerProfileV1 {
 	const map = requireMap(input.mapId);
 	const skill = map.skills.find((candidate) => candidate.id === input.skillId);
 	if (!skill) {
 		throw new SubjectSkillUnavailableError(input.skillId, map.retired.some((retired) => retired.id === input.skillId) ? "retired" : "missingSkill");
+	}
+	if (input.skillRevision !== undefined && input.skillRevision !== skill.revision) {
+		throw new SubjectSkillRevisionConflictError(skill);
 	}
 	return attachEvidenceTarget({
 		evidenceId: input.evidenceId,
@@ -355,6 +367,9 @@ export function requireIfMatch(request: Request): { ok: true; revision: number }
 }
 
 export function subjectMapErrorResponse(error: unknown): Response | null {
+	if (error instanceof SubjectSkillRevisionConflictError) {
+		return subjectMapJson({ error: error.message, code: "skill_revision_conflict", current: error.current }, 409);
+	}
 	if (error instanceof SubjectMapConflictError) {
 		return subjectMapJson({ error: "Map changed since you loaded it.", code: "revision_conflict", current: error.current }, 412, error.current);
 	}

@@ -278,14 +278,19 @@ test("explicit evidence links resolve the current skill revision, survive object
 	assert.ok(profile.state === "absent" || profile.state === "ok");
 	let profileRevision = profile.profile.revision;
 
-	const attach = async (evidenceId: string, skillId: string) => {
+	const attach = async (evidenceId: string, skillId: string, skillRevision: unknown = skillId === "scheduling" ? 3 : 1) => {
 		const response = await targetsRoute.POST(new Request("http://localhost/x", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ mapId: id, skillId, expectedRevision: profileRevision }),
+			body: JSON.stringify({ mapId: id, skillId, skillRevision, expectedRevision: profileRevision }),
 		}), ctx(evidenceId));
 		return response;
 	};
+	for (const invalid of [undefined, null, 0, -1, 1.5, "3"]) {
+		const response = await targetsRoute.POST(request("POST", { mapId: id, skillId: "scheduling", skillRevision: invalid, expectedRevision: profileRevision }), ctx(pass.evidenceId));
+		assert.equal(response.status, 400);
+		assert.deepEqual((await json(response)).issues, ["skillRevision must be a positive integer"]);
+	}
 	const linked = await attach(pass.evidenceId, "scheduling");
 	assert.equal(linked.status, 200);
 	const linkedBody = await json(linked);
@@ -300,7 +305,7 @@ test("explicit evidence links resolve the current skill revision, survive object
 	const conflict = await targetsRoute.POST(new Request("http://localhost/x", {
 		method: "POST",
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ mapId: id, skillId: "threads", expectedRevision: 0 }),
+		body: JSON.stringify({ mapId: id, skillId: "threads", skillRevision: 1, expectedRevision: 0 }),
 	}), ctx(pass.evidenceId));
 	assert.equal(conflict.status, 409);
 	assert.equal((await json(conflict)).code, "revision_conflict");
@@ -328,6 +333,20 @@ test("explicit evidence links resolve the current skill revision, survive object
 	assert.equal(statusOf("scheduling").reviewNeeded, true);
 	assert.equal(statusOf("scheduling").historical[0].skillRevision, 3);
 	assert.equal(statusOf("threads").status, "needsPractice", "unchanged objectives keep their evidence");
+	const beforeStaleRead = stores.learnerProfileStore.read();
+	assert.equal(beforeStaleRead.state, "ok");
+	assert.ok(beforeStaleRead.state === "ok");
+	const beforeStaleAttach = beforeStaleRead.profile;
+	const staleSkill = await attach(miss.evidenceId, "scheduling", 3);
+	assert.equal(staleSkill.status, 409);
+	const staleSkillBody = await json(staleSkill);
+	assert.equal(staleSkillBody.code, "skill_revision_conflict");
+	assert.deepEqual(staleSkillBody.current, { id: "scheduling", title: "Scheduling", objective: "Compare schedulers", revision: 4 });
+	const afterStaleRead = stores.learnerProfileStore.read();
+	assert.ok(afterStaleRead.state === "ok");
+	const afterStaleAttach = afterStaleRead.profile;
+	assert.deepEqual(afterStaleAttach.associations, beforeStaleAttach.associations);
+	assert.equal(afterStaleAttach.revision, beforeStaleAttach.revision);
 
 	stores.chatStore.deleteChat(miss.chatId);
 	view = (await json(await mapRoute.GET(request("GET"), ctx(id)))).view;

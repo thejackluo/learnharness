@@ -35,15 +35,18 @@ function failure(error: unknown, action: string): Response {
 	return subjectMapJson({ error: "Unable to update the evidence link." }, 500);
 }
 
-/** Links evidence to a map skill at that skill's current objective revision. */
+/** Links evidence to a map skill only at the objective revision the learner saw. */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
 	const { id } = await params;
 	const read = await body(request);
 	if (!read.value) return read.response;
-	const { mapId, skillId, expectedRevision } = read.value;
+	const { mapId, skillId, skillRevision, expectedRevision } = read.value;
 	if (typeof mapId !== "string" || typeof skillId !== "string") return badRequest(["mapId and skillId must be strings"]);
+	if (typeof skillRevision !== "number" || !Number.isInteger(skillRevision) || skillRevision < 1) {
+		return badRequest(["skillRevision must be a positive integer"]);
+	}
 	try {
-		const profile = attachSkillEvidence({ evidenceId: id, mapId, skillId, expectedRevision });
+		const profile = attachSkillEvidence({ evidenceId: id, mapId, skillId, skillRevision, expectedRevision });
 		return subjectMapJson({ state: "ok", profile });
 	} catch (error) {
 		return failure(error, "attach");
