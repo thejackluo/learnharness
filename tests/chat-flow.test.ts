@@ -1427,8 +1427,8 @@ describe("the silent dismissal (A2)", () => {
 				id: "a1",
 				role: "assistant",
 				content: [
-					{ type: "toolCall", id: "call-a", name: "quiz", arguments: { question: "A?" } as never },
-					{ type: "toolCall", id: "call-b", name: "quiz", arguments: { question: "B?" } as never },
+					{ type: "toolCall", id: "call-a", name: "quiz", arguments: { ...QUIZ_INPUT, question: "A?" } as never },
+					{ type: "toolCall", id: "call-b", name: "quiz", arguments: { ...QUIZ_INPUT, question: "B?" } as never },
 				],
 				api: "openai-completions",
 				provider: "openrouter",
@@ -1578,7 +1578,7 @@ describe("parallel rounds: the LAST resolution decides the wake (owner ruling 20
 		assert.equal((await dismissPost(chat.id, "call-1")).status, 200);
 		assert.equal(calls.length, 1, "the dismissal woke nothing");
 
-		await drainTurn(post(chat.id, { type: "answer", toolCallId: "call-2", answer: { kind: "ask", questionText: "Next topic?", dontKnow: false, answers: [], text: "Chemistry", answeredAt: new Date().toISOString() } }), agentFactory(engine));
+		await drainTurn(post(chat.id, { type: "answer", toolCallId: "call-2", answer: { kind: "ask", questionText: "Next topic?", dontKnow: false, answers: [{ value: "Chemistry", label: "Chemistry", index: 0 }], answeredAt: new Date().toISOString() } }), agentFactory(engine));
 		assert.equal(calls.length, 2, "the trailing answer fired the one wake");
 		const prompt2 = calls[1]!.join("\n");
 		assert.match(prompt2, /Chemistry/, "the answer rode the wake");
