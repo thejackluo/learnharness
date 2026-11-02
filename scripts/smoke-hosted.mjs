@@ -98,7 +98,8 @@ function assertNonce(response, html) {
 	const scripts = [...html.matchAll(/<script\b([^>]*)>/gi)];
 	assert.ok(scripts.length > 0, "page contains script tags");
 	for (const [, attributes] of scripts) {
-		assert.match(attributes, new RegExp(`\\bnonce=["']${nonce}["']`), "every script carries the CSP nonce");
+		const scriptNonce = attributes.match(/\bnonce=["']([^"']+)["']/i)?.[1];
+		assert.equal(scriptNonce, nonce, "every script carries the CSP nonce");
 	}
 }
 
