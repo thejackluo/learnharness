@@ -10,6 +10,7 @@ process.env.LH_DATA_DIR = TMP_DATA;
 
 const mapsRoute = await import("../app/api/maps/route.ts");
 const previewRoute = await import("../app/api/maps/import/preview/route.ts");
+const importRoute = await import("../app/api/maps/import/route.ts");
 const mapRoute = await import("../app/api/maps/[id]/route.ts");
 const exportRoute = await import("../app/api/maps/[id]/export/route.ts");
 const linksRoute = await import("../app/api/maps/[id]/links/route.ts");
@@ -69,7 +70,7 @@ function mapFiles(): string[] {
 }
 
 async function createImported(): Promise<{ id: string; revision: number }> {
-	const response = await mapsRoute.POST(request("POST", { curriculum: curriculum() }));
+	const response = await importRoute.POST(request("POST", curriculum()));
 	assert.equal(response.status, 201);
 	const body = await json(response);
 	assert.equal(response.headers.get("ETag"), `"${body.map.revision}"`);
@@ -182,27 +183,43 @@ test("manual create, edit and goal changes use If-Match; stale PUT/DELETE fail w
 	await json(gone);
 });
 
+test("a curriculum that previews within the body limit also imports (same body, no wrapper)", async () => {
+	const base = curriculum();
+	const filler = "x".repeat(1024 * 1024 - JSON.stringify(base).length - 40);
+	const nearLimit = { ...base, description: "", skills: base.skills.map((skill, index) => index === 0 ? { ...skill, objective: "o" } : skill) };
+	const padded = { ...nearLimit, padding: filler };
+	const body = JSON.stringify(padded);
+	assert.ok(body.length <= 1024 * 1024 && body.length > 1024 * 1024 - 100, String(body.length));
+	const preview = await previewRoute.POST(request("POST", body));
+	assert.equal(preview.status, 200);
+	await json(preview);
+	const imported = await importRoute.POST(request("POST", body));
+	assert.equal(imported.status, 201);
+	await json(imported);
+});
+
 test("oversized, deep, malformed and chunked bodies are bounded", async () => {
 	const large = await mapsRoute.POST(request("POST", `{"definition":"${"x".repeat(1024 * 1024)}"}`));
 	assert.equal(large.status, 413);
 	await json(large);
 	let deep: unknown = 1;
 	for (let i = 0; i < 40; i++) deep = { d: deep };
-	const nested = await mapsRoute.POST(request("POST", { curriculum: deep }));
+	const nested = await importRoute.POST(request("POST", { curriculum: deep }));
 	assert.equal(nested.status, 400);
 	await json(nested);
 	const malformed = await mapsRoute.POST(request("POST", "{"));
 	assert.equal(malformed.status, 400);
 	await json(malformed);
 	const encoder = new TextEncoder();
-	const chunks = [encoder.encode("{\"curriculum\":"), encoder.encode(JSON.stringify(curriculum())), encoder.encode("}")];
+	const text = JSON.stringify(curriculum());
+	const chunks = [encoder.encode(text.slice(0, 20)), encoder.encode(text.slice(20, 200)), encoder.encode(text.slice(200))];
 	const stream = new ReadableStream<Uint8Array>({
 		start(controller) {
 			for (const chunk of chunks) controller.enqueue(chunk);
 			controller.close();
 		},
 	});
-	const chunked = await mapsRoute.POST(new Request("http://localhost/api/maps", {
+	const chunked = await importRoute.POST(new Request("http://localhost/api/maps/import", {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: stream,

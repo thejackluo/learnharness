@@ -151,10 +151,10 @@ export function SubjectMapsHome() {
 		setImporting(true);
 		setError(null);
 		try {
-			const response = await fetch("/api/maps", {
+			const response = await fetch("/api/maps/import", {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ curriculum }),
+				body: JSON.stringify(curriculum),
 			});
 			const body = await readJson(response);
 			if (!response.ok) {

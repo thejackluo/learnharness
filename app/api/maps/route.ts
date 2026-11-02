@@ -1,6 +1,5 @@
 import {
 	createSubjectMap,
-	importSubjectMap,
 	listSubjectMaps,
 	readSubjectMapJsonRequest,
 	subjectMapErrorResponse,
@@ -22,16 +21,16 @@ export async function GET() {
 	}
 }
 
-/** Creates a map from `{definition}` (manual authoring) or `{curriculum}` (a previewed import). */
+/** Creates a map from `{definition}` (manual authoring); curriculum imports use /api/maps/import. */
 export async function POST(request: Request) {
 	const parsed = await readSubjectMapJsonRequest(request);
 	if (!parsed.ok) return subjectMapJson({ error: parsed.error }, parsed.status);
 	const body = parsed.value;
-	if (!isRecord(body) || (body.definition === undefined) === (body.curriculum === undefined)) {
-		return subjectMapJson({ error: "Invalid subject map.", issues: ["send exactly one of definition or curriculum"] }, 400);
+	if (!isRecord(body) || !isRecord(body.definition)) {
+		return subjectMapJson({ error: "Invalid subject map.", issues: ["definition must be an object"] }, 400);
 	}
 	try {
-		const map = body.curriculum !== undefined ? importSubjectMap(body.curriculum) : createSubjectMap(body.definition);
+		const map = createSubjectMap(body.definition);
 		return subjectMapJson({ state: "ok", map }, 201, map);
 	} catch (error) {
 		const mapped = subjectMapErrorResponse(error);
