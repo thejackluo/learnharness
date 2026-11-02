@@ -2,7 +2,7 @@
 
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
-import type { ArtifactPartProps } from "@/src/core";
+import { assessmentSpecOf, type ArtifactPartProps } from "@/src/core";
 
 /**
  * The practice transcript cards (practice sessions, owner design
@@ -67,6 +67,10 @@ export function ProblemCard({ part }: ArtifactPartProps) {
 			<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Problem</div>
 			<div className="lh-prose text-[15px]">
 				<ToolContentResponse>{statement}</ToolContentResponse>
+				{assessmentSpecOf(part.input)?.parts.map(p => <section key={p.id}>
+					<strong>{p.label ?? p.id} · {p.criteria.reduce((n, c) => n + c.maxPoints, 0)} pts</strong>
+					<ToolContentResponse>{p.prompt}</ToolContentResponse>
+				</section>)}
 			</div>
 		</div>
 	);

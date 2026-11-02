@@ -108,13 +108,10 @@ export function composeTool(agent: AgentSettings | undefined, id: string, on: bo
 	return { ...agent, tools: { ...agent?.tools, [id]: on } };
 }
 
-/** The quizzing mechanics (owner 2026-09-27): a segmented control, not a
- *  toggle — exactly one mechanic is ever active. `explain: true` arms
- *  free-recall (explain in, quiz out); anything else is multiple choice.
- *  `quiz` itself is never written (mechanics-managed — see quizMechanics
- *  in agent/tools.ts). Pure — exported for tests. */
-export function composeQuizMechanics(agent: AgentSettings | undefined, mechanics: "choice" | "free"): AgentSettings {
-	return { ...agent, tools: { ...agent?.tools, explain: mechanics === "free" } };
+/** Explicit assessment preference; legacy tool toggles stay intact.
+ *  Pure — exported for tests. */
+export function composeQuizMechanics(agent: AgentSettings | undefined, mechanics: "choice" | "free" | "mixed"): AgentSettings {
+	return { ...agent, assessmentMode: mechanics };
 }
 
 /** Compose the prober graph-tools toggle (wave 7): its own key in the
@@ -722,7 +719,7 @@ export function AgentSection({
 				    quizzing tool BOTH agents carry (prober checks + teach checks).
 				    Persisted as agent.tools.explain; absent = Multiple choice. */}
 				{(() => {
-					const free = agent?.tools?.explain === true;
+					const mode = agent?.assessmentMode ?? (agent?.tools?.explain === true ? "free" : "choice");
 					return (
 						<SettingsRow
 							label="Quizzing"
@@ -734,8 +731,8 @@ export function AgentSection({
 								aria-label="Quizzing mechanics"
 								className="flex rounded-lg border border-border/60 bg-muted/30 p-0.5"
 								>
-								{(["choice", "free"] as const).map((m) => {
-									const active = m === "free" ? free : !free;
+								{(["choice", "free", "mixed"] as const).map((m) => {
+									const active = m === mode;
 									return (
 										<button
 											key={m}
@@ -749,7 +746,7 @@ export function AgentSection({
 												active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
 											)}
 										>
-											{m === "choice" ? "Multiple choice" : "Free recall"}
+											{m === "choice" ? "Choice" : m === "free" ? "Free response" : "Mixed"}
 										</button>
 									);
 								})}

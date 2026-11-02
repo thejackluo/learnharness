@@ -153,7 +153,10 @@ describe("failed-response Retry (issue #110)", () => {
 		assert.equal(results.length, 1, "the learner's answer was not submitted twice");
 		const result = results[0]!;
 		assert.ok(result.role === "toolResult");
-		assert.deepEqual(result.details, JSON.parse(JSON.stringify(answer)));
+		const canonical = inputAppends({ messages: before.slice(0, 2) }, { type: "answer", toolCallId: "call-1", answer })[0]!;
+		assert.ok(canonical.role === "toolResult");
+		const expected = canonical.details as { answeredAt: string };
+		assert.deepEqual(result.details, { ...expected, answeredAt: (result.details as { answeredAt: string }).answeredAt });
 		assert.match(JSON.stringify(saved.at(-1)), /Mercury it is/);
 		assert.deepEqual(contexts.at(-1), ["user", "assistant", "toolResult"]);
 		assert.match(histories.at(-1)!, /Mercury is the innermost/);

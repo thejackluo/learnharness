@@ -377,12 +377,12 @@ describe("sectionedSegments — the prompts overhaul (2026-09-26)", () => {
 // ─── the quizzing-mechanics segmented control (owner 2026-09-27) ───────────
 
 describe("composeQuizMechanics (the segmented control's write)", () => {
-	it("free recall writes explain:true; multiple choice writes explain:false — nothing else moves", () => {
+	it("writes the explicit mode while preserving the legacy toggle and other settings", () => {
 		const before: AgentSettings = { tools: { research: false }, prompts: { teacher: true } } as AgentSettings;
 		const free = composeQuizMechanics(before, "free");
-		assert.equal(free.tools?.explain, true);
+		assert.equal(free.assessmentMode, "free");
 		const choice = composeQuizMechanics(before, "choice");
-		assert.equal(choice.tools?.explain, false);
+		assert.equal(choice.assessmentMode, "choice");
 		for (const after of [free, choice]) {
 			assert.equal(after.tools?.research, false, "the research toggle carries verbatim");
 			assert.deepEqual(after.prompts, before.prompts, "the prompts map carries verbatim");

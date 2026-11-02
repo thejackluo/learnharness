@@ -1510,8 +1510,7 @@ describe("parallel question calls: the answer defers its wake while a sibling da
 			kind: "ask",
 			questionText: ASK_INPUT.question,
 			dontKnow: false,
-			answers: [],
-			text: "History",
+			answers: [{ value: "History", label: "History", index: 1 }],
 			answeredAt: new Date().toISOString(),
 		};
 		await drainTurn(post(chat.id, { type: "answer", toolCallId: "call-2", answer: askAns }), agentFactory(engine));

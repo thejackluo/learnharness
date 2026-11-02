@@ -7,7 +7,8 @@ import { ThinkingBlock } from "@/components/thinking-block";
 import { cn } from "@/lib/utils";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import type { QuestionAnswerData } from "@/src/core";
-import { answerForPresentation, parseAskInput, parseQuizInput } from "@/src/core";
+import { answerForPresentation, assessmentSpecOf, parseAskInput, parseQuizInput } from "@/src/core";
+import { AssessmentCommitment } from "@/components/assessment-card";
 
 /**
  * Static rendering of an answered question (tool part in `output-available`).
@@ -46,6 +47,8 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 
 	return (
 		<>
+		{savedAnswer.gradingProvenance === "deterministic" && <div className="text-xs font-medium text-muted-foreground">Auto-graded</div>}
+		{isExplain && assessmentSpecOf(input) && <AssessmentCommitment spec={assessmentSpecOf(input)!} />}
 		{/* The reading channel LIFTED (owner round, 2026-10-05): thoughts
 		    captured while reading are chronologically PRIOR to the question —
 		    rendered as its own user-side block ABOVE the card, the unified
