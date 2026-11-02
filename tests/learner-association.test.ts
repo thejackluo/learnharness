@@ -3,6 +3,7 @@ import fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
+import { learnerObservationId } from "../src/core/learner.ts";
 import type { LhMessage } from "../src/core/native-messages.ts";
 
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-learner-association-"));
@@ -13,9 +14,11 @@ const {
 	attachEvidenceTarget,
 	detachEvidenceTarget,
 	getLearnerObservation,
+	learnerContextFor,
 	listEvidenceAssociations,
 	LearnerEvidenceUnavailableError,
 	LearnerProfileConflictError,
+	readLearnerEvidence,
 } = await import("../src/server/learner.ts");
 
 test.after(() => {
@@ -109,4 +112,32 @@ test("source deletion leaves the retained association unavailable", () => {
 	assert.equal(retained.length, 1);
 	assert.equal(retained[0]?.status, "unavailable");
 	assert.equal(getLearnerObservation(observation.id).status, "unavailable");
+});
+
+test("malformed chat derivation is unreadable per source without dropping other context", () => {
+	const previousPage = readLearnerEvidence({ chatBudget: 100 });
+	const { chat: validChat } = sourceEvidence();
+	const malformedChat = chatStore.createChat("Malformed source");
+	chatStore.saveMessages(malformedChat.id, [{
+		id: "malformed-assistant",
+		role: "assistant",
+		content: null,
+		timestamp: Date.now(),
+	} as unknown as LhMessage]);
+
+	const malformedEvidenceId = learnerObservationId({
+		chatId: malformedChat.id,
+		resultMessageId: "malformed-result",
+		callId: "malformed-call",
+	});
+	assert.deepEqual(getLearnerObservation(malformedEvidenceId), { status: "unavailable" });
+
+	const page = readLearnerEvidence({ chatBudget: 100 });
+	assert.equal(page.coverage.unreadableChats, previousPage.coverage.unreadableChats + 1);
+	assert.equal(page.availability, "partial");
+	assert.ok(!page.sources.some((source) => source.chatId === malformedChat.id));
+
+	const context = learnerContextFor("current-session");
+	assert.match(context ?? "", /Evidence source · choice · correct · auto-graded/);
+	assert.ok(validChat.id);
 });

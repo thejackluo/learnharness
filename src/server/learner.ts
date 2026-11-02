@@ -81,6 +81,14 @@ function safeProfileRead(): LearnerProfileRead | null {
 	}
 }
 
+function safeDeriveChatObservations(record: Parameters<typeof deriveChatObservations>[0]): LearnerObservation[] | null {
+	try {
+		return deriveChatObservations(record);
+	} catch {
+		return null;
+	}
+}
+
 export function readLearnerEvidence(input: {
 	cursor?: string;
 	limit?: number;
@@ -117,8 +125,13 @@ export function readLearnerEvidence(input: {
 			unreadableThisPage++;
 			continue;
 		}
+		const derived = safeDeriveChatObservations(record);
+		if (!derived) {
+			unreadableThisPage++;
+			continue;
+		}
 		sources.push({ chatId, updatedAt: record.updatedAt });
-		for (const observation of deriveChatObservations(record)) {
+		for (const observation of derived) {
 			observations.push(withTargets(observation, profile?.associations ?? []));
 		}
 	}
@@ -153,7 +166,9 @@ export function getLearnerObservation(id: string): LearnerObservationRead {
 	if (!parsed) return { status: "unavailable" };
 	const record = stores.chatStore.getChat(parsed.chatId);
 	if (!record) return { status: "unavailable" };
-	const observation = deriveChatObservations(record).find((candidate) => candidate.id === id);
+	const derived = safeDeriveChatObservations(record);
+	if (!derived) return { status: "unavailable" };
+	const observation = derived.find((candidate) => candidate.id === id);
 	if (!observation) return { status: "unavailable" };
 	const profileRead = safeProfileRead();
 	const profile = profileRead ? readableProfile(profileRead) : null;
@@ -258,8 +273,10 @@ export function learnerContextFor(excludeChatId: string): string | null {
 		const observations: LearnerObservation[] = [];
 		for (const summary of summaries) {
 			const record = stores.chatStore.getChat(summary.id);
-			if (!record) throw new Error(`Could not read learner context source chat ${summary.id}.`);
-			for (const observation of deriveChatObservations(record)) {
+			if (!record) continue;
+			const derived = safeDeriveChatObservations(record);
+			if (!derived) continue;
+			for (const observation of derived) {
 				observations.push(withTargets(observation, profile?.associations ?? []));
 			}
 		}
