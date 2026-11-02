@@ -241,7 +241,8 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 				content: [{ type: "text", text: opts.learnerContext }],
 				timestamp: Date.now(),
 			};
-			return [learnerMessage, ...converted];
+			const insertionIndex = converted[0]?.role === "system" ? 1 : 0;
+			return [...converted.slice(0, insertionIndex), learnerMessage, ...converted.slice(insertionIndex)];
 		},
 		prepareRequest: (request) => {
 			if (opts.callPurpose) {

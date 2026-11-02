@@ -89,9 +89,9 @@ test("learner context is projected for another chat and injected only into the m
 	assert.ok(handle);
 	await new Response(handle.subscribe()).text();
 
-	assert.equal(modelMessages[0]?.role, "user");
-	assert.match(JSON.stringify(modelMessages[0]?.content), /PROFILE_CONTEXT_SENTINEL/);
-	assert.match(JSON.stringify(modelMessages[0]?.content), /Source assessment · choice · incorrect · auto-graded/);
+	assert.deepEqual(modelMessages.slice(0, 3).map((message) => message.role), ["system", "user", "user"]);
+	assert.match(JSON.stringify(modelMessages[1]?.content), /PROFILE_CONTEXT_SENTINEL/);
+	assert.match(JSON.stringify(modelMessages[1]?.content), /Source assessment · choice · incorrect · auto-graded/);
 	assert.ok(buildOptions?.learnerContext);
 	assert.ok(!JSON.stringify(buildOptions?.messages).includes("PROFILE_CONTEXT_SENTINEL"));
 	const persisted = stores.chatStore.getChat(current.id)?.messages ?? [];
