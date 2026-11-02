@@ -1,0 +1,13 @@
+.git
+.next
+node_modules
+dist
+data
+owner
+auth.json
+*credentials.json*
+.env*
+.fresh-data
+tests/fixtures
+coverage
+backups

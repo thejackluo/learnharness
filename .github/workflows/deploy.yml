@@ -1,0 +1,62 @@
+name: Deploy hosted
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Digest-pinned container image (repository@sha256:<64 hex>)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hosted-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: Validate deployment settings and prepare private files
+        env:
+          DEPLOY_IMAGE: ${{ inputs.image }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          LH_PUBLIC_ORIGIN: ${{ vars.LH_PUBLIC_ORIGIN }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_IMAGE" =~ ^[A-Za-z0-9][A-Za-z0-9./:_-]*@sha256:[0-9a-f]{64}$ ]] || { echo "image must be pinned by a SHA-256 digest" >&2; exit 2; }
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_PRIVATE_KEY DEPLOY_KNOWN_HOSTS LH_PUBLIC_ORIGIN BACKUP_PASSPHRASE; do
+            [[ -n "${!name:-}" ]] || { echo "Missing production setting: $name" >&2; exit 2; }
+          done
+          [[ "$LH_PUBLIC_ORIGIN" == https://* ]] || { echo "LH_PUBLIC_ORIGIN must use HTTPS" >&2; exit 2; }
+          umask 077
+          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/deploy.key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          printf '%s' "$BACKUP_PASSPHRASE" > "$RUNNER_TEMP/backup.pass"
+          chmod 600 "$RUNNER_TEMP/deploy.key" "$RUNNER_TEMP/known_hosts" "$RUNNER_TEMP/backup.pass"
+          {
+            echo "DEPLOY_SSH_KEY_FILE=$RUNNER_TEMP/deploy.key"
+            echo "DEPLOY_KNOWN_HOSTS_FILE=$RUNNER_TEMP/known_hosts"
+            echo "BACKUP_PASSFILE=$RUNNER_TEMP/backup.pass"
+            echo "LH_IMAGE=$DEPLOY_IMAGE"
+          } >> "$GITHUB_ENV"
+      - name: Deploy digest-pinned image
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          LH_PUBLIC_ORIGIN: ${{ vars.LH_PUBLIC_ORIGIN }}
+        run: bash scripts/hosted/deploy.sh

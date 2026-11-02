@@ -1,0 +1,34 @@
+services:
+  learnharness:
+    image: ${LH_IMAGE:-learnharness:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
+    user: "1000:1000"
+    restart: unless-stopped
+    stop_grace_period: 45s
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:${LH_HOST_PORT:-3000}:3000"
+    environment:
+      LH_PUBLIC_ORIGIN: ${LH_PUBLIC_ORIGIN:?Set LH_PUBLIC_ORIGIN to the public HTTPS origin}
+      LH_TRUSTED_PROXY_HOPS: ${LH_TRUSTED_PROXY_HOPS:-0}
+    volumes:
+      - learnharness-state:/var/lib/learnharness
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+volumes:
+  learnharness-state:
+    name: ${LH_VOLUME_NAME:-learnharness-state}

@@ -67,3 +67,39 @@ jobs:
       - run: node scripts/smoke-provider-runtime.mjs
       - run: node scripts/build-server.mjs
       - run: node scripts/smoke-server.mjs --electron
+
+  hosted:
+    name: Hosted runtime (Node 24)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Plant synthetic payload sentinels
+        run: |
+          mkdir -p data/chats owner
+          printf '%s' 'LH_CI_AUTH_SENTINEL_24' > auth.json
+          printf '%s' 'LH_CI_CHATGPT_CREDENTIALS_SENTINEL_24' > chatgpt-credentials.json
+          printf '%s' 'LH_CI_XAI_CREDENTIALS_SENTINEL_24' > xai-credentials.json
+          printf '%s' 'LH_CI_CHAT_SENTINEL_24' > data/chats/ci-sentinel.json
+          printf '%s' 'LH_CI_ENV_SENTINEL_24' > .env.local
+          printf '%s' 'LH_CI_OWNER_SENTINEL_24' > owner/owner.json
+      - run: npm run build
+      - run: node scripts/build-server.mjs
+      - name: Scan curated standalone payload
+        run: |
+          node scripts/scan-payload.mjs .next/standalone \
+            --sentinel LH_CI_AUTH_SENTINEL_24 \
+            --sentinel LH_CI_CHATGPT_CREDENTIALS_SENTINEL_24 \
+            --sentinel LH_CI_XAI_CREDENTIALS_SENTINEL_24 \
+            --sentinel LH_CI_CHAT_SENTINEL_24 \
+            --sentinel LH_CI_ENV_SENTINEL_24 \
+            --sentinel LH_CI_OWNER_SENTINEL_24
+      - run: npm test
+      - run: node scripts/smoke-server.mjs
+      - run: node scripts/smoke-hosted.mjs
+      - run: bash scripts/hosted/smoke-container.sh

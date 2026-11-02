@@ -7,6 +7,7 @@ A standalone learning app (web + Electron desktop): a **teacher agent** (Next.js
 Not a chat app with a graph bolted on: sessions are probe→teach lessons, the plan tree is a structured, schema-validated object, sessions accumulate into the graph through the extraction pipeline (propositions + reasoning chains — the stored truth; the canvas renders a derived image), and the teacher reaches back into the graph through read-only prober tools on its own judgment so probing compounds across sessions.
 
 - [`docs/architecture.md`](architecture.md) is the **canonical architecture spec** — layers, the import law, the five systems, the invariants, the seam directory. (The pre-audit spec is archived under `docs/archive/` — history only.)
+- [`docs/hosting.md`](hosting.md) covers the private hosted Docker deployment and its backup/restore workflow.
 - Living design doc (all decisions): [`docs/vision.md`](vision.md)
 - Build plan + wave/gate results: [`docs/plan.md`](plan.md)
 
