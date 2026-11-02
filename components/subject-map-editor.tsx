@@ -391,7 +391,7 @@ export function SubjectMapEditor({ mapId }: { mapId: string }) {
 			{conflict && (
 				<div role="alert" className="flex flex-col gap-2 rounded-sm border border-destructive/60 p-3 text-sm">
 					<p>This map changed elsewhere (now revision {conflict.revision}). Your edits were not saved.</p>
-					<button type="button" onClick={() => accept(conflict, null)} className={`self-start ${BUTTON}`}>Load latest and discard my edits</button>
+					<button type="button" onClick={() => void load()} className={`self-start ${BUTTON}`}>Load latest and discard my edits</button>
 				</div>
 			)}
 
@@ -657,13 +657,13 @@ function SkillRow({ skill, index, draft, saved, titleOf, pathText, sources, link
 											<Link href={`/chat/${encodeURIComponent(item.observation.chatId)}`} className="underline underline-offset-2">{observationSummary(item.observation)}</Link>
 										) : "⚠ source unavailable (deleted or unreadable session)"}
 										{" · "}{polarityLabel(item)}{" "}
-										<button type="button" onClick={() => onDetachEvidence(item)} className={LINK_BUTTON}>Unlink</button>
+										<button type="button" disabled={linkingBlocked} onClick={() => onDetachEvidence(item)} className={LINK_BUTTON}>Unlink</button>
 									</li>
 								))}
 								{saved.evidence.historical.map((item) => (
 									<li key={`${item.evidenceId}-${item.skillRevision}`} className="text-muted-foreground">
 										Historical (objective revision {item.skillRevision}, review needed): {item.observation ? observationSummary(item.observation) : "source unavailable"}{" "}
-										<button type="button" onClick={() => onDetachEvidence(item)} className={LINK_BUTTON}>Unlink</button>
+										<button type="button" disabled={linkingBlocked} onClick={() => onDetachEvidence(item)} className={LINK_BUTTON}>Unlink</button>
 									</li>
 								))}
 							</ul>
