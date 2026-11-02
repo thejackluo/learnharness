@@ -7,7 +7,8 @@ import { ThinkingBlock } from "@/components/thinking-block";
 import { cn } from "@/lib/utils";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import type { QuestionAnswerData } from "@/src/core";
-import { answerForPresentation, assessmentSpecOf, parseAskInput, parseQuizInput } from "@/src/core";
+import { answerForPresentation, assessmentSpecOf, parseAskInput, parseQuizInput, stimulusSnapshotOf } from "@/src/core";
+import { ActivityStimulusNote } from "@/components/activity-card";
 import { AssessmentCommitment } from "@/components/assessment-card";
 
 /**
@@ -48,6 +49,7 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 	return (
 		<>
 		{savedAnswer.gradingProvenance === "deterministic" && <div className="text-xs font-medium text-muted-foreground">Auto-graded</div>}
+		{isExplain && stimulusSnapshotOf(savedAnswer.stimulus) && <ActivityStimulusNote toolCallId={savedAnswer.stimulus!.toolCallId} title={savedAnswer.stimulus!.guide.title} />}
 		{isExplain && assessmentSpecOf(input) && <AssessmentCommitment spec={assessmentSpecOf(input)!} />}
 		{/* The reading channel LIFTED (owner round, 2026-10-05): thoughts
 		    captured while reading are chronologically PRIOR to the question —

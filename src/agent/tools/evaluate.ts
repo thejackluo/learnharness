@@ -1,5 +1,6 @@
 import { Type, type Static } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
+import { resolveTeachingStimulus, teachingStimulusRefOf } from "../../core/activity.ts";
 import { assessmentSpecOf, assessmentSpecProblems, evaluationProblems, scoreEvaluation } from "../../core/assessment.ts";
 import type { AssessmentEvaluationV1 } from "../../core/contracts/assessment.ts";
 import type { LhMessage } from "../../core/native-messages.ts";
@@ -22,8 +23,12 @@ export function evaluateTool(ctx: { chatId: string; chatStore: { getChat(id: str
 			const messages = ctx.chatStore.getChat(ctx.chatId)?.messages ?? [];
 			const calls = messages.flatMap(m => m.role === "assistant" ? m.content.filter(b => b.type === "toolCall") : []);
 			const source = calls.find(c => c.id === input.sourceCallId);
-			const spec = source && ["explain", "recall", "problem"].includes(source.name) ? assessmentSpecOf(source.arguments) : undefined;
-			if (!source || !spec || assessmentSpecProblems(spec.parts).length) return invalidInputResult("evaluate", ["source must be a persisted rubric-bearing explain, recall, or problem call"]);
+			const rubric = source && ["explain", "recall", "problem"].includes(source.name) ? assessmentSpecOf(source.arguments) : undefined;
+			if (!source || !rubric || assessmentSpecProblems(rubric.parts).length) return invalidInputResult("evaluate", ["source must be a persisted rubric-bearing explain, recall, or problem call"]);
+			const ref = source.name === "explain" ? teachingStimulusRefOf(source.arguments) : undefined;
+			const stimulus = ref ? resolveTeachingStimulus(messages, ref) : undefined;
+			if (stimulus && !stimulus.ok) return invalidInputResult("evaluate", [`source stimulus unavailable: ${stimulus.problem}`]);
+			const spec = stimulus?.ok ? { ...rubric, stimulus: { kind: stimulus.snapshot.kind, messageId: stimulus.snapshot.messageId, toolCallId: stimulus.snapshot.toolCallId } } : rubric;
 			const response = messages.find(m => m.id === input.responseId);
 			const successfulSource = messages.some(m => m.role === "toolResult" && m.toolCallId === source.id && !m.isError);
 			const answer = response?.role === "toolResult" ? response.details as { kind?: unknown; dismissed?: unknown } | undefined : undefined;

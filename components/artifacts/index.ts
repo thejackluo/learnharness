@@ -7,6 +7,7 @@ import { ProbeDoneCard } from "@/components/artifacts/probe-done-card";
 import { ToolCallCard } from "@/components/artifacts/tool-call-card";
 import { ProblemCard, ConcludeCard } from "@/components/practice-cards";
 import { EvaluationCard } from "@/components/assessment-card";
+import { ActivityCard } from "@/components/activity-card";
 
 /**
  * Artifact renderer registry — the extension point for tool-part UI.
@@ -22,6 +23,8 @@ import { EvaluationCard } from "@/components/assessment-card";
  */
 export const artifactRenderers: Record<string, ComponentType<ArtifactPartProps>> = {
 	evaluate: EvaluationCard,
+	// App-owned declarative explore→explain activity (never generated code).
+	activity: ActivityCard,
 	research: JobCard,
 	pdf: PdfJobCard, // sources v0 — live smoke 2026-09-19 caught the gap: without this the tool-pdf dispatch part rendered nothing
 	// plan_* parts render nothing inline by design: the phase seam is a

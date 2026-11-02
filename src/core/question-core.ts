@@ -17,6 +17,8 @@
  * exited and resumed mid-question for free.
  */
 
+import { teachingStimulusField } from "./activity.ts";
+import type { TeachingStimulusSnapshot } from "./contracts/activity.ts";
 import { Type, type Static } from "typebox";
 import { stripModelValueDebris } from "./value-debris.ts";
 import { assessmentDisplayPartsSchema, assessmentPartsSchema, assessmentSpecProblems } from "./assessment.ts";
@@ -348,6 +350,7 @@ export const explainInputObject = Type.Object({
 			"For off-map checks use ask_user_question.",
 	}),
 	...explainInputBase.properties,
+	stimulus: teachingStimulusField,
 });
 
 /** The DISPLAY parse for persisted explain calls (tool-parts.ts): the
@@ -359,6 +362,7 @@ export const explainDisplayInputSchema = Type.Object({
 	...explainInputBase.properties,
 	parts: Type.Optional(assessmentDisplayPartsSchema),
 	type: Type.Optional(Type.String()),
+	stimulus: Type.Optional(Type.Object({ kind: Type.Literal("teaching-stimulus"), toolCallId: Type.String() })),
 });
 
 /** The explain authoring contract: the commitment must exist. Empty
@@ -448,6 +452,9 @@ export interface QuestionData {
  *  NO questionId (owner, tool-result diet 2026-10-02): it was the
  *  toolCallId restated — the toolResult message already carries it. */
 export interface QuestionAnswerData {
+	/** explain only: the server-resolved activity this explanation was
+	 *  about (never client-supplied). Absent without a stimulus. */
+	stimulus?: TeachingStimulusSnapshot;
 	gradingProvenance?: "deterministic";
 	kind: QuestionKind;
 	/** The persisted call's tool NAME (owner, 2026-10-09): probe-phase

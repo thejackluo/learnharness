@@ -17,6 +17,7 @@ import {
 	emptyDockSelection,
 	questionDataOf,
 	assessmentSpecOf,
+	teachingStimulusRefOf,
 	sumAssessmentPoints,
 	toolQuestionKind,
 	parseAskInput,
@@ -36,6 +37,7 @@ import {
 	type Phase3,
 } from "@/src/core";
 import { CONFIDENCE_COLORS, confidenceRailStyle } from "@/components/confidence-rail";
+import { ActivityStimulusNote } from "@/components/activity-card";
 
 /**
  * The question dock — a pending quiz/ask REPLACES the chat composer: the
@@ -808,6 +810,9 @@ function QuestionDockForm({
 			    send. Select modes get "Your thinking" (Enter makes a newline — it
 			    is for dumping, soon dictated; the button submits); text mode
 			    keeps "Your answer" with Enter-to-submit. */}
+			{teachingStimulusRefOf(input) && (
+				<div className="px-4 pt-2"><ActivityStimulusNote toolCallId={teachingStimulusRefOf(input)!.toolCallId} /></div>
+			)}
 			{assessmentSpecOf(input)?.parts.map(part => (
 				<div key={part.id} className="px-4 py-2 text-sm">
 					<strong>{part.label ?? part.id} · {sumAssessmentPoints(part.criteria.map(c => c.maxPoints))} pts</strong>

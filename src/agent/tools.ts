@@ -2,6 +2,8 @@ import { Type } from "typebox";
 import { evaluateTool } from "./tools/evaluate.ts";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { invalidInputResult, questionResult, serverExecute } from "./tool-execute.ts";
+import { activityTool, stimulusPoseProblem, type PostedActivities } from "./tools/activity.ts";
+import { teachingStimulusRefOf } from "../core/activity.ts";
 import {
 	askInputSchema,
 	askOptionProblems,
@@ -224,6 +226,7 @@ export const probeQuizTool: AgentTool<typeof probeQuizInputSchema> = {
  *  teach quiz — phases/plan recognize BOTH tool names). */
 export function teachExplainToolFor(
 	ctx: Pick<PlanToolContext, "chatId" | "chatStore">,
+	posted: PostedActivities = new Map(),
 ): AgentTool<typeof explainInputObject> {
 	return {
 		name: "explain",
@@ -236,6 +239,8 @@ export function teachExplainToolFor(
 			const problems = [...explainInputProblems(input)];
 			const nodeIdProblemText = nodeIdProblem(ctx, input.nodeId);
 			if (nodeIdProblemText) problems.push(nodeIdProblemText);
+			const stimulusProblem = stimulusPoseProblem(ctx, posted, teachingStimulusRefOf(input));
+			if (stimulusProblem) problems.push(stimulusProblem);
 			if (problems.length > 0) return invalidInputResult("explain", problems);
 			return questionResult();
 		},
@@ -451,16 +456,21 @@ export function createTeacherTools(
 	// quiz for the teach explain — one quizzing tool at a time, whichever
 	// the settings arm. ask stays always-on.
 	const mechanics = quizMechanics(enabled, mode);
+	// One turn-scoped map: an explain may link an activity posted earlier in
+	// the same turn, before persistence.
+	const posted: PostedActivities = new Map();
 	// Same widening as the prober's (see above) — the conditional spread of
 	// two differently-typed literals collapses into an unusable union type.
 	const quizzing: Record<string, AgentTool<any>> =
-		{ ...(mechanics !== "choice" ? { explain: withTargetAttribution(teachExplainToolFor(ctx), ctx.sessionTarget) } : {}), ...(mechanics !== "free" ? { quiz: withTargetAttribution(teachQuizToolFor(ctx), ctx.sessionTarget) } : {}) };
+		{ ...(mechanics !== "choice" ? { explain: withTargetAttribution(teachExplainToolFor(ctx, posted), ctx.sessionTarget) } : {}), ...(mechanics !== "free" ? { quiz: withTargetAttribution(teachQuizToolFor(ctx), ctx.sessionTarget) } : {}) };
 	// healToolRecord — same standard as the prober's registry (above).
 	return capabilityFilter(healToolRecord(
 		filterEnabledTools(
 			{
 			...quizzing,
 			evaluate: evaluateTool(ctx),
+			// App-rendered declarative data, not a generated job: hosted-safe.
+			activity: activityTool(posted),
 			ask_user_question: askUserQuestionTool,
 			// The learner-filesystem set is always-on (user-decided 2026-09,
 			// sources v1): the teacher locates and reads learner-referenced

@@ -1,6 +1,7 @@
 import { deterministicAnswer, questionDataOf } from "./canonical-question.ts";
 import { dismissedAnswer } from "./question-core.ts";
 import { assessmentSpecOf } from "./assessment.ts";
+import { resolveTeachingStimulus, teachingStimulusRefOf } from "./activity.ts";
 /**
  * THE INPUT-EVENTS CONTRACT (Wave B, owner ruling 2026-09-26: "input
  * events now, in the same pass"): POST /api/chat carries `{chatId, input}`
@@ -230,7 +231,13 @@ export function inputAppends(
 			}
 			if (q.mode === "text" ? !a.text?.trim() || values.length > 0 : !values.length && a.dontKnow !== true && !(q.kind === "ask" && a.other?.trim())) throw new ChatInputError("empty or invalid answer");
 			if (a.confidence !== undefined && !Number.isFinite(a.confidence)) throw new ChatInputError("confidence must be finite");
-			return [newAnswerResult(input.toolCallId, pending.tool, deterministicAnswer(q, { values, dontKnow: a.dontKnow === true, other: q.kind === "ask" ? a.other : undefined, text: q.mode === "text" ? a.text : undefined, thinking: a.thinking, readingThinking: a.readingThinking, confidence: a.confidence }, pending.tool), assessmentSpecOf(pending.input) !== undefined)];
+			// A linked activity is re-resolved from THIS record at answer time
+			// and snapshotted; any client-sent stimulus is ignored.
+			const ref = teachingStimulusRefOf(pending.input);
+			const resolved = ref ? resolveTeachingStimulus(record.messages, ref) : undefined;
+			if (resolved && !resolved.ok) throw new ChatInputError(`stimulus source unavailable: ${resolved.problem}`);
+			const answer = deterministicAnswer(q, { values, dontKnow: a.dontKnow === true, other: q.kind === "ask" ? a.other : undefined, text: q.mode === "text" ? a.text : undefined, thinking: a.thinking, readingThinking: a.readingThinking, confidence: a.confidence }, pending.tool);
+			return [newAnswerResult(input.toolCallId, pending.tool, resolved?.ok ? { ...answer, stimulus: resolved.snapshot } : answer, assessmentSpecOf(pending.input) !== undefined)];
 		}
 		case "continue":
 			return dismissalConclusion(record);

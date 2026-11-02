@@ -20,3 +20,4 @@ export * from "./contracts/probe.ts";
 export * from "./contracts/models.ts";
 export type { LearningTargetRef } from "./contracts/learning-target.ts";
 export * from "./contracts/subject-map.ts";
+export * from "./contracts/activity.ts";
