@@ -457,20 +457,20 @@ export function createTeacherTools(
 	// the settings arm. ask stays always-on.
 	const mechanics = quizMechanics(enabled, mode);
 	// One turn-scoped map: an explain may link an activity posted earlier in
-	// the same turn, before persistence.
+	// the same turn, before persistence. `activity` (app-rendered declarative
+	// data, not a generated job: hosted-safe) rides with `explain`, the only
+	// way its exploration is assessed.
 	const posted: PostedActivities = new Map();
 	// Same widening as the prober's (see above) — the conditional spread of
 	// two differently-typed literals collapses into an unusable union type.
 	const quizzing: Record<string, AgentTool<any>> =
-		{ ...(mechanics !== "choice" ? { explain: withTargetAttribution(teachExplainToolFor(ctx, posted), ctx.sessionTarget) } : {}), ...(mechanics !== "free" ? { quiz: withTargetAttribution(teachQuizToolFor(ctx), ctx.sessionTarget) } : {}) };
+		{ ...(mechanics !== "choice" ? { explain: withTargetAttribution(teachExplainToolFor(ctx, posted), ctx.sessionTarget), activity: activityTool(posted) } : {}), ...(mechanics !== "free" ? { quiz: withTargetAttribution(teachQuizToolFor(ctx), ctx.sessionTarget) } : {}) };
 	// healToolRecord — same standard as the prober's registry (above).
 	return capabilityFilter(healToolRecord(
 		filterEnabledTools(
 			{
 			...quizzing,
 			evaluate: evaluateTool(ctx),
-			// App-rendered declarative data, not a generated job: hosted-safe.
-			activity: activityTool(posted),
 			ask_user_question: askUserQuestionTool,
 			// The learner-filesystem set is always-on (user-decided 2026-09,
 			// sources v1): the teacher locates and reads learner-referenced

@@ -295,10 +295,10 @@ describe("tool toggles (core/pending.ts + factories)", () => {
 			spawn: () => {},
 		};
 		const full = Object.keys(createTeacherTools(ctx)).sort();
-		assert.deepEqual(full, ["activity", "ask_user_question", "demo", "evaluate", "find", "grep", "ls", "pdf", "plan_init", "quiz", "read", "research", "visual"]);
+		assert.deepEqual(full, ["ask_user_question", "demo", "evaluate", "find", "grep", "ls", "pdf", "plan_init", "quiz", "read", "research", "visual"]);
 
 		const noResearch = Object.keys(createTeacherTools(ctx, { research: false })).sort();
-		assert.deepEqual(noResearch, ["activity", "ask_user_question", "demo", "evaluate", "find", "grep", "ls", "pdf", "plan_init", "quiz", "read", "visual"]);
+		assert.deepEqual(noResearch, ["ask_user_question", "demo", "evaluate", "find", "grep", "ls", "pdf", "plan_init", "quiz", "read", "visual"]);
 
 		// absent = enabled: an empty record and undefined behave identically
 		assert.deepEqual(
