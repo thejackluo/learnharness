@@ -99,8 +99,13 @@ test("the activity tool persists validated data with no network, eval or helper 
 });
 
 test("activity is registered for the teacher and survives hosted capability filtering; generated jobs do not", () => {
-	const tools = createTeacherTools({ chatId: "chat-a", chatStore: store([]).chatStore, jobStore: {} as never, spawn: () => {} } as never);
-	assert.ok(tools.activity);
+	const ctx = { chatId: "chat-a", chatStore: store([]).chatStore, jobStore: {} as never, spawn: () => {} } as never;
+	// It rides with explain (the only way its exploration is assessed).
+	assert.equal(createTeacherTools(ctx).activity, undefined);
+	assert.equal(createTeacherTools(ctx, undefined, "choice").activity, undefined);
+	assert.ok(createTeacherTools(ctx, undefined, "free").activity);
+	const tools = createTeacherTools(ctx, undefined, "mixed");
+	assert.ok(tools.activity && tools.explain);
 	const hosted = capabilityFilter({ activity: tools.activity, demo: {}, visual: {} } as never, { hostFilesystem: false, remoteResearch: false, generatedJobs: false } as never);
 	assert.deepEqual(Object.keys(hosted), ["activity"]);
 });
@@ -118,6 +123,10 @@ test("explain stimulus must name a successful activity in this chat (or posted t
 	assert.match(stimulusPoseProblem(other, posted, ref)!, /no activity call/);
 	posted.set("act-1", normalizeActivity(activityInput));
 	assert.equal(stimulusPoseProblem(store([]), posted, ref), undefined);
+	// A provider that reuses a call id: never pick one of the two.
+	assert.match(stimulusPoseProblem(store(activityMessages()), posted, ref)!, /used more than once/);
+	assert.match(stimulusPoseProblem(store([...activityMessages(), ...activityMessages()]), new Map(), ref)!, /used more than once/);
+	assert.match(resolveTeachingStimulus([...activityMessages(), call("explain", {}, "act-1")] as never, ref).ok ? "ok" : "ambiguous", /ambiguous/);
 	// Through the real teach explain: the pose is rejected without a source.
 	const ctx = { ...store([]), chatStore: { getChat: () => ({ messages: [], tree: { nodes: [{ id: "n1" }] } }) } } as never;
 	const rejected = await teachExplainToolFor(ctx).execute("q1", explainInput("missing") as never);

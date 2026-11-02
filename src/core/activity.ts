@@ -199,12 +199,17 @@ export type StimulusResolution =
  *  `activity` call, posed in this chat, with a successful, valid result.
  *  Never "the latest activity" — the reference names its call. */
 export function resolveTeachingStimulus(messages: readonly MessageLike[], ref: TeachingStimulusRef): StimulusResolution {
-	const posed = messages.some(
-		(m) => m.role === "assistant" && Array.isArray(m.content) &&
-			m.content.some((p: { type?: string; id?: string; name?: string }) => p?.type === "toolCall" && p.id === ref.toolCallId && p.name === "activity"),
-	);
-	if (!posed) return { ok: false, problem: `no activity call ${ref.toolCallId} in this session` };
-	const result = messages.find((m) => m.role === "toolResult" && m.toolCallId === ref.toolCallId);
+	const calls = messages.flatMap((m) =>
+		m.role === "assistant" && Array.isArray(m.content)
+			? m.content.filter((p: { type?: string; id?: string }) => p?.type === "toolCall" && p.id === ref.toolCallId)
+			: [],
+	) as Array<{ name?: string }>;
+	if (!calls.some((c) => c.name === "activity")) return { ok: false, problem: `no activity call ${ref.toolCallId} in this session` };
+	const results = messages.filter((m) => m.role === "toolResult" && m.toolCallId === ref.toolCallId);
+	// A provider that reuses call ids makes the reference ambiguous: refuse
+	// rather than pick one (never "latest").
+	if (calls.length > 1 || results.length > 1) return { ok: false, problem: `call id ${ref.toolCallId} is used more than once in this session` };
+	const result = results[0];
 	if (!result || result.toolName !== "activity" || result.isError || !result.id) return { ok: false, problem: `activity ${ref.toolCallId} has no successful result` };
 	const activity = activityOf(result.details);
 	if (!activity) return { ok: false, problem: `activity ${ref.toolCallId} is not a valid activity` };
