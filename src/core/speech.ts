@@ -55,10 +55,16 @@ export function speechTextOfMarkdown(md: string): string {
 		.split("\n");
 	const paragraphs: string[] = [];
 	let paragraph: string[] = [];
+	let paragraphHasList = false;
+	let previousBlockWasList = false;
 	const flush = () => {
-		const prose = inlineSpeechText(paragraph.join(" ").replace(/^\s{0,3}(?:>\s*)+/, ""));
-		if (prose) paragraphs.push(prose);
+		if (paragraph.length) {
+			const prose = inlineSpeechText(paragraph.join(" ").replace(/^\s{0,3}(?:>\s*)+/, ""));
+			if (prose) paragraphs.push(prose);
+			previousBlockWasList = paragraphHasList;
+		}
 		paragraph = [];
+		paragraphHasList = false;
 	};
 
 	for (let i = 0; i < lines.length; i++) {
@@ -66,6 +72,7 @@ export function speechTextOfMarkdown(md: string): string {
 		const fence = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
 		if (fence) {
 			flush();
+			previousBlockWasList = false;
 			const marker = fence[1]!;
 			const language = fence[2]!.trim().split(/\s+/, 1)[0]?.toLowerCase();
 			paragraphs.push(language === "mermaid" ? "(diagram omitted)" : "(code block omitted)");
@@ -76,15 +83,26 @@ export function speechTextOfMarkdown(md: string): string {
 		}
 
 		if (/^(?: {4}|\t)/.test(line)) {
+			const unindented = line.replace(/^(?: {4}|\t)/, "");
+			const isListItem = /^(?:[-+*]|\d+[.)])\s+/.test(unindented);
+			const continuesList = previousBlockWasList || paragraphHasList;
+			if (isListItem || continuesList || paragraph.length > 0) {
+				paragraph.push(stripBlockMarkers(unindented));
+				paragraphHasList ||= isListItem || continuesList;
+				previousBlockWasList = paragraphHasList;
+				continue;
+			}
 			flush();
 			while (i < lines.length && (/^(?: {4}|\t)/.test(lines[i]!) || (lines[i]!.trim() === "" && /^(?: {4}|\t)/.test(lines[i + 1] ?? "")))) i++;
 			i--;
 			paragraphs.push("(code block omitted)");
+			previousBlockWasList = false;
 			continue;
 		}
 
 		if (line.includes("|") && isTableSeparator(lines[i + 1] ?? "")) {
 			flush();
+			previousBlockWasList = false;
 			paragraphs.push("(table omitted)");
 			i++;
 			while (i + 1 < lines.length && lines[i + 1]!.includes("|") && lines[i + 1]!.trim()) i++;
@@ -96,6 +114,9 @@ export function speechTextOfMarkdown(md: string): string {
 			continue;
 		}
 
+		if (paragraph.length === 0) previousBlockWasList = false;
+		const listLine = line.replace(/^(?: {0,3}>\s*)+/, "");
+		paragraphHasList ||= /^(?: {0,3})(?:[-+*]|\d+[.)])\s+/.test(listLine);
 		paragraph.push(stripBlockMarkers(line));
 	}
 	flush();

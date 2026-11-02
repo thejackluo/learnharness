@@ -54,6 +54,8 @@ test("Markdown speech keeps prose and explicit omission cues, not markup or hidd
 	assert.match(text, /\(code block omitted\)/);
 	assert.match(text, /Visible HTML prose$/);
 	assert.doesNotMatch(text, /doNotSpeak|graph TD|const hidden|<em>|https:/);
+	assert.equal(speechTextOfMarkdown("- a\n    - b\n    - c"), "a b c");
+	assert.equal(speechTextOfMarkdown("A paragraph.\n\n    const code = true;"), "A paragraph.\n(code block omitted)");
 });
 
 test("speech chunks break sentences and newlines, cap long runs, and never emit blanks", () => {
