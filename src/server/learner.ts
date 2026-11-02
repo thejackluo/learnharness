@@ -5,6 +5,7 @@ import {
 	parseLearnerObservationId,
 	projectLearnerContext,
 } from "../core/learner.ts";
+import type { ChatRecord } from "../core/contracts/chat.ts";
 import type {
 	LearnerEvidenceAssociation,
 	LearnerObservation,
@@ -270,16 +271,21 @@ export function learnerContextFor(excludeChatId: string): string | null {
 	try {
 		const profileRead = stores.learnerProfileStore.read();
 		const profile = readableProfile(profileRead);
-		const summaries = stores.chatStore.listChats()
-			.filter((chat) => chat.id !== excludeChatId)
-			.slice(0, 20);
-		const observations: LearnerObservation[] = [];
-		for (const summary of summaries) {
-			const record = stores.chatStore.getChat(summary.id);
+		const contextSources: { record: ChatRecord; observations: LearnerObservation[] }[] = [];
+		for (const chatId of stores.chatStore.listChatIds()) {
+			if (chatId === excludeChatId) continue;
+			const record = stores.chatStore.getChat(chatId);
 			if (!record) continue;
 			const derived = safeDeriveChatObservations(record);
 			if (!derived) continue;
-			for (const observation of derived) {
+			contextSources.push({ record, observations: derived });
+		}
+		const observations: LearnerObservation[] = [];
+		const recentSources = contextSources
+			.sort((a, b) => b.record.updatedAt.localeCompare(a.record.updatedAt))
+			.slice(0, 20);
+		for (const source of recentSources) {
+			for (const observation of source.observations) {
 				observations.push(withTargets(observation, profile?.associations ?? []));
 			}
 		}
