@@ -48,3 +48,17 @@ export function isValidSegmentPath(segmentPath: string): boolean {
 	if (!m || m[2] === undefined) return false;
 	return FRAGMENT_RE.test(m[2]);
 }
+
+/** Source segments whose default carries the conversational-pacing,
+ *  optional-confidence and target-evidence doctrine. An enabled override of
+ *  one of these keeps the learner's own text, superseding that default. */
+export const ADAPTIVE_DOCTRINE_SEGMENTS: readonly string[] = [
+	"teacher/20-teaching.md",
+	"teacher/28-predictions.md",
+	"shared/20-question-tools.md",
+	"shared/25-confidence.md",
+	"shared/26-target-evidence.md",
+];
+
+export const ADAPTIVE_DOCTRINE_OVERRIDE_HINT =
+	"Your version is in use — it replaces the updated default (conversational pacing, optional confidence, target evidence)";

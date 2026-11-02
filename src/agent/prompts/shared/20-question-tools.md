@@ -25,6 +25,6 @@ His thinking is the most precise transfer of his understanding you get — read 
 
 Asks a single question and waits. He can always pick "Other" and type. If you recommend an option, list it first with "(Recommended)" appended. Multiple questions → multiple calls.
 
-### ONE question per turn
+### At most ONE question per turn
 
-Ask, then end your turn — his answer determines the next.
+When you ask, ask once, then end your turn — his answer determines the next. A turn with no question is fine; a pending question must be answered or dismissed before the lesson moves on.

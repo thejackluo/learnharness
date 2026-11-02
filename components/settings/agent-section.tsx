@@ -60,6 +60,8 @@ import { Hint } from "@/components/ui/hint";
 import type React from "react";
 import {
 	COMPACTION_THRESHOLD_FLOOR,
+	ADAPTIVE_DOCTRINE_OVERRIDE_HINT,
+	ADAPTIVE_DOCTRINE_SEGMENTS,
 	MODEL_SLOTS,
 	resolveSettings,
 	type AgentSettings,
@@ -480,7 +482,7 @@ export function AgentSection({
 					// on disk unused), "Your version is in use" when the
 					// switch is on. The switch's meaning becomes legible
 					// through this line.
-					hint={info.enabled ? PROMPT_IN_USE_HINT : undefined}
+					hint={info.enabled ? (ADAPTIVE_DOCTRINE_SEGMENTS.includes(info.path) ? ADAPTIVE_DOCTRINE_OVERRIDE_HINT : PROMPT_IN_USE_HINT) : undefined}
 					testid={`prompt-row-${info.path}`}
 				>
 					{/* Graying ruling: ONLY the toggle dims without an

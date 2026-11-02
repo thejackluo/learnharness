@@ -30,6 +30,8 @@ Hold the architecture along two orthogonal axes:
 | **Classroom** — session engine | `data/chats/*.json` | the turn pipeline, prober→teacher, plan tree, questions, phases |
 | **Learner** — profile | `data/learner/profile.json` | editable learner context and import confirmations; evidence remains derived from chats |
 | **Maps** — subject reference maps | `data/maps/*.json` | learner-authored prerequisite DAGs, goals and explicit proposition/topic links; never mastery, never a second evidence ledger |
+
+A session may start from one subject-map skill (`ChatRecord.target`, validated at creation against the current objective revision). The tutor marks checks that directly assess it with `onTarget`, accepted only while that target is current. `src/core/adaptation.ts` turns the target's dated observations (learner links plus tutor-marked results from canonical chats) into an advisory probe / repair / advance move; `src/server/target-adaptation.ts` gathers them, injects the bounded block into the per-turn learner context and serves it at `GET /api/chats/[id]/target`. It is recomputed on read and never stored.
 | **Workbench** — background labor | `data/jobs/*.json` | job runner, researcher/demo-builder/visual-maker, steer delivery |
 | **Library** — world model | `data/graph/*` ledgers | extraction pipeline (sole graph writer), derivation, birth-session clusters |
 | **Practice** — problem sets | `data/practice/*.json` | partitioner→generator→grader pipeline, self-contained sets (§7) |

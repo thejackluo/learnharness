@@ -13,6 +13,7 @@ import {
 	normalizeQuizType,
 	CONFIDENCE_STOPS,
 	DEFAULT_CONFIDENCE_INDEX,
+	stepConfidenceIndex,
 	emptyDockSelection,
 	questionDataOf,
 	assessmentSpecOf,
@@ -288,11 +289,11 @@ function QuestionDockForm({
 	 * in time — submit reads these, kept current at every write site. */
 	const thinkingTextRef = useRef(initialDraft?.thinking ?? "");
 	const answerTextRef = useRef(initialDraft?.text ?? "");
-	// Confidence (owner, 2026-10-01): an index into CONFIDENCE_STOPS,
-	// resting at 50 — a real coin flip by definition, untouched or
-	// deliberate (the same number, the same meaning). The dock unmounts
-	// between questions, so each question starts fresh at 50.
-	const [confIdx, setConfIdx] = useState<number>(initialDraft?.confidenceIndex ?? DEFAULT_CONFIDENCE_INDEX);
+	// Confidence (owner, 2026-10-01; optional since PR 5): an index into
+	// CONFIDENCE_STOPS, or null until the learner sets it — an untouched
+	// slider states nothing, while a deliberate 50 is a real coin flip. The
+	// dock unmounts between questions, so each question starts unset.
+	const [confIdx, setConfIdx] = useState<number | null>(initialDraft?.confidenceIndex ?? null);
 	const selectMode: SelectMode = qd.mode === "multi-select" ? "multi-select" : "single-select";
 
 	// The PRIMARY dictation input (owner, STT round 1): while a question
@@ -352,9 +353,9 @@ function QuestionDockForm({
 			other: sel.otherSelected ? other : undefined,
 			text: qd.mode === "text" ? answerTextRef.current : undefined,
 			thinking: qd.mode !== "text" ? thinkingTextRef.current.trim() || undefined : undefined,
-			// Always sent on quiz answers (owner: 50 must mean 50, never
-			// "untouched"); buildAnswer drops it on "I don't know".
-			confidence: kind === "quiz" ? CONFIDENCE_STOPS[confIdx] : undefined,
+			// Sent only once the learner set it (50 means 50; untouched means
+			// nothing stated); buildAnswer drops it on "I don't know".
+			confidence: kind === "quiz" && confIdx !== null ? CONFIDENCE_STOPS[confIdx] : undefined,
 		};
 		// Snapshot before optimistic submission unmounts the form. Ref values
 		// include the dictation finals that just landed, unlike stale closures.
@@ -486,12 +487,7 @@ function QuestionDockForm({
 				// (the slider grays out and nothing is sent).
 				if (kind !== "quiz" || sel.dontKnow) return;
 				e.preventDefault();
-				setConfIdx((i) =>
-					Math.min(
-						CONFIDENCE_STOPS.length - 1,
-						Math.max(0, i + (e.key === "ArrowRight" ? 1 : -1)),
-					),
-				);
+				setConfIdx((i) => stepConfidenceIndex(i, e.key === "ArrowRight" ? 1 : -1));
 			} else if (e.key === " ") {
 				if (kbdIdx === null) return; // plain Space keeps scrolling the page
 				e.preventDefault();
@@ -737,18 +733,18 @@ function QuestionDockForm({
 								aria-hidden
 								data-testid="confidence-rail"
 								className="pointer-events-none absolute top-1/2 left-2 right-2 h-1.5 -translate-y-1/2 rounded-full border border-border"
-								style={confidenceRailStyle(CONFIDENCE_STOPS[confIdx]!)}
+								style={confIdx === null ? undefined : confidenceRailStyle(CONFIDENCE_STOPS[confIdx]!)}
 							/>
 							<input
 								type="range"
 								min={0}
 								max={100}
 								step={1}
-								value={CONFIDENCE_STOPS[confIdx]}
+								value={CONFIDENCE_STOPS[confIdx ?? DEFAULT_CONFIDENCE_INDEX]}
 								disabled={sel.dontKnow}
-								aria-label="Confidence — the probability your selected answer is correct"
-								aria-valuetext={`${CONFIDENCE_STOPS[confIdx]} percent`}
-								title="The probability your selected answer is correct — 50% is a coin flip. Adjust with ←/→."
+								aria-label="Confidence (optional) — the probability your selected answer is correct"
+								aria-valuetext={confIdx === null ? "not set" : `${CONFIDENCE_STOPS[confIdx]} percent`}
+								title="Optional: the probability your selected answer is correct — 50% is a coin flip. Set with ←/→ or by clicking; leave unset to state nothing."
 								data-testid="confidence-slider"
 								onChange={(e) => {
 									// Snap to the nearest stop; the rendered VALUE is the stop's own
@@ -763,7 +759,14 @@ function QuestionDockForm({
 									}
 									setConfIdx(best);
 								}}
-								style={{ color: CONFIDENCE_COLORS[confIdx] }}
+								// A click at the resting position fires no change event; it still
+								// states a confidence explicitly.
+								onClick={(e) => {
+									if (confIdx !== null) return;
+									const v = Number(e.currentTarget.value);
+									setConfIdx(CONFIDENCE_STOPS.indexOf(v) >= 0 ? CONFIDENCE_STOPS.indexOf(v) : DEFAULT_CONFIDENCE_INDEX);
+								}}
+								style={{ color: confIdx === null ? "transparent" : CONFIDENCE_COLORS[confIdx] }}
 								className={cn(
 									"absolute inset-0 h-4 w-full cursor-pointer appearance-none bg-transparent outline-none",
 									"[&::-webkit-slider-runnable-track]:h-4 [&::-webkit-slider-runnable-track]:bg-transparent",
@@ -780,8 +783,22 @@ function QuestionDockForm({
 								sel.dontKnow && "text-muted-foreground/50",
 							)}
 						>
-							{sel.dontKnow ? "—" : `${CONFIDENCE_STOPS[confIdx]}%`}
+							{sel.dontKnow || confIdx === null ? "—" : `${CONFIDENCE_STOPS[confIdx]}%`}
 						</span>
+						{confIdx !== null && !sel.dontKnow ? (
+							<button
+								type="button"
+								data-testid="confidence-clear"
+								onClick={() => setConfIdx(null)}
+								className="shrink-0 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+							>
+								Clear
+							</button>
+						) : (
+							<span className="shrink-0 text-xs text-muted-foreground" data-testid="confidence-optional">
+								{sel.dontKnow ? "" : "optional"}
+							</span>
+						)}
 					</div>
 				</div>
 			)}

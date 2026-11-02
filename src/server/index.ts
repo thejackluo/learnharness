@@ -7,6 +7,7 @@
 export * from "./chat-handler.ts";
 export * from "./learner.ts";
 export * from "./subject-maps.ts";
+export * from "./target-adaptation.ts";
 export * from "./runtime.ts";
 export * from "./owner-auth.ts";
 export * from "./writer-lock.ts";

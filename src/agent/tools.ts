@@ -26,9 +26,11 @@ import { lsTool } from "./tools/ls.ts";
 import { findTool } from "./tools/find.ts";
 import { grepTool } from "./tools/grep.ts";
 import { healToolRecord } from "./tools/heal.ts";
+import { withTargetAttribution, type SessionTargetState } from "./tools/target-attribution.ts";
 import type { GraphStore } from "../core/ports.ts";
 
 export { jobTools };
+export type { SessionTargetState } from "./tools/target-attribution.ts";
 export type { ProbeDoneContext } from "./tools/probe.ts";
 
 /**
@@ -278,6 +280,8 @@ export interface ProberToolContext extends ProbeDoneContext {
 	 *  master switch AND the agent.graphTools toggle (settings-resolution).
 	 *  Absent = the gate is closed, no map tools (tests drive this seam). */
 	graphStore?: GraphStore;
+	/** The session target's standing this turn; gates `onTarget` claims. Absent = none. */
+	sessionTarget?: SessionTargetState;
 }
 
 /** The prober's tool set: probe quiz (no nodeId) + ask + the learner-fs
@@ -313,7 +317,7 @@ export function createProberTools(
 	// differently-typed literals makes the whole object's type a union —
 	// unusable as Record<string, AgentTool<any>> downstream).
 	const quizzing: Record<string, AgentTool<any>> =
-		{ ...(mechanics !== "choice" ? { recall: probeExplainTool } : {}), ...(mechanics !== "free" ? { probe: probeQuizTool } : {}) };
+		{ ...(mechanics !== "choice" ? { recall: withTargetAttribution(probeExplainTool, ctx.sessionTarget) } : {}), ...(mechanics !== "free" ? { probe: withTargetAttribution(probeQuizTool, ctx.sessionTarget) } : {}) };
 	// healToolRecord (owner, 2026-10-09 — the whitehead generalization):
 	// the standard argument heal over the WHOLE registry — every tool,
 	// not just the one the latest wobble incident landed on.
@@ -404,6 +408,8 @@ export interface TeacherToolContext extends PlanToolContext {
 	spawn: (job: JobRecord, input: ResearchInput | DemoInput | VisualInput | PdfInput) => void;
 	/** Retained search-status seam; research dispatch is available keylessly. */
 	searchAvailable?: () => boolean;
+	/** The session target's standing this turn; gates `onTarget` claims. Absent = none. */
+	sessionTarget?: SessionTargetState;
 }
 
 /**
@@ -448,7 +454,7 @@ export function createTeacherTools(
 	// Same widening as the prober's (see above) — the conditional spread of
 	// two differently-typed literals collapses into an unusable union type.
 	const quizzing: Record<string, AgentTool<any>> =
-		{ ...(mechanics !== "choice" ? { explain: teachExplainToolFor(ctx) } : {}), ...(mechanics !== "free" ? { quiz: teachQuizToolFor(ctx) } : {}) };
+		{ ...(mechanics !== "choice" ? { explain: withTargetAttribution(teachExplainToolFor(ctx), ctx.sessionTarget) } : {}), ...(mechanics !== "free" ? { quiz: withTargetAttribution(teachQuizToolFor(ctx), ctx.sessionTarget) } : {}) };
 	// healToolRecord — same standard as the prober's registry (above).
 	return capabilityFilter(healToolRecord(
 		filterEnabledTools(

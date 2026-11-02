@@ -10,6 +10,7 @@ import type { LhMessage } from "../native-messages.ts";
 import type { Phase3 } from "../phases.ts";
 import type { PlanNodeStatus, PlanTree } from "./plan.ts";
 import type { EmissionStats } from "./graph.ts";
+import type { LearningTargetRef } from "./learning-target.ts";
 
 // ─── Chat records (the session store's on-disk format) ───────────────────────
 
@@ -52,6 +53,10 @@ export interface ChatRecord {
 	extractions?: ExtractionRunUsage[];
 	/** Per-chat model/thinking overrides for the conversation agents. */
 	settings?: ChatSettings;
+	/** The subject-map skill the learner explicitly chose to start this
+	 *  session from, at the objective revision current at creation. Absent
+	 *  on ordinary sessions. Never inferred from titles or content. */
+	target?: LearningTargetRef;
 	/** SCHEMA STAMP (schema-versioning wave, owner 2026-10-10): LAZY v1 —
 	 *  existing records stay unstamped (absence reads as v1); every write
 	 *  stamps the current version. A record stamped NEWER than this build

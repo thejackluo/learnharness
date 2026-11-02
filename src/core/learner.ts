@@ -63,9 +63,29 @@ function resultByCall(messages: readonly LhMessage[]): Map<string, ResultMessage
 	return results;
 }
 
+/** Tool calls the tutor explicitly marked `onTarget` in a session started from a target. */
+function onTargetCalls(record: ChatRecord): Set<string> {
+	const calls = new Set<string>();
+	if (!record.target) return calls;
+	for (const message of record.messages) {
+		if (message.role !== "assistant") continue;
+		for (const block of message.content) {
+			if (block.type === "toolCall" && isRecord(block.arguments) && block.arguments.onTarget === true) calls.add(block.id);
+		}
+	}
+	return calls;
+}
+
+function attribution(record: ChatRecord, onTarget: ReadonlySet<string>, callId: string | undefined): { attributedTarget?: LearningTargetRef } {
+	if (!record.target || !callId || !onTarget.has(callId)) return {};
+	const { kind, mapId, skillId, skillRevision } = record.target;
+	return { attributedTarget: { kind, mapId, skillId, skillRevision } };
+}
+
 function choiceObservation(
 	record: ChatRecord,
 	result: ResultMessage,
+	onTarget: ReadonlySet<string> = new Set(),
 ): LearnerObservation | null {
 	if (
 		result.isError ||
@@ -95,6 +115,7 @@ function choiceObservation(
 		prompt: answer.questionText.slice(0, 500),
 		provenance,
 		targets: [],
+		...attribution(record, onTarget, result.toolCallId),
 		kind: "choice",
 		outcome,
 		tool: result.toolName,
@@ -105,6 +126,7 @@ function criterionObservations(
 	record: ChatRecord,
 	result: ResultMessage,
 	seen: Set<string>,
+	onTarget: ReadonlySet<string> = new Set(),
 ): LearnerObservation[] {
 	if (result.isError || result.toolName !== "evaluate" || !isRecord(result.details)) return [];
 	const details = result.details;
@@ -161,6 +183,7 @@ function criterionObservations(
 			prompt: part.prompt.slice(0, 500),
 			provenance: details.provenance,
 			targets: [],
+			...attribution(record, onTarget, typeof details.sourceCallId === "string" ? details.sourceCallId : undefined),
 			kind: "criterion",
 			criterionId,
 			partId,
@@ -175,7 +198,7 @@ function criterionObservations(
 	return out;
 }
 
-function practiceConclusionObservations(record: ChatRecord): LearnerObservation[] {
+function practiceConclusionObservations(record: ChatRecord, onTarget: ReadonlySet<string> = new Set()): LearnerObservation[] {
 	const messages = record.messages;
 	const results = resultByCall(messages);
 	const problemCalls = new Map<string, ToolCall>();
@@ -224,6 +247,7 @@ function practiceConclusionObservations(record: ChatRecord): LearnerObservation[
 					prompt: problemStatement.slice(0, 500),
 					provenance: "modelAuthored",
 					targets: [],
+					...attribution(record, onTarget, problemCallId),
 					kind: "practiceConclusion",
 					outcome: outcome as "solved" | "solvedWithHints" | "movedOn" | "surrendered",
 					rung: typeof args.rung === "string" ? args.rung : null,
@@ -240,14 +264,15 @@ function practiceConclusionObservations(record: ChatRecord): LearnerObservation[
 export function deriveChatObservations(record: ChatRecord): LearnerObservation[] {
 	const observations: LearnerObservation[] = [];
 	const seenCriteria = new Set<string>();
+	const onTarget = onTargetCalls(record);
 	for (const message of record.messages) {
 		if (message.role !== "toolResult") continue;
 		const result = message as ResultMessage;
-		const choice = choiceObservation(record, result);
+		const choice = choiceObservation(record, result, onTarget);
 		if (choice) observations.push(choice);
-		observations.push(...criterionObservations(record, result, seenCriteria));
+		observations.push(...criterionObservations(record, result, seenCriteria, onTarget));
 	}
-	observations.push(...practiceConclusionObservations(record));
+	observations.push(...practiceConclusionObservations(record, onTarget));
 	const unique = new Map<string, LearnerObservation>();
 	for (const observation of observations) {
 		if (!unique.has(observation.id)) unique.set(observation.id, observation);
@@ -268,6 +293,14 @@ function capText(value: string, chars: number): string {
 	return cleaned.slice(0, chars);
 }
 
+export function learnerOneLine(value: string): string {
+	return oneLine(value);
+}
+
+export function learnerQuoted(value: string, chars: number): string {
+	return quoted(value, chars);
+}
+
 function oneLine(value: string): string {
 	return cleanText(value).replace(/\s+/g, " ").trim();
 }
@@ -282,6 +315,10 @@ function quoted(value: string, chars: number): string {
 
 function day(value: string): string {
 	return value.slice(0, 10);
+}
+
+export function observationProvenanceLabel(provenance: ObservationProvenance): string {
+	return provenanceLabel(provenance);
 }
 
 function provenanceLabel(provenance: ObservationProvenance): string {

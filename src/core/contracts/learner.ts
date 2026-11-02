@@ -68,6 +68,9 @@ export type LearnerObservation = {
 	prompt: string;
 	provenance: ObservationProvenance;
 	targets: LearningTargetRef[];
+	/** The session target, when the tutor marked this check `onTarget` in a
+	 *  session started from that target. Distinct from learner-made links. */
+	attributedTarget?: LearningTargetRef;
 } & (
 	| { kind: "choice"; outcome: "correct" | "incorrect" | "dontKnow"; tool: string }
 	| {

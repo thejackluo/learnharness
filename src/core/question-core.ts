@@ -156,6 +156,15 @@ export function quizInputProblems(input: {
 // and reasoning happens BEFORE the answer is chosen — models emit tool
 // args in schema order, so explanation sits immediately BEFORE correctAnswer.
 // (All consumers read by key; the order is authoring guidance, nothing else.)
+export const onTargetField = Type.Optional(
+	Type.Boolean({
+		description:
+			"Optional. true = this item directly assesses the session target skill named in the learner context, so its " +
+			"result counts as evidence for that objective. Valid only in a session started from a current target (otherwise " +
+			"the call is rejected). Omit for prerequisites, clarifications and side topics.",
+	}),
+);
+
 export const quizInputBase = Type.Object({
 	question: Type.String({
 		description:
@@ -191,6 +200,7 @@ export const quizInputBase = Type.Object({
 	details: Type.Optional(
 		Type.String({ description: "Optional extra context or instructions shown under the question." }),
 	),
+	onTarget: onTargetField,
 });
 
 // The TEACH-side quiz object: the shared base + the plan-position field
@@ -317,6 +327,7 @@ export const explainInputBase = Type.Object({
 	details: Type.Optional(
 		Type.String({ description: "Optional extra context or instructions shown under the question." }),
 	),
+	onTarget: onTargetField,
 });
 
 /** The TEACH-side explain object: base + the plan-position field (same
@@ -493,16 +504,23 @@ export interface AnswerRequest {
 	text?: string; // ask text-mode
 	thinking?: string; // the reasoning-on-the-question channel (was `note`)
 	readingThinking?: string; // the thinking-while-reading channel (check answers)
-	confidence?: number; // quiz only: 0-100 raw probability — 50 is a real coin flip, always sent (owner, 2026-10-01)
+	confidence?: number; // quiz only: 0-100 raw probability, sent only when the learner set it — an explicit 50 stays 50
 }
 
 /** The confidence slider's snap stops (owner, 2026-10-01): raw probability
  *  that the selected answer is correct, uneven on purpose — resolution
  *  concentrates at the top where the calibration signal lives (90 vs 100
- *  separates knows from mastered). 50 is a genuine coin flip and the
- *  resting default — untouched and deliberate 50 are the same number. */
+ *  separates knows from mastered). 50 is a genuine coin flip. Confidence is
+ *  OPTIONAL (PR 5): the dock starts unset and sends nothing until the
+ *  learner sets it; the first keyboard step lands on the default stop. */
 export const CONFIDENCE_STOPS: readonly number[] = [0, 30, 50, 70, 90, 100];
 export const DEFAULT_CONFIDENCE_INDEX = 2;
+
+/** One ←/→ step of the optional confidence control: unset starts at the default stop. */
+export function stepConfidenceIndex(current: number | null, direction: 1 | -1): number {
+	if (current === null) return DEFAULT_CONFIDENCE_INDEX;
+	return Math.min(CONFIDENCE_STOPS.length - 1, Math.max(0, current + direction));
+}
 
 // ─── dock selection (the client state machine, pure for tests) ─────────────
 
@@ -522,7 +540,8 @@ export interface QuestionFormDraft {
 	thinking: string;
 	other: string;
 	text: string;
-	confidenceIndex: number;
+	/** Null = the learner has not stated a confidence. */
+	confidenceIndex: number | null;
 }
 
 export interface QuestionDraft {

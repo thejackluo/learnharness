@@ -16,6 +16,7 @@
 
 import { Type, type Static } from "typebox";
 import { assessmentPartsSchema, assessmentSpecProblems } from "../../core/assessment.ts";
+import { onTargetField } from "../../core/question-core.ts";
 import { evaluateTool } from "./evaluate.ts";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { resolveTargetId } from "../../core/chains.ts";
@@ -30,6 +31,7 @@ import type { LhMessage } from "../../core/native-messages.ts";
 import { concludeResult, invalidInputResult, problemResult } from "../tool-execute.ts";
 import { healEncodedArguments, healToolRecord } from "./heal.ts";
 import { capabilityFilter } from "../capabilities.ts";
+import { withTargetAttribution, type SessionTargetState } from "./target-attribution.ts";
 
 
 /** The record-reading context the gates need (the plan-tools idiom). */
@@ -47,6 +49,8 @@ export interface PracticeToolContext {
 	 *  Each absent context (tests) = absent from the registry. */
 	graph?: GraphToolContext;
 	jobs?: JobToolContext;
+	/** The session target's standing this turn; gates `onTarget` claims. Absent = none. */
+	sessionTarget?: SessionTargetState;
 }
 
 /** TURN-SCOPED GATE STATE (the BKT incident, 2026-10-05): the gates used
@@ -94,6 +98,7 @@ export const problemInputObject = Type.Object({
 	modelSolution: Type.String({
 		description: "REQUIRED — the full solution, moves in order, committed BEFORE the learner sees the problem. This IS the reveal — conclude shows it verbatim; never re-author it.",
 	}),
+	onTarget: onTargetField,
 });
 
 export type ProblemInput = Static<typeof problemInputObject>;
@@ -243,7 +248,7 @@ export function practiceTools(ctx: PracticeToolContext): Record<string, AgentToo
 	// inner pass; the double heal is idempotent by construction.
 	return capabilityFilter(healToolRecord({
 		evaluate: evaluateTool(ctx),
-		problem: problemTool(gate, ctx.graphNodes),
+		problem: withTargetAttribution(problemTool(gate, ctx.graphNodes), ctx.sessionTarget),
 		conclude: concludeTool(gate),
 		read: readTool,
 		ls: lsTool,

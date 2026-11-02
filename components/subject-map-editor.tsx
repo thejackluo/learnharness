@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SessionStarter } from "@/components/start-session";
 import {
 	SUBJECT_MAP_LIMITS,
 	skillEvidenceStatusLabel,
@@ -172,6 +173,8 @@ export function SubjectMapEditor({ mapId }: { mapId: string }) {
 	const [notice, setNotice] = useState<string | null>(null);
 	const keySeq = useRef(0);
 	const mounted = useRef(true);
+	const starter = useRef(new SessionStarter());
+	const [startError, setStartError] = useState<string | null>(null);
 
 	const accept = useCallback((next: SubjectMapV1, nextView: SubjectMapGapView | null) => {
 		setMap(next);
@@ -460,6 +463,20 @@ export function SubjectMapEditor({ mapId }: { mapId: string }) {
 							onDetachEvidence={(item) => void changeEvidence("DELETE", item.evidenceId, {
 								target: { kind: "subject-skill", mapId: map.id, skillId: skill.id, skillRevision: item.skillRevision },
 							})}
+							onStart={dirty ? undefined : (() => {
+								const savedSkill = map.skills.find((candidate) => candidate.id === skill.id);
+								if (!savedSkill) return undefined;
+								return (mode: "teach" | "practice") => {
+									setStartError(null);
+									starter.current.start({
+										title: `${mode === "practice" ? "Practice" : "Help me learn"} "${savedSkill.title}": ${savedSkill.objective}`,
+										...(mode === "practice" ? { kind: "practice" as const } : {}),
+										target: { mapId: map.id, skillId: savedSkill.id, skillRevision: savedSkill.revision },
+									}, fetch).then((path) => window.location.assign(path), () => {
+										if (mounted.current) setStartError("Could not start a session for this skill. Reload the map and try again.");
+									});
+								};
+							})()}
 						/>
 					))}
 				</ul>
@@ -467,6 +484,7 @@ export function SubjectMapEditor({ mapId }: { mapId: string }) {
 					<button type="button" onClick={() => void loadSources(sources.nextCursor ?? undefined)} className={`self-start ${BUTTON}`}>Load more evidence to link</button>
 				)}
 				{sources.error && <p className="text-xs text-muted-foreground">{sources.error}</p>}
+				{startError && <p role="alert" className="text-xs text-destructive">{startError}</p>}
 				<button
 					type="button"
 					disabled={draft.skills.length >= SUBJECT_MAP_LIMITS.skills}
@@ -511,9 +529,11 @@ interface SkillRowProps {
 	onUnlink: (kind: "proposition" | "topic", refId: string) => void;
 	onAttachEvidence: (evidenceId: string) => void;
 	onDetachEvidence: (item: SubjectEvidenceItem) => void;
+	/** Present only for a saved skill with no unsaved edits. */
+	onStart?: (mode: "teach" | "practice") => void;
 }
 
-function SkillRow({ skill, index, draft, saved, titleOf, pathText, sources, linkingBlocked, onEdit, onLink, onUnlink, onAttachEvidence, onDetachEvidence }: SkillRowProps) {
+function SkillRow({ skill, index, draft, saved, titleOf, pathText, sources, linkingBlocked, onEdit, onLink, onUnlink, onAttachEvidence, onDetachEvidence, onStart }: SkillRowProps) {
 	const [prerequisiteChoice, setPrerequisiteChoice] = useState("");
 	const [propositionChoice, setPropositionChoice] = useState("");
 	const [topicChoice, setTopicChoice] = useState("");
@@ -552,7 +572,15 @@ function SkillRow({ skill, index, draft, saved, titleOf, pathText, sources, link
 					{skill.title || "Untitled skill"}
 					{saved && <span className="ml-2 text-xs font-normal text-muted-foreground">objective revision {saved.skill.revision}</span>}
 				</h3>
-				<button type="button" onClick={removeSkill} className={LINK_BUTTON}>Remove skill</button>
+				<div className="flex items-center gap-3">
+					{onStart && (
+						<>
+							<button type="button" onClick={() => onStart("teach")} className={LINK_BUTTON}>Start a session on this skill</button>
+							<button type="button" onClick={() => onStart("practice")} className={LINK_BUTTON}>Practice this skill</button>
+						</>
+					)}
+					<button type="button" onClick={removeSkill} className={LINK_BUTTON}>Remove skill</button>
+				</div>
 			</div>
 			<div className="grid gap-2 sm:grid-cols-2">
 				<div className="flex flex-col gap-1">

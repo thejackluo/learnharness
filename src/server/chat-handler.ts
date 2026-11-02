@@ -53,6 +53,7 @@ import { emit } from "../core/events.ts";
 import { settledTurnResponse } from "./turn-runs.ts";
 import { asAgentMessages } from "../core/native-messages.ts";
 import { learnerContextFor } from "./learner.ts";
+import { sessionTargetState, targetContextFor } from "./target-adaptation.ts";
 import {
 	ChatInputError,
 	inputAppends,
@@ -428,12 +429,14 @@ export async function handleChatInput(
 		},
 		restoreAutomatic: (automaticIds, retainedIds) => restoreUncommittedAutomatic(chatId, constructed, automaticIds, retainedIds),
 	});
+	// The chosen target's standing gates `onTarget` claims for this turn.
+	const sessionTarget = sessionTargetState(record);
 	const agentOpts: AgentBuildOptions = {
 		engine,
 		callPurpose,
 		requestCycle,
 		messages: asAgentMessages(agentMessages),
-		learnerContext: learnerContextFor(chatId) ?? undefined,
+		learnerContext: [learnerContextFor(chatId), targetContextFor(record)].filter((part): part is string => !!part).join("\n\n") || undefined,
 		onUsage: collectUsage,
 		toolToggles: effective.agent.tools,
 		assessmentMode: effective.agent.assessmentMode,
@@ -473,6 +476,7 @@ export async function handleChatInput(
 							searchAvailable,
 						},
 						...(graphToolsEnabled(effective) ? { graph: { chatStore: stores.chatStore, graphStore: stores.graphStore } } : {}),
+						sessionTarget,
 					},
 					agentOpts,
 				)
@@ -486,6 +490,7 @@ export async function handleChatInput(
 						// The registry drop's signal (2026-09-20): no live engine
 						// = no research tool in the teacher's registry.
 						searchAvailable,
+						sessionTarget,
 					},
 					agentOpts,
 				)
@@ -504,6 +509,7 @@ export async function handleChatInput(
 						// knowledge graph through tools when the gate opens —
 						// graph master switch AND the agent.graphTools toggle.
 						...(graphToolsEnabled(effective) ? { graphStore: stores.graphStore } : {}),
+						sessionTarget,
 					},
 					agentOpts,
 				);
