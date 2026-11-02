@@ -74,6 +74,16 @@ test("pure scoring derives 3/4, coverage and all four outcomes without fabricati
 	assert.throws(() => scoreEvaluation(spec, []));
 });
 
+test("fractional criterion sums have stable totals and assessed coverage", () => {
+	const fractional = assessmentSpecOf({ parts: [{ id: "fractional", prompt: "p", criteria: [
+		{ id: "one", description: "d", expectedEvidence: "e", maxPoints: 0.1 },
+		{ id: "two", description: "d", expectedEvidence: "e", maxPoints: 0.2 },
+	] }] })!;
+	const criteria = [{ criterionId: "one", award: 0.1, feedback: "met" }, { criterionId: "two", award: 0.2, feedback: "met" }];
+	assert.deepEqual(scoreEvaluation(fractional, criteria).totals, { awarded: 0.3, assessedMax: 0.3, max: 0.3, assessedCount: 2, criterionCount: 2, complete: true });
+	assert.deepEqual(scoreEvaluation(fractional, [criteria[0]!, { ...criteria[1]!, award: null }]).totals, { awarded: 0.1, assessedMax: 0.1, max: 0.3, assessedCount: 1, criterionCount: 2, complete: false });
+});
+
 test("canonical answers ignore forged verdicts, labels, commitments and timestamps; reject invalid and repeated input", () => {
 	const input = { question: "Choose A", options: [{ label: "A", value: "a" }, { label: "B", value: "b" }], correctAnswer: "a", explanation: "A is right" };
 	const source = call("probe", input);

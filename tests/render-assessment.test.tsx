@@ -51,6 +51,20 @@ test("evaluation feedback renders actual partial credit and null coverage, not i
 	assert.equal(renderToStaticMarkup(<EvaluationCard part={{ type: "tool-evaluate", toolCallId: "evaluation", state: "output-available", output: evaluation }} />), markup);
 });
 
+test("fractional maxima and incomplete feedback render without floating-point artifacts", () => {
+	const fractional = { ...input, parts: [{ ...parts[0]!, criteria: parts.map((p, i) => ({ ...p.criteria[0]!, maxPoints: i === 0 ? 0.1 : 0.2 })) }] };
+	const fractionalSpec = assessmentSpecOf(fractional)!;
+	const scored = scoreEvaluation(fractionalSpec, [{ ...awards[0]!, award: 0.1 }, { ...awards[1]!, award: null }]);
+	const feedback = renderToStaticMarkup(<AssessmentFeedback evaluation={{ ...evaluation, spec: fractionalSpec, ...scored }} />);
+	assert.match(feedback, /0.1\/0.1 assessed, 0.2 pts unassessed/);
+	const dock = renderToStaticMarkup(<QuestionDock toolName="recall" toolCallId="fractional" input={fractional} expanded onExpand={() => {}} onSubmit={() => {}} />);
+	const practice = renderToStaticMarkup(<ProblemCard part={{ type: "tool-problem", toolCallId: "fractional", state: "output-available", input: { statement: "p", parts: fractional.parts }, output: null }} />);
+	for (const markup of [dock, practice]) {
+		assert.match(markup, /0.3 pts/);
+		assert.doesNotMatch(markup, /0.30000000000000004/);
+	}
+});
+
 test("practice prompt keeps hidden solution and evidence private; legacy answers gain no badges or rubric", () => {
 	const problem = { statement: "Visible problem", modelSolution: "SECRET SOLUTION", parts };
 	const markup = renderToStaticMarkup(<ProblemCard part={{ type: "tool-problem", toolCallId: "source", state: "output-available", input: problem, output: null }} />);

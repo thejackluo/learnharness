@@ -1,6 +1,7 @@
 "use client";
 
 import type { ArtifactPartProps, AssessmentEvaluationV1, AssessmentSpecV1 } from "@/src/core";
+import { sumAssessmentPoints } from "@/src/core";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 
 export function AssessmentCommitment({ spec }: { spec: AssessmentSpecV1 }) {
@@ -27,7 +28,7 @@ export function AssessmentFeedback({ evaluation: e }: { evaluation: AssessmentEv
 				</div>;
 			})}
 		</section>)}
-		<div className="font-semibold">{e.totals.complete ? `${e.totals.awarded}/${e.totals.max}` : `${e.totals.awarded}/${e.totals.assessedMax} assessed, ${e.totals.max - e.totals.assessedMax} pts unassessed, incomplete (${e.totals.assessedCount}/${e.totals.criterionCount} criteria)`}</div>
+		<div className="font-semibold">{e.totals.complete ? `${e.totals.awarded}/${e.totals.max}` : `${e.totals.awarded}/${e.totals.assessedMax} assessed, ${sumAssessmentPoints([e.totals.max, -e.totals.assessedMax])} pts unassessed, incomplete (${e.totals.assessedCount}/${e.totals.criterionCount} criteria)`}</div>
 		{e.summary && <ToolContentResponse>{e.summary}</ToolContentResponse>}
 	</div>;
 }

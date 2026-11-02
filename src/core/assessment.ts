@@ -69,6 +69,10 @@ export function evaluationProblems(spec: AssessmentSpecV1, awards: readonly Crit
 	return problems;
 }
 
+export function sumAssessmentPoints(points: readonly number[]): number {
+	return Number(points.reduce((sum, points) => sum + points, 0).toPrecision(12));
+}
+
 export function scoreEvaluation(spec: AssessmentSpecV1, awards: readonly CriterionAward[]) {
 	const problems = evaluationProblems(spec, awards);
 	if (problems.length) throw new Error(problems.join("; "));
@@ -77,5 +81,5 @@ export function scoreEvaluation(spec: AssessmentSpecV1, awards: readonly Criteri
 		return { ...a, partId: p.id, maxPoints: c.maxPoints, outcome: criterionOutcome(a.award, c.maxPoints) };
 	}));
 	const assessed = criteria.filter(c => c.award !== null);
-	return { criteria, totals: { awarded: assessed.reduce((n, c) => n + c.award!, 0), assessedMax: assessed.reduce((n, c) => n + c.maxPoints, 0), max: criteria.reduce((n, c) => n + c.maxPoints, 0), assessedCount: assessed.length, criterionCount: criteria.length, complete: assessed.length === criteria.length } };
+	return { criteria, totals: { awarded: sumAssessmentPoints(assessed.map(c => c.award!)), assessedMax: sumAssessmentPoints(assessed.map(c => c.maxPoints)), max: sumAssessmentPoints(criteria.map(c => c.maxPoints)), assessedCount: assessed.length, criterionCount: criteria.length, complete: assessed.length === criteria.length } };
 }

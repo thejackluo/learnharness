@@ -1,6 +1,6 @@
 "use client";
 
-import { assessmentSpecOf } from "@/src/core";
+import { assessmentSpecOf, sumAssessmentPoints } from "@/src/core";
 import { useCallback, useRef, useState } from "react";
 import { ChevronRightIcon } from "lucide-react";
 import { ToolContentResponse } from "@/components/ai-elements/message";
@@ -111,7 +111,7 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 				<div className="lh-prose text-[15px]">
 					<ToolContentResponse>{input.statement}</ToolContentResponse>
 					{assessmentSpecOf(input)?.parts.map(p => <section key={p.id}>
-						<strong>{p.label ?? p.id} · {p.criteria.reduce((n, c) => n + c.maxPoints, 0)} pts</strong>
+						<strong>{p.label ?? p.id} · {sumAssessmentPoints(p.criteria.map(c => c.maxPoints))} pts</strong>
 						<ToolContentResponse>{p.prompt}</ToolContentResponse>
 					</section>)}
 				</div>

@@ -16,6 +16,7 @@ import {
 	emptyDockSelection,
 	questionDataOf,
 	assessmentSpecOf,
+	sumAssessmentPoints,
 	toolQuestionKind,
 	parseAskInput,
 	parseQuizInput,
@@ -792,7 +793,7 @@ function QuestionDockForm({
 			    keeps "Your answer" with Enter-to-submit. */}
 			{assessmentSpecOf(input)?.parts.map(part => (
 				<div key={part.id} className="px-4 py-2 text-sm">
-					<strong>{part.label ?? part.id} · {part.criteria.reduce((n, c) => n + c.maxPoints, 0)} pts</strong>
+					<strong>{part.label ?? part.id} · {sumAssessmentPoints(part.criteria.map(c => c.maxPoints))} pts</strong>
 					<ToolContentResponse>{part.prompt}</ToolContentResponse>
 				</div>
 			))}
