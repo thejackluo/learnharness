@@ -20,6 +20,7 @@ import {
 	type VisualToolInput,
 } from "../../core/contracts.ts";
 import { registerJobAbort, unregisterJobAbort } from "./aborts.ts";
+import { agentCapabilities, CapabilityDeniedError } from "../capabilities.ts";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -199,6 +200,12 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 		if (!run) {
 			console.error(`[job ${jobId}] unknown kind: ${job.kind}`);
 			jobStore.updateJob(jobId, { status: "error", error: `unknown kind ${job.kind}`, activity: "failed" });
+			return;
+		}
+		const capability = job.kind === "research" ? "remoteResearch" : "generatedJobs";
+		if (!agentCapabilities()[capability]) {
+			const error = new CapabilityDeniedError(capability);
+			jobStore.updateJob(jobId, { status: "error", error: error.message, activity: "failed" });
 			return;
 		}
 		const engine = pickEngine(job.kind);

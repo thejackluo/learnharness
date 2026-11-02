@@ -3,6 +3,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { serverExecute } from "../tool-execute.ts";
 import type { JobRecord } from "../../core/contracts.ts";
 import type { JobStore } from "../../core/ports.ts";
+import { assertCapability } from "../capabilities.ts";
 
 /**
  * Async sub-agent job tools (vision §2.5; W2/W6 kinds + the pi-model
@@ -77,6 +78,7 @@ function dispatch(
 	ack: string,
 	input: ResearchInput | DemoInput | VisualInput | PdfInput,
 ): string {
+	assertCapability(kind === "research" ? "remoteResearch" : "generatedJobs");
 	const existing = ctx.jobStore.findJobByToolCallId(ctx.chatId, toolCallId);
 	const job = existing ?? ctx.jobStore.createJob({ kind, chatId: ctx.chatId, toolCallId, input });
 	if (!existing) ctx.spawn(job, input);

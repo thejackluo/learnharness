@@ -4,6 +4,7 @@ import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { serverExecute } from "../tool-execute.ts";
 import { pdfExtract, pdfInfo, pdfProbe, pdfSearch } from "../subagents/pdf-ops.ts";
+import { assertCapability } from "../capabilities.ts";
 
 /**
  * PDF reading tools for the RESEARCHER sub-agent (owner design B,
@@ -103,6 +104,8 @@ export function createPdfReadTools(dir: string): Record<string, AgentTool<any>> 
 				"Then read it with pdf_extract / pdf_search. Use when web_fetch reports a URL is a PDF.",
 			parameters: pdfFetchInput,
 			execute: serverExecute("web_fetch_pdf", pdfFetchInput, async ({ url }): Promise<PdfFetchSummary | string> => {
+				assertCapability("remoteResearch");
+				assertCapability("generatedJobs");
 				try {
 					const parsed = new URL(url);
 					if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
@@ -159,6 +162,7 @@ export function createPdfReadTools(dir: string): Record<string, AgentTool<any>> 
 				"Triage a downloaded PDF: page count plus per-page signals (text_length, image_count, math_density).",
 			parameters: pdfPathInput,
 			execute: serverExecute("pdf_info", pdfPathInput, async ({ path: filePath }) => {
+				assertCapability("generatedJobs");
 				const scoped = scopedPath(dir, filePath);
 				if (!scoped) return `pdf_info failed: path must stay inside this job's download dir`;
 				try {
@@ -183,6 +187,7 @@ export function createPdfReadTools(dir: string): Record<string, AgentTool<any>> 
 				"Use pdf_info first; narrow the spec for big documents.",
 			parameters: pdfExtractInput,
 			execute: serverExecute("pdf_extract", pdfExtractInput, async ({ path: filePath, pages }) => {
+				assertCapability("generatedJobs");
 				const scoped = scopedPath(dir, filePath);
 				if (!scoped) return `pdf_extract failed: path must stay inside this job's download dir`;
 				try {
@@ -199,6 +204,7 @@ export function createPdfReadTools(dir: string): Record<string, AgentTool<any>> 
 			description: "Find text in a downloaded PDF — returns the pages and contexts that hit.",
 			parameters: pdfSearchInput,
 			execute: serverExecute("pdf_search", pdfSearchInput, async ({ path: filePath, query }) => {
+				assertCapability("generatedJobs");
 				const scoped = scopedPath(dir, filePath);
 				if (!scoped) return `pdf_search failed: path must stay inside this job's download dir`;
 				try {

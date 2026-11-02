@@ -22,6 +22,7 @@ import { useServerEvent, useServerResync } from "@/components/server-events";
 import type { ChatListItem } from "@/src/core";
 import { kbdEventForAction } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
+import { SignOut } from "@/components/sign-out";
 
 /**
  * Toggleable sidebar — NOT a modal drawer: no backdrop, no focus theft. It
@@ -847,7 +848,7 @@ function SessionsSidebar() {
 					    New session — quiet, bottom-pinned, opens the centered
 					    dialog (also mod+, in the keyboard registry). */}
 					<div className="px-3 pb-3 pt-1">
-						<Hint label="Settings" action="open-settings" side="right">
+							<Hint label="Settings" action="open-settings" side="right">
 							<button
 								type="button"
 								onClick={() => openSettings()}
@@ -857,8 +858,9 @@ function SessionsSidebar() {
 								<SettingsIcon className="size-3" />
 								Settings
 							</button>
-						</Hint>
-					</div>
+							</Hint>
+							<SignOut />
+						</div>
 				</div>
 
 				{/* The context menu (wave 6 + the extraction-UX redesign): the

@@ -7,6 +7,7 @@ import { InvertDiscIcon } from "@/components/artifacts/invert-disc";
 import { ChatActionsContext } from "@/components/chat";
 import { downloadFile, slugFilename } from "@/components/artifacts/download";
 import { DispatchCard } from "@/components/artifacts/dispatch-card";
+import { useRuntimeOptional } from "@/components/runtime";
 import type { ArtifactPartProps, DemoResult } from "@/src/core";
 
 /**
@@ -100,6 +101,7 @@ export function DemoOutputCard({
 	messageId?: string;
 	initialInverted?: boolean;
 }) {
+	const runtime = useRuntimeOptional();
 	const result = output as DemoResult | undefined;
 	if (!result || typeof result.html !== "string" || typeof result.title !== "string") {
 		return (
@@ -107,6 +109,9 @@ export function DemoOutputCard({
 				Demo completed, but the result could not be displayed.
 			</div>
 		);
+	}
+	if (runtime && !runtime.capabilities.generatedHtml) {
+		return <div role="note" className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">{runtime.reasons.generatedHtml}</div>;
 	}
 	const failed = result.html.length === 0;
 	if (failed) {

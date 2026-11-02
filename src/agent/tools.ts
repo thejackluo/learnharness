@@ -13,6 +13,7 @@ import {
 	quizInputProblems,
 } from "../core/question-core.ts";
 import { filterEnabledTools, type EnabledTools } from "../core/pending.ts";
+import { capabilityFilter } from "./capabilities.ts";
 import type { JobRecord } from "../core/contracts.ts";
 import type { JobStore } from "../core/ports.ts";
 import { jobTools, type DemoInput, type PdfInput, type ResearchInput, type VisualInput } from "./tools/jobs.ts";
@@ -314,7 +315,7 @@ export function createProberTools(
 	// healToolRecord (owner, 2026-10-09 — the whitehead generalization):
 	// the standard argument heal over the WHOLE registry — every tool,
 	// not just the one the latest wobble incident landed on.
-	return healToolRecord({
+	return capabilityFilter(healToolRecord({
 		...filterEnabledTools(
 			{
 				...quizzing,
@@ -344,7 +345,7 @@ export function createProberTools(
 				withoutMechanics(enabled),
 			),
 			...done,
-		});
+		}));
 }
 
 // ─── the teacher's question tools (quiz carries the position field) ──────────
@@ -444,7 +445,7 @@ export function createTeacherTools(
 	const quizzing: Record<string, AgentTool<any>> =
 		mechanics === "free" ? { explain: teachExplainToolFor(ctx) } : { quiz: teachQuizToolFor(ctx) };
 	// healToolRecord — same standard as the prober's registry (above).
-	return healToolRecord(
+	return capabilityFilter(healToolRecord(
 		filterEnabledTools(
 			{
 			...quizzing,
@@ -462,5 +463,5 @@ export function createTeacherTools(
 		},
 		withoutMechanics(enabled),
 		),
-	);
+	));
 }

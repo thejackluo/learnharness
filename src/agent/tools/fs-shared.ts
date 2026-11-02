@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { assertCapability } from "../capabilities.ts";
 
 /**
  * Shared plumbing for the learner-filesystem tools (ls / find / grep) —
@@ -39,6 +40,7 @@ const EXCLUDED_DIR_NAMES = new Set(["node_modules", ".git", "Library", ".Trash"]
  *  (pi resolves against the project cwd; the harness's "project" is the
  *  learner's life, so the home directory is the anchor.) */
 export function resolveSourcePath(p?: string): string {
+	assertCapability("hostFilesystem");
 	if (!p) return os.homedir();
 	return path.isAbsolute(p) ? p : path.join(os.homedir(), p);
 }
