@@ -29,6 +29,7 @@ function definition(skills: string[], edges: [string, string][], goals: string[]
 		skills: skills.map((id) => skill(id)),
 		edges: edges.map(([prerequisite, dependent]) => ({ prerequisite, dependent })),
 		goals,
+		retired: [] as { id: string; revision: number; title: string }[],
 	};
 }
 
@@ -194,7 +195,7 @@ test("gap view distinguishes not checked, supporting, needs practice, mixed, inc
 	const none = view.skills.find((s) => s.skill.id === "none")!;
 	assert.equal(none.evidence.reviewNeeded, true);
 	assert.equal(none.evidence.historical.length, 1);
-	assert.deepEqual(view.gaps.map((g) => g.skillId).sort(), ["bad", "gone", "goal", "legacy", "mixed", "none"]);
+	assert.deepEqual(view.gaps.map((g) => g.skillId).sort(), ["bad", "goal", "gone", "legacy", "mixed", "none"]);
 	assert.deepEqual(view.gaps.find((g) => g.skillId === "bad")!.paths, [{ goalId: "goal", path: ["bad", "goal"] }]);
 	assert.equal(view.evidenceAvailability, "partial");
 

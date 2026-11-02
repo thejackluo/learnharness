@@ -21,6 +21,8 @@ Object.assign(globalThis, {
 	Event: dom.window.Event,
 	CustomEvent: dom.window.CustomEvent,
 	IS_REACT_ACT_ENVIRONMENT: true,
+	// next/link's viewport prefetch schedules through self.requestIdleCallback.
+	self: globalThis,
 });
 const { createRoot } = await import("react-dom/client");
 const originalFetch = globalThis.fetch;
@@ -116,7 +118,8 @@ test("map editor lists gaps with goal paths, text statuses, escaped titles and h
 		const { root, container } = await mount(createElement(SubjectMapEditor, { mapId: "map_ui" }));
 		const html = container.innerHTML;
 		assert.ok(html.includes("&lt;b&gt;OS&lt;/b&gt;"));
-		assert.ok(!html.includes("<img src=x>"));
+		assert.equal(container.querySelector("img"), null, "skill titles render as text, never markup");
+		assert.match(container.textContent ?? "", /<img src=x>/);
 		const gaps = container.querySelector('[aria-label="Gaps toward your goals"]');
 		assert.ok(gaps);
 		const gapText = gaps.textContent ?? "";
