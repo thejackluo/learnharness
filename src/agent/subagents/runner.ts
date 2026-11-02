@@ -202,13 +202,6 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 			jobStore.updateJob(jobId, { status: "error", error: `unknown kind ${job.kind}`, activity: "failed" });
 			return;
 		}
-		const capability = job.kind === "research" ? "remoteResearch" : "generatedJobs";
-		if (!agentCapabilities()[capability]) {
-			const error = new CapabilityDeniedError(capability);
-			jobStore.updateJob(jobId, { status: "error", error: error.message, activity: "failed" });
-			return;
-		}
-		const engine = pickEngine(job.kind);
 		// The per-need refusal guards (BYOK 2026-09-22 / provider-key
 		// interlude 2026-09-25): no engine for the kind's tier, or the
 		// resolved engine's provider key gone — both refuse through the SAME
@@ -247,6 +240,12 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 								};
 			await finishJob(jobId, failure);
 		};
+		const capability = job.kind === "research" ? "remoteResearch" : "generatedJobs";
+		if (!agentCapabilities()[capability]) {
+			await refuse(new CapabilityDeniedError(capability).message);
+			return;
+		}
+		const engine = pickEngine(job.kind);
 		if (!engine) {
 			const tier = ROLE_SLOT[KIND_ROLE[job.kind]];
 			const envelope = modelsNotConfigured([tier]);

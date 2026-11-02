@@ -49,23 +49,32 @@ test("hosted registration and direct boundaries deny before filesystem, network,
 		await assert.rejects(webSubscriptionRequest("lh:subscriptions", "list", {}), CapabilityDeniedError);
 
 		for (const kind of ["research", "demo", "visual", "pdf"] as const) {
-			const job = { id: `synthetic-${kind}`, kind, chatId: "synthetic-chat", status: "running" } as JobRecord;
-			let update: Partial<JobRecord> | undefined;
+			const input = kind === "research" ? { question: "synthetic" } :
+				kind === "demo" ? { title: "synthetic", brief: "synthetic" } :
+					kind === "visual" ? { prompt: "synthetic" } : { path: "/synthetic.pdf", question: "synthetic" };
+			const job = { id: `synthetic-${kind}`, kind, chatId: "synthetic-chat", status: "running", input } as JobRecord;
+			const updates: JobPatch[] = [];
 			let engineCalls = 0;
-			let deliveryCalls = 0;
+			const deliveries: string[] = [];
 			const runner = createJobRunner({
 				chatStore: {} as ChatStore,
 				jobStore: {
 					getJob: () => job,
-					updateJob: (_id: string, patch: JobPatch) => { update = patch; return job; },
+					updateJob: (_id: string, patch: JobPatch) => { updates.push(patch); return job; },
 				} as unknown as JobStore,
-				deliver: async () => { deliveryCalls++; },
+				deliver: async (steer) => { deliveries.push(steer.content); },
 				engineFor: () => { engineCalls++; return undefined; },
 			});
 			await runner.runJob(job.id);
-			assert.equal(update?.status, "error");
+			await new Promise<void>((resolve) => setImmediate(resolve));
+			const reason = new CapabilityDeniedError(kind === "research" ? "remoteResearch" : "generatedJobs").message;
+			assert.equal(updates[0]?.error, reason);
+			assert.equal(updates.at(-1)?.status, "error");
+			assert.ok(updates.at(-1)?.result);
+			assert.equal(updates.at(-1)?.delivery?.status, "pending");
+			assert.equal(deliveries.length, 1);
+			assert.ok(deliveries[0]?.includes(reason));
 			assert.equal(engineCalls, 0);
-			assert.equal(deliveryCalls, 0);
 		}
 	} finally {
 		capabilitiesOverride.current = previous;
