@@ -162,6 +162,34 @@ test("tutor attribution requires both a session target and an explicit onTarget 
 	assert.ok(deriveChatObservations(record(messages, false)).every((o) => o.attributedTarget === undefined));
 });
 
+test("criteria evaluated on a practice problem solved with hints count as aided-only support", () => {
+	const evaluation = (sourceCallId: string) => ({
+		version: 1,
+		provenance: "modelJudged",
+		sourceCallId,
+		responseId: `resp_${sourceCallId}`,
+		evaluationId: `eval_${sourceCallId}`,
+		spec: { version: 1, parts: [{ id: "a", prompt: "P", criteria: [{ id: "c1" }] }] },
+		criteria: [{ criterionId: "c1", partId: "a", maxPoints: 1, outcome: "met", award: 1, feedback: "f" }],
+	});
+	const hinted = deriveChatObservations(record([
+		assistant([{ id: "p1", name: "problem", arguments: { statement: "S" } }]), result("p1", "problem", null),
+		assistant([{ id: "v1", name: "evaluate", arguments: {} }]), result("v1", "evaluate", evaluation("p1")),
+		assistant([{ id: "e1", name: "conclude", arguments: { outcome: "solvedWithHints", verdict: "v", rung: "R2", missClass: null } }]), result("e1", "conclude", { problemCallId: "p1" }),
+	]));
+	const criterion = hinted.find((o) => o.kind === "criterion");
+	assert.equal(criterion?.kind === "criterion" && criterion.assisted, true);
+	assert.deepEqual(adviseFromEvidence(hinted.map((o) => item(o))), { move: "repair", reason: "aidedOnly", qualified: false });
+
+	const unaided = deriveChatObservations(record([
+		assistant([{ id: "p2", name: "problem", arguments: { statement: "S" } }]), result("p2", "problem", null),
+		assistant([{ id: "v2", name: "evaluate", arguments: {} }]), result("v2", "evaluate", evaluation("p2")),
+		assistant([{ id: "e2", name: "conclude", arguments: { outcome: "solved", verdict: "v", rung: "R2", missClass: null } }]), result("e2", "conclude", { problemCallId: "p2" }),
+	]));
+	assert.ok(unaided.every((o) => o.kind !== "criterion" || o.assisted === undefined));
+	assert.equal(adviseFromEvidence(unaided.map((o) => item(o))).move, "advance");
+});
+
 test("prerequisites with AI-evaluated support only stay on the confirm list; an unreadable profile is partial", () => {
 	const view = projectTargetAdaptation({
 		target: target(),

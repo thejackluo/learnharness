@@ -75,6 +75,8 @@ export type LearnerObservation = {
 	| { kind: "choice"; outcome: "correct" | "incorrect" | "dontKnow"; tool: string }
 	| {
 			kind: "criterion";
+			/** Evaluated on a practice problem that concluded solvedWithHints. */
+			assisted?: true;
 			criterionId: string;
 			partId: string;
 			outcome: CriterionOutcome;

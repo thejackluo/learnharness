@@ -75,7 +75,8 @@ export interface TargetAdaptationView {
 }
 
 function isAided(observation: LearnerObservation): boolean {
-	return observation.kind === "practiceConclusion" && observation.outcome === "solvedWithHints";
+	return (observation.kind === "practiceConclusion" && observation.outcome === "solvedWithHints") ||
+		(observation.kind === "criterion" && observation.assisted === true && observation.outcome === "met");
 }
 
 function resultLabel(observation: LearnerObservation): string {

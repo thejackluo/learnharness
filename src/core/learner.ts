@@ -127,6 +127,7 @@ function criterionObservations(
 	result: ResultMessage,
 	seen: Set<string>,
 	onTarget: ReadonlySet<string> = new Set(),
+	hintedProblems: ReadonlySet<string> = new Set(),
 ): LearnerObservation[] {
 	if (result.isError || result.toolName !== "evaluate" || !isRecord(result.details)) return [];
 	const details = result.details;
@@ -185,6 +186,7 @@ function criterionObservations(
 			targets: [],
 			...attribution(record, onTarget, typeof details.sourceCallId === "string" ? details.sourceCallId : undefined),
 			kind: "criterion",
+			...(typeof details.sourceCallId === "string" && hintedProblems.has(details.sourceCallId) ? { assisted: true as const } : {}),
 			criterionId,
 			partId,
 			outcome: criterion.outcome as CriterionOutcome,
@@ -198,7 +200,11 @@ function criterionObservations(
 	return out;
 }
 
-function practiceConclusionObservations(record: ChatRecord, onTarget: ReadonlySet<string> = new Set()): LearnerObservation[] {
+function practiceConclusionObservations(
+	record: ChatRecord,
+	onTarget: ReadonlySet<string> = new Set(),
+	hintedProblems?: Set<string>,
+): LearnerObservation[] {
 	const messages = record.messages;
 	const results = resultByCall(messages);
 	const problemCalls = new Map<string, ToolCall>();
@@ -232,6 +238,7 @@ function practiceConclusionObservations(record: ChatRecord, onTarget: ReadonlySe
 				const problemCallId = typeof resultDetails.problemCallId === "string"
 					? resultDetails.problemCallId
 					: activeProblem?.id;
+				if (outcome === "solvedWithHints" && problemCallId) hintedProblems?.add(problemCallId);
 				const problemCall = problemCallId ? problemCalls.get(problemCallId) : undefined;
 				const problemStatement = problemCall && isRecord(problemCall.arguments) && typeof problemCall.arguments.statement === "string"
 					? problemCall.arguments.statement
@@ -265,14 +272,16 @@ export function deriveChatObservations(record: ChatRecord): LearnerObservation[]
 	const observations: LearnerObservation[] = [];
 	const seenCriteria = new Set<string>();
 	const onTarget = onTargetCalls(record);
+	const hintedProblems = new Set<string>();
+	const conclusions = practiceConclusionObservations(record, onTarget, hintedProblems);
 	for (const message of record.messages) {
 		if (message.role !== "toolResult") continue;
 		const result = message as ResultMessage;
 		const choice = choiceObservation(record, result, onTarget);
 		if (choice) observations.push(choice);
-		observations.push(...criterionObservations(record, result, seenCriteria, onTarget));
+		observations.push(...criterionObservations(record, result, seenCriteria, onTarget, hintedProblems));
 	}
-	observations.push(...practiceConclusionObservations(record, onTarget));
+	observations.push(...conclusions);
 	const unique = new Map<string, LearnerObservation>();
 	for (const observation of observations) {
 		if (!unique.has(observation.id)) unique.set(observation.id, observation);
