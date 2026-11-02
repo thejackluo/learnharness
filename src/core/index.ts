@@ -88,3 +88,4 @@ export * from "./session-markdown.ts";
 export * from "./subject-map.ts";
 export * from "./activity.ts";
 export * from "./adaptation.ts";
+export * from "./speech.ts";

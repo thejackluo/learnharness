@@ -36,12 +36,33 @@ import {
 	KEYBOARD_ACTIONS,
 } from "@/src/core";
 import { isDictationActive } from "@/components/dictation";
+import { cancelSpeech, isSpeaking } from "@/components/read-aloud";
 import { useSettingsDialog } from "@/components/settings/settings-dialog.tsx";
 
 // Re-exported for the contract pin (tests/keyboard-toggle-sidebar.test.ts):
 // the dispatcher composes event names through the ONE helper — a second
 // spelling here is how the ⌘B bug happened.
 export { kbdEventForAction };
+
+export function handleEscapeFallback(
+	event: Pick<KeyboardEvent, "preventDefault">,
+	dictationActive: () => boolean,
+	speechActive: () => boolean,
+	stopSpeech: () => void,
+	dispatch: (eventName: string) => void,
+): void {
+	if (dictationActive()) {
+		event.preventDefault();
+		dispatch("lh:kbd-cancel-dictation");
+		return;
+	}
+	if (speechActive()) {
+		event.preventDefault();
+		stopSpeech();
+		return;
+	}
+	dispatch("lh:kbd-abort-turn");
+}
 
 export function KeyboardShortcuts() {
 	const router = useRouter();
@@ -92,15 +113,10 @@ export function KeyboardShortcuts() {
 				// NOTHING is surfaced and no field is focused. This chain is
 				// the fallback, bottom-up: dictation (a live capture, not a
 				// surface — it survives Esc that closes a plan or overlay),
-				// then abort the turn (a server-side turn has no client
-				// request to abort — the abort seam in Chat decides what's
-				// honestly stoppable, layered by escAbortTarget).
-				if (isDictationActive()) {
-					e.preventDefault();
-					window.dispatchEvent(new CustomEvent("lh:kbd-cancel-dictation"));
-					return;
-				}
-				window.dispatchEvent(new CustomEvent("lh:kbd-abort-turn"));
+				// read-aloud, then abort the turn.
+				handleEscapeFallback(e, isDictationActive, isSpeaking, cancelSpeech, (name) => {
+					window.dispatchEvent(new CustomEvent(name));
+				});
 				return;
 			}
 

@@ -557,6 +557,10 @@ The teacher's `activity` tool (registered whenever the teach `explain` is, i.e. 
 
 The teach `explain` may carry `stimulus: {kind: "teaching-stimulus", toolCallId}` naming one activity call. The pose is rejected unless that exact call succeeded in this chat (persisted, or earlier in the same turn). At answer time `inputAppends` re-resolves it from the record (`resolveTeachingStimulus`) and snapshots `{kind, messageId, toolCallId, guide, provenance: "appRenderedActivity"}` into the answer; a client-sent stimulus is ignored. `evaluate` re-resolves it and records `{kind, messageId, toolCallId}` as `AssessmentSpecV1.stimulus`. Regenerating an activity is a new call with a new id. Mid-turn the model sees raw provider ids, so `ToolCallIdUniquifier` rewrites a stimulus naming a this-turn activity to that activity's minted id; a legacy record that repeats an id is refused as ambiguous. Viewing or switching cases produces no observation; learner evidence still comes only from the explicit answer and evaluation.
 
+### Manual read-aloud
+
+Read-aloud is a client-only complement to dictation: pure core projections prepare visible reply/question/practice prose, and a browser speech-synthesis controller uses only local voices. Playback requires an explicit button press, is chunked and cancellable, and never records audio, calls a server speech API, or submits content. Starting dictation cancels playback before microphone acquisition; Escape stops playback after dictation and before the existing turn-abort chain.
+
 All deterministic, no network: engines are injected (pi-ai's **faux provider** — `createFauxCore`/`setResponses` — wrapped as the `PiEngine` production uses), `globalThis.fetch` is stubbed where transport matters, and pure logic gets in-memory port implementations. Suites either mirror production wiring with the real fs adapters (backup-and-clear of the ledgers they touch) or swap in-memory ports deliberately ("this suite never touches data/graph"). Four strata:
 
 1. **Pure core units** — merger via real adapters, derivation, coverage, question grading, plan tree, phases, clusters, layout, tool-parts, prices, fuzzy search.

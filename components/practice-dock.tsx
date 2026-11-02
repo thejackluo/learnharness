@@ -1,6 +1,6 @@
 "use client";
 
-import { assessmentSpecOf, sumAssessmentPoints } from "@/src/core";
+import { assessmentSpecOf, practiceSpeech, sumAssessmentPoints } from "@/src/core";
 import { useCallback, useRef, useState } from "react";
 import { ChevronRightIcon } from "lucide-react";
 import { ToolContentResponse } from "@/components/ai-elements/message";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { joinDictation, useDictationTarget } from "@/components/dictation";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { cn } from "@/lib/utils";
+import { ReadAloudButton } from "@/components/read-aloud-controls";
 
 /**
  * The practice dock (practice sessions, owner design 2026-10-04): an
@@ -34,7 +35,7 @@ export interface PracticeDockProps {
 	problemCallId: string;
 	/** The pose's arguments — only the statement is the learner's (the
 	 *  mode badge would edge toward announcing the target; dropped). */
-	input: { statement: string };
+	input: { statement: string; parts?: unknown };
 	/** Collapse state, owned by the DockOverlay. */
 	expanded: boolean;
 	onExpand: () => void;
@@ -50,6 +51,7 @@ export interface PracticeDockProps {
 }
 
 export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmit, onEscape, compactionRunning = false }: PracticeDockProps) {
+	const promptSpeech = practiceSpeech(problemCallId, input);
 	const [thinking, setThinking] = useState("");
 	// Ref MIRRORS the field ("nothing gets lost", the question-dock
 	// discipline): a submit resuming after `await finishDictation()` reads
@@ -115,6 +117,7 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 						<ToolContentResponse>{p.prompt}</ToolContentResponse>
 					</section>)}
 				</div>
+				<ReadAloudButton speech={promptSpeech} label="Read prompt" />
 			</div>
 
 			{/* The learner's half: Enter SENDS (owner round 2, 2026-10-05);

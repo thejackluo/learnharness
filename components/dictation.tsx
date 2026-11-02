@@ -7,6 +7,7 @@ import { Hint } from "@/components/ui/hint";
 import { deepgramListenUrl, type DictationLanguage } from "@/src/core";
 import { useDictationLanguage } from "@/components/dictation-preference";
 import { setDictationActive } from "@/components/dictation-state";
+import { cancelSpeech } from "@/components/read-aloud";
 export { isDictationActive } from "@/components/dictation-state";
 
 /**
@@ -418,6 +419,7 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 	);
 
 	const start = useCallback(async () => {
+		cancelSpeech();
 		setDictationActive(true);
 		setError(null);
 		setPhase("connecting");

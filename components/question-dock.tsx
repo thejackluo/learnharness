@@ -16,6 +16,7 @@ import {
 	stepConfidenceIndex,
 	emptyDockSelection,
 	questionDataOf,
+	questionSpeech,
 	assessmentSpecOf,
 	teachingStimulusRefOf,
 	sumAssessmentPoints,
@@ -39,6 +40,7 @@ import {
 } from "@/src/core";
 import { CONFIDENCE_COLORS, confidenceRailStyle } from "@/components/confidence-rail";
 import { ActivityStimulusNote } from "@/components/activity-card";
+import { ReadAloudButton } from "@/components/read-aloud-controls";
 
 /**
  * The question dock — a pending quiz/ask REPLACES the chat composer: the
@@ -281,6 +283,10 @@ function QuestionDockForm({
 	const qd = useMemo<QuestionData>(() => {
 		return questionDataOf(toolName, toolCallId, input)!;
 	}, [toolCallId, toolName, input]);
+	const promptSpeech = useMemo(
+		() => questionSpeech(toolName, toolCallId, input),
+		[toolCallId, toolName, input],
+	);
 
 	// The selection state machine lives in question-core (pure, tested):
 	// single-select displaces, multi-select coexists — picking the ask
@@ -546,6 +552,7 @@ function QuestionDockForm({
 						<ToolContentResponse>{qd.context}</ToolContentResponse>
 					</div>
 				)}
+				{active && <ReadAloudButton speech={promptSpeech} label="Read prompt" />}
 
 				{qd.mode !== "text" && (
 					<div className="flex flex-col gap-2 pb-2" role={qd.mode === "multi-select" ? "group" : "radiogroup"}>

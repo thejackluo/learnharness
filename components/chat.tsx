@@ -30,6 +30,8 @@ import { clearOpeningPrompt, readOpeningPromptEntry, stashOpeningPrompt, OPENING
 import { forwardDockWheel, useDockHeight } from "@/components/dock-height";
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
 import { DictationBar, finishDictation, joinDictation, useDictation } from "@/components/dictation";
+import { ReadAloudButton } from "@/components/read-aloud-controls";
+import { cancelSpeech } from "@/components/read-aloud";
 import { useFieldCycle } from "@/components/field-cycle";
 import { JobsContext } from "@/components/jobs-context";
 import { StatsBar } from "@/components/stats-bar";
@@ -81,6 +83,8 @@ import {
 	teachStepIndex,
 	toolQuestionKind,
 	questionNeedsReveal,
+	replySpeech,
+	replyReadable,
 } from "@/src/core";
 import { ReadingThinkingField } from "@/components/reading-thinking";
 import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/thinking-block";
@@ -397,6 +401,7 @@ export function Chat({
 	const confirmAbort = useCallback(
 		(mode: AbortMode) => {
 			setAbortAsk(null);
+			cancelSpeech();
 			if (mode === "turn") {
 				abortInFlightTurn();
 				return;
@@ -503,6 +508,7 @@ export function Chat({
 		(text: string) => {
 			const problem = activeProblemRef.current;
 			if (!problem) return;
+			cancelSpeech();
 			void send({ type: "thinking", problemCallId: problem.toolCallId, text });
 		},
 		[send],
@@ -748,7 +754,17 @@ export function Chat({
 	// "error" too: a dropped stream leaves the model there, and send()
 	// recovers from it. Later compaction requires new input instead.
 	const retryable = (status === "ready" || status === "error") && !busy && !compacting && endsInFailedTurn(nativeMessages);
-	const retryFailedTurn = () => retryFailedResponse(send, draftRef);
+	const retryFailedTurn = () => {
+		cancelSpeech();
+		retryFailedResponse(send, draftRef);
+	};
+	const speechReply = replySpeech(nativeMessages);
+	const latestAssistantIndex = messages.reduce((last, message, index) => message.role === "assistant" ? index : last, -1);
+	const canReadReply = replyReadable({ status, busy, compacting, error, retryable });
+	useEffect(() => {
+		if (!canReadReply) cancelSpeech();
+	}, [canReadReply]);
+	useEffect(() => () => cancelSpeech(), [chatId]);
 	const canSend =
 		(text.trim().length > 0 || dictation.active) && !pending && !activeProblem && !compacting;
 
@@ -771,6 +787,7 @@ export function Chat({
 		);
 	const sendNext = useCallback(() => {
 		if (!nextReady) return;
+		cancelSpeech();
 		void send({ type: "next" });
 	}, [nextReady, send]);
 
@@ -1243,6 +1260,7 @@ export function Chat({
 		if (pending || compacting) return;
 		const t = textRef.current.trim();
 		if (!t) return;
+		cancelSpeech();
 		if (busy) {
 			applyText("");
 			void steer(t);
@@ -1521,6 +1539,7 @@ export function Chat({
 												</div>
 											</div>
 									) : (
+										<Fragment>
 									<Message from="assistant" className="max-w-full">
 									<MessageContent className="w-full">
 											{m.parts.map((part, pi) => {
@@ -1619,6 +1638,12 @@ export function Chat({
 											})}
 										</MessageContent>
 									</Message>
+									{mi === latestAssistantIndex && canReadReply && speechReply && (
+										<div className="mt-2 flex justify-start">
+											<ReadAloudButton speech={speechReply} label="Read reply" />
+										</div>
+									)}
+										</Fragment>
 									)}
 								</Fragment>
 							))}
@@ -1704,7 +1729,7 @@ export function Chat({
 					pricing={pricing}
 					onReserve={setDockReserve}
 					dictationSlot={<DictationBar dictation={dictation} />}
-					dictationCancel={dictation.cancel}
+					dictationCancel={dictation.active ? dictation.cancel : undefined}
 					queuedSteers={visibleQueuedSteers(steerQueue, nativeMessages)}
 					setupCta={
 						zeroKeys ? (
@@ -1748,6 +1773,7 @@ export function Chat({
 					}
 					onSubmitAnswer={(output) => {
 						if (!pending) return;
+						cancelSpeech();
 						// THE ANSWER IS THE QUESTION CALL'S TOOL RESULT (fork 1, owner
 						// 2026-09-26): one input event, one turn — the hook appends
 						// the optimistic graded result (the AnsweredCard shows at
@@ -2398,7 +2424,7 @@ function DockOverlay({
 							) : practice ? (
 								<PracticeDock
 									problemCallId={practice.toolCallId}
-									input={practice.input as { statement: string }}
+									input={practice.input as { statement: string; parts?: unknown }}
 									expanded={expanded}
 									onExpand={() => {
 										setExpanded(true);
