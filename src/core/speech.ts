@@ -85,7 +85,7 @@ export function speechTextOfMarkdown(md: string): string {
 		if (/^(?: {4}|\t)/.test(line)) {
 			const unindented = line.replace(/^(?: {4}|\t)/, "");
 			const isListItem = /^(?:[-+*]|\d+[.)])\s+/.test(unindented);
-			const continuesList = previousBlockWasList || paragraphHasList;
+			const continuesList: boolean = previousBlockWasList || paragraphHasList;
 			if (isListItem || continuesList || paragraph.length > 0) {
 				paragraph.push(stripBlockMarkers(unindented));
 				paragraphHasList ||= isListItem || continuesList;
