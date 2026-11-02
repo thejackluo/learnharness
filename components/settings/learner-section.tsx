@@ -405,12 +405,15 @@ export function LearnerSection() {
 		setConflictProfile(null);
 	}
 
-	function applyConfirmedExcerpts(next: LearnerProfileV1) {
+	function applyConfirmedExcerpts(next: LearnerProfileV1, knownExcerptIds: Set<string>) {
 		setProfile((current) => current
 			? { ...current, revision: next.revision, excerpts: next.excerpts }
 			: next);
 		setProfileState("ok");
-		setExcerpts(next.excerpts.map((excerpt) => ({ ...excerpt })));
+		setExcerpts((current) => [
+			...current,
+			...next.excerpts.filter((excerpt) => !knownExcerptIds.has(excerpt.id)).map((excerpt) => ({ ...excerpt })),
+		]);
 		setConflictProfile(null);
 	}
 
@@ -531,6 +534,7 @@ export function LearnerSection() {
 
 	async function confirmDrafts() {
 		if (!profile || !drafts.length) return;
+		const knownExcerptIds = new Set(profile.excerpts.map((excerpt) => excerpt.id));
 		setConfirming(true);
 		setError(null);
 		try {
@@ -558,7 +562,7 @@ export function LearnerSection() {
 				throw new Error(body.error ?? "Profile changed in another tab.");
 			}
 			if (!response.ok || !body.profile) throw new Error(body.error ?? `Import confirmation failed (${response.status}).`);
-			applyConfirmedExcerpts(body.profile);
+			applyConfirmedExcerpts(body.profile, knownExcerptIds);
 			setDrafts([]);
 			setSelectedFiles([]);
 		} catch (confirmError) {

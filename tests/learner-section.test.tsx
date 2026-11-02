@@ -98,16 +98,18 @@ test("confirming reviewed excerpts preserves unsaved profile edits", async () =>
 			note: "Saved note",
 			updatedAt: timestamp,
 		}],
+		excerpts: [
+			{ id: "excerpt-existing", sourceName: "notes.txt", text: "Original excerpt", importedAt: timestamp },
+			{ id: "excerpt-removed", sourceName: "old.md", text: "Excerpt to remove", importedAt: timestamp },
+		],
 	};
 	const confirmedProfile: LearnerProfileV1 = {
 		...initialProfile,
 		revision: 8,
-		excerpts: [{
-			id: "excerpt-1",
-			sourceName: "lesson.md",
-			text: "Reviewed excerpt",
-			importedAt: timestamp,
-		}],
+		excerpts: [
+			...initialProfile.excerpts,
+			{ id: "excerpt-imported", sourceName: "lesson.md", text: "Reviewed excerpt", importedAt: timestamp },
+		],
 	};
 	globalThis.fetch = async (input, init) => {
 		const url = String(input);
@@ -156,10 +158,14 @@ test("confirming reviewed excerpts preserves unsaved profile edits", async () =>
 			setField("#learner-background", "Unsaved background");
 			setField("#learner-coursework", "Unsaved coursework");
 			setField("#learner-familiarity-0", "familiar");
+			setField("#learner-excerpt-existing", "Edited excerpt");
+			host.querySelector<HTMLTextAreaElement>("#learner-excerpt-removed")?.parentElement?.querySelector("button")?.click();
 		});
 		assert.equal(host.querySelector<HTMLTextAreaElement>("#learner-background")?.value, "Unsaved background");
 		assert.equal(host.querySelector<HTMLTextAreaElement>("#learner-coursework")?.value, "Unsaved coursework");
 		assert.equal(host.querySelector<HTMLSelectElement>("#learner-familiarity-0")?.value, "familiar");
+		assert.equal(host.querySelector<HTMLTextAreaElement>("#learner-excerpt-existing")?.value, "Edited excerpt");
+		assert.equal(host.querySelector("#learner-excerpt-removed"), null);
 
 		const fileInput = host.querySelector<HTMLInputElement>("#learner-import-files")!;
 		Object.defineProperty(fileInput, "files", {
@@ -176,8 +182,10 @@ test("confirming reviewed excerpts preserves unsaved profile edits", async () =>
 		assert.equal(host.querySelector<HTMLTextAreaElement>("#learner-background")?.value, "Unsaved background");
 		assert.equal(host.querySelector<HTMLTextAreaElement>("#learner-coursework")?.value, "Unsaved coursework");
 		assert.equal(host.querySelector<HTMLSelectElement>("#learner-familiarity-0")?.value, "familiar");
+		assert.equal(host.querySelector<HTMLTextAreaElement>("#learner-excerpt-existing")?.value, "Edited excerpt");
+		assert.equal(host.querySelector("#learner-excerpt-removed"), null);
 		assert.match(host.textContent ?? "", /Profile revision 8/);
-		assert.ok(host.querySelector<HTMLTextAreaElement>("#learner-excerpt-excerpt-1"));
+		assert.ok(host.querySelector<HTMLTextAreaElement>("#learner-excerpt-excerpt-imported"));
 		assert.match(host.textContent ?? "", /lesson\.md/);
 	} finally {
 		await act(async () => { root?.unmount(); });
