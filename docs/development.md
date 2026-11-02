@@ -156,7 +156,7 @@ electron/                       desktop launcher + security guard (spawns the st
                                 server; 1 IPC channel; LH_DATA_DIR + BYOK env)
 scripts/                        build-server.mjs (packaging guards), import-notes,
                                 backfill-graph, replay-layout
-data/                           chats/ · graph/ (nodes/chains/sessions/coverage
+data/                           chats/ · learner/profile.json · graph/ (nodes/chains/sessions/coverage
                                 ledgers + positions/sources/render-settings maps) ·
                                 jobs/ · settings.json — runtime state, git-ignored
 ```

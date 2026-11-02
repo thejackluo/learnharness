@@ -23,18 +23,19 @@ Hold the architecture along two orthogonal axes:
 
 **Static structure — the hexagon.** One pure core (`src/core`); everything else is an *adapter* (implements a core port or drives the core) or a *composition root* (the only code that wires adapters to core). Dependency arrows point **inward only** — toward purity, toward stability. Two barrels are the entire public API: `@/src/core` (browser-safe) and `@/src/server` (the server-side surface).
 
-**Runtime ownership — six systems.** Each persistent store has exactly one owning writer-system; systems talk only through named, idempotent protocols:
+**Runtime ownership — seven systems.** Each persistent store has exactly one owning writer-system; systems talk only through named, idempotent protocols:
 
 | System | Owns (sole writer) | Role |
 |---|---|---|
 | **Classroom** — session engine | `data/chats/*.json` | the turn pipeline, prober→teacher, plan tree, questions, phases |
+| **Learner** — profile | `data/learner/profile.json` | editable learner context and import confirmations; evidence remains derived from chats |
 | **Workbench** — background labor | `data/jobs/*.json` | job runner, researcher/demo-builder/visual-maker, steer delivery |
 | **Library** — world model | `data/graph/*` ledgers | extraction pipeline (sole graph writer), derivation, birth-session clusters |
 | **Practice** — problem sets | `data/practice/*.json` | partitioner→generator→grader pipeline, self-contained sets (§7) |
 | **Stage** — presentation shell | nothing server-side | components/, graph canvas, docks — pure consumer via `/api/*` |
 | **Machine room** — host | process + config | Electron main, standalone Next server, `config.ts`, data-dir seam, BYOK keys |
 
-**The unifying law** (generates everything else): **imports point inward, writes point to append-only evidence, and everything else is derived.** Dependency flows toward purity; data flows toward evidence; no state is stored where it can be recomputed.
+**The unifying law** (generates everything else): **imports point inward; canonical evidence is append-only where applicable; everything recomputable is derived.** The revisioned learner profile is explicit user-authored context, while its transcript observations are derived from canonical chats.
 
 ---
 
@@ -56,14 +57,14 @@ Dependency arrows point **down only**. Each layer may import the core barrel; no
 │            extraction pipeline. Deps arrive via factories —  │
 │            never imported from below                          │
 ├──────────────────────────────────────────────────────────────┤
-│ CORE       src/core        pure domain: contracts (6 domains),│
-│            ports, merger + derivation, coverage, question-   │
+│ CORE       src/core        pure domain: contracts (8 domains),│
+│            ports, merger + learner derivation, coverage,     │
 │            core, plan-tree, phases, layout, prices. No IO     │
 │            (two files use node:crypto — pure                  │
 │            but node-bound, hence kept out of the barrel)      │
 ├──────────────────────────────────────────────────────────────┤
-│ STORE      src/store       fs adapters: chats · graph        │
-│            ledgers · jobs (implement core ports) + two       │
+│ STORE      src/store       fs adapters: chats · learner ·    │
+│            graph ledgers · jobs (implement core ports) + two │
 │            portless settings adapters. The ONLY modules     │
 │            that touch data/                                   │
 └──────────────────────────────────────────────────────────────┘
@@ -146,7 +147,7 @@ flowchart TB
 
 ### 2.2 Contracts — one file per domain
 
-`src/core/contracts.ts` is a barrel over seven domain files, each owned outright by its stream (schema changes in a domain you don't own go through the master session):
+`src/core/contracts.ts` is a barrel over eight domain files, each owned outright by its stream (schema changes in a domain you don't own go through the master session):
 
 - `contracts/plan.ts` — plan tree types + derived statuses (`derivePlanStatuses`)
 - `contracts/graph.ts` — graph domain: ledgers, findings/audit shapes, snapshot, birth-session clusters
@@ -155,12 +156,13 @@ flowchart TB
 - `contracts/probe.ts` — probe assessment + the shared zod schema
 - `contracts/models.ts` — client-safe model-catalog shapes
 - `contracts/practice.ts` — problem sets, reasoning chains, params, grade scores
+- `contracts/learner.ts` — revisioned learner profile, evidence observations, and familiarity claims
 
 ---
 
 ## 3. Ports, adapters, and the composition roots
 
-Storage is **per-entity semantic ports**, never one generic interface: `ChatStore`, `GraphStore`, `JobStore`, `PracticeStore` (`src/core/ports.ts` — types only). The fs adapters (`src/store/{chats,graph,jobs,practice}.ts`) implement them and contain persistence and nothing else. One more adapter (`src/store/render-settings.ts`) is a portless free function re-exported through the server barrel — a deliberate pragmatic bypass, documented here so nobody mistakes it for the pattern.
+Storage is **per-entity semantic ports**, never one generic interface: `ChatStore`, `GraphStore`, `JobStore`, `PracticeStore`, `LearnerProfileStore` (`src/core/ports.ts` — types only). The fs adapters (`src/store/{chats,graph,jobs,practice,learner}.ts`) implement them and contain persistence and nothing else. One more adapter (`src/store/render-settings.ts`) is a portless free function re-exported through the server barrel — a deliberate pragmatic bypass, documented here so nobody mistakes it for the pattern.
 
 **Idioms.** Graph evidence lives in **append-only JSONL ledgers** (corrupt-line-tolerant reads; strict shape guards drop invalid lines, never guess). Chats, jobs, positions, sources, and the settings blobs are whole-file read-modify-write JSON. All writes are synchronous, single-process (atomicity rides the Node event loop). Merge/dedup/derivation semantics are **reader-side, in core** — the store never decides.
 
@@ -211,7 +213,7 @@ flowchart LR
 
 ---
 
-## 4. The six systems (runtime ownership and protocols)
+## 4. The seven systems (runtime ownership and protocols)
 
 The systems view: each box owns its store; edges are the protocols, each with the adapter/seam that implements it.
 
@@ -227,6 +229,11 @@ flowchart TB
         TURN["turn pipeline — handleChatRequest"]
         AGENTS["prober → teacher (stateless per-turn, from the record)"]
         CHATDATA["chat records — data/chats/*.json"]
+    end
+
+    subgraph LEARNER_PROFILE["LEARNER — learner profile"]
+        LEARNER_API["profile, import, evidence, and bounded context service"]
+        LEARNER_DATA["data/learner/profile.json"]
     end
 
     subgraph WORKBENCH["WORKBENCH — background labor (owns data/jobs)"]
@@ -254,6 +261,7 @@ flowchart TB
     UI -->|"POST /api/chat [question answers ride addToolOutput]"| TURN
     TURN -->|"quiz / ask_user_question stream to browser [client-question tools, no execute]"| UI
     TURN -->|"saveMessages · persistTurn [ChatStore port]"| CHATDATA
+    TURN -->|"bounded context read, excluding current chat"| LEARNER_API
     TURN -->|"spawn(job) — fire-and-forget ack [job tools + JobStore port]"| JOBRUN
     JOBRUN --> SUBAGENTS
     SUBAGENTS -->|"result → steer message [steer builders in core/jobs.ts]"| WAKE
@@ -263,13 +271,16 @@ flowchart TB
     EXTRACT -->|"append-only ledger writes [GraphStore port — sole writer]"| GRAPHDATA
     DERIVE -->|"pure read: snapshot for home [graphSnapshot]"| GRAPHDATA
     UI -->|"POST /api/practice/sets · answers [HTTP transport]"| PPART
+    UI -->|"GET/PUT profile · import preview/confirm · evidence [HTTP transport]"| LEARNER_API
+    LEARNER_API -->|"profile read/write [LearnerProfileStore port]"| LEARNER_DATA
+    LEARNER_API -->|"derive observations from canonical messages [ChatStore port]"| CHATDATA
     PPART -->|"reads the graph ONCE at creation — propositions+chains frozen into the set [GraphStore port, pure read]"| GRAPHDATA
     PPART --> PDATA
     UI -->|"GET /api/graph (read) · PUT positions (sanctioned exception) · POST import"| DERIVE
     HOST -.->|"hosts every server-side system"| TURN
 ```
 
-Four server-side systems, each the sole writer of its own store, connected by named protocols: the **turn request** (Stage→Classroom), the **ack-and-steer** loop (Classroom→Workbench→Classroom), the **extraction trigger + transcript read** (Classroom→Library), and the **practice request** (Stage→Practice over HTTP, plus Practice's one-time graph snapshot read at creation). The Stage touches systems only through the thin HTTP transport; the teacher reaches the Library directly through the gated prober tools (`list_sessions` / `list_propositions`) rather than any injected context.
+Five server-side systems, each the sole writer of its own store, connected by named protocols: the **turn request** (Stage→Classroom), the **learner profile/evidence requests** (Stage→Learner), the **bounded context read** (Classroom→Learner, excluding the current chat), the **ack-and-steer** loop (Classroom→Workbench→Classroom), the **extraction trigger + transcript read** (Classroom→Library), and the **practice request** (Stage→Practice over HTTP, plus Practice's one-time graph snapshot read at creation). The Stage touches systems only through the thin HTTP transport; the teacher reaches Library through gated prober tools (`list_sessions` / `list_propositions`), while learner context is separately bounded and labeled as untrusted data.
 
 ---
 
@@ -306,6 +317,7 @@ sequenceDiagram
 ```
 
 - **Client-side question tools** (`quiz`, `ask_user_question`) have no server execute: the call streams to the browser, the learner answers in the dock, the client grades via `question-core` and returns the verdict with `addToolOutput`, which fires the continuation. A pending quiz persisted in the record is exactly what makes **resume mid-question free**. Deterministic seeded shuffling (keyed by toolCallId) keeps server and client renders identical.
+- **Learner profile and evidence**: `/api/learner/profile` stores editable background, coursework, topic familiarity, confirmed excerpts, and evidence associations in one revision-checked profile. Import preview writes nothing; confirmation validates and appends reviewed excerpts. `/api/learner/evidence` derives source-linked observations from canonical chat results; it is not a second grade ledger. Per-turn context is bounded, labeled untrusted, excludes the current chat, and is injected only at model-message conversion—not into the system prompt or persisted history. Unreadable chat records keep evidence coverage partial.
 - **The prober→teacher handoff**: the first turn(s) run the prober (floor/ceiling via quiz, goal via ask); `probe_done` (server-executed) files the assessment and queues a handoff steer; from the first `tool-probe_done` part in the transcript, the handler builds the teacher agent for every later turn. Phases (`core/phases.ts`) fold strictly: probe → plan → teach.
 - **The formal plan tree is author-once**: the teacher authors the session's dependency map with a single schema-validated `plan_init` tool (a mermaid-subset graph, parsed deterministically with line-numbered errors, validated as a DAG). Progress is never mutated — statuses (`current`/`visited`/upcoming) are **derived** from tagged quiz calls in the transcript; the tree panel and the plan blocks render that derivation.
 - **Job tools are server-executed, ack-and-steer**: `research`/`demo`/`visual` resolve immediately mid-turn with a fire-and-forget ack (the teacher keeps teaching); `spawn(job, input)` fires the background runner.
@@ -466,7 +478,7 @@ For ordinary Next web/dev, `src/server/web-subscriptions.ts` composes these same
 | **One composition root per concern** — `stores.ts` (storage), `chat-handler.ts` (a turn) |
 | **One writer per ledger** — the merger is the sole graph writer; chat records written only by the turn pipeline; job records only by the runner; positions PUT is the only sanctioned graph-adjacent exception |
 | **The store never decides** — adapters persist and shape-guard; merge/dedup/derivation semantics are reader-side, in core |
-| **Derived, never dual-tracked** — append-only evidence; every state recomputed at read (snapshot, plan statuses, phases, costs, coverage) |
+| **Derived state, never dual-tracked** — transcript observations, snapshots, plan statuses, phases, costs, and coverage are recomputed at read; the learner profile is explicitly authored and revisioned |
 | **Idempotency via deterministic keys** — steer ids, ledger refs, coverage fingerprints, source content fingerprints, cluster content hashes; re-running anything converges |
 | **LLMs judge; code mechanizes** — grading, merging, fingerprints, layout are deterministic; a failed LLM stage checkpoints nothing |
 | **The persisted record is the only source of truth** — agents are stateless per-turn rebuilds; no unanswered tool call reaches a provider |

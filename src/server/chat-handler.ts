@@ -52,6 +52,7 @@ import { catalogContextLimits, refreshConnectionCatalog } from "./model-catalog.
 import { emit } from "../core/events.ts";
 import { settledTurnResponse } from "./turn-runs.ts";
 import { asAgentMessages } from "../core/native-messages.ts";
+import { learnerContextFor } from "./learner.ts";
 import {
 	ChatInputError,
 	inputAppends,
@@ -432,6 +433,7 @@ export async function handleChatInput(
 		callPurpose,
 		requestCycle,
 		messages: asAgentMessages(agentMessages),
+		learnerContext: learnerContextFor(chatId) ?? undefined,
 		onUsage: collectUsage,
 		toolToggles: effective.agent.tools,
 		assessmentMode: effective.agent.assessmentMode,
