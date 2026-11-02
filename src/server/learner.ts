@@ -202,10 +202,13 @@ export class LearnerEvidenceUnavailableError extends Error {
 	}
 }
 
-function requireWritableProfile(): LearnerProfileV1 {
+function requireWritableProfile(expectedRevision: number): LearnerProfileV1 {
 	const profileRead = stores.learnerProfileStore.read();
 	if (profileRead.state === "corrupt" || profileRead.state === "future") {
 		throw new LearnerProfileUnavailableError(profileRead);
+	}
+	if (profileRead.profile.revision !== expectedRevision) {
+		throw new LearnerProfileConflictError(profileRead);
 	}
 	return profileRead.profile;
 }
@@ -221,10 +224,10 @@ export function attachEvidenceTarget(input: {
 	target: LearningTargetRef;
 	expectedRevision: number;
 }): LearnerProfileV1 {
+	const profile = requireWritableProfile(input.expectedRevision);
 	const problems = learnerTargetProblems(input.target);
 	if (problems.length) throw new Error(problems.join(" "));
 	ensureEvidenceAvailable(input.evidenceId);
-	const profile = requireWritableProfile();
 	const exists = profile.associations.some((association) =>
 		association.evidenceId === input.evidenceId && learnerTargetMatches(association.target, input.target),
 	);
@@ -247,9 +250,9 @@ export function detachEvidenceTarget(input: {
 	target: LearningTargetRef;
 	expectedRevision: number;
 }): LearnerProfileV1 {
+	const profile = requireWritableProfile(input.expectedRevision);
 	const problems = learnerTargetProblems(input.target);
 	if (problems.length) throw new Error(problems.join(" "));
-	const profile = requireWritableProfile();
 	const associations = profile.associations.filter((association) =>
 		association.evidenceId !== input.evidenceId || !learnerTargetMatches(association.target, input.target),
 	);

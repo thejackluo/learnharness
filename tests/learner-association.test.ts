@@ -78,6 +78,10 @@ test("association attach validates source and target, is idempotent, and detache
 		expectedRevision: 1,
 	});
 	assert.equal(idempotent.revision, 1);
+	assert.throws(
+		() => attachEvidenceTarget({ evidenceId: observation.id, target, expectedRevision: 0 }),
+		LearnerProfileConflictError,
+	);
 
 	assert.throws(
 		() => attachEvidenceTarget({ evidenceId: observation.id, target: { ...target, skillRevision: -1 }, expectedRevision: 1 }),
@@ -95,6 +99,12 @@ test("association attach validates source and target, is idempotent, and detache
 	const detached = detachEvidenceTarget({ evidenceId: observation.id, target, expectedRevision: 1 });
 	assert.equal(detached.revision, 2);
 	assert.equal(detached.associations.length, 0);
+	assert.throws(
+		() => detachEvidenceTarget({ evidenceId: observation.id, target, expectedRevision: 1 }),
+		LearnerProfileConflictError,
+	);
+	const idempotentDetach = detachEvidenceTarget({ evidenceId: observation.id, target, expectedRevision: 2 });
+	assert.equal(idempotentDetach.revision, 2);
 });
 
 test("source deletion leaves the retained association unavailable", () => {
