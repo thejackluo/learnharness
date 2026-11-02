@@ -591,7 +591,7 @@ export function projectSubjectMapGaps(input: SubjectMapGapInput): SubjectMapGapV
 			const current = items.filter((item) => item.skillRevision === skill.revision);
 			const historical = items.filter((item) => item.skillRevision !== skill.revision);
 			const unavailableSources = current.filter((item) => !item.observation).length;
-			if (unavailableSources) anyUnavailableSource = true;
+			if (items.some((item) => !item.observation)) anyUnavailableSource = true;
 			evidence = {
 				status: evidenceStatus(current, unavailableSources),
 				current,

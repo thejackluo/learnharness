@@ -207,6 +207,14 @@ test("gap view distinguishes not checked, supporting, needs practice, mixed, inc
 	});
 	assert.ok(unreadable.skills.every((s) => s.evidence.status === "unavailable"));
 	assert.equal(unreadable.evidenceAvailability, "unavailable");
+
+	const historicalOnly = projectSubjectMapGaps({
+		map,
+		associations: { availability: "available", items: [item("e9", "good", null, 0)] },
+		topics: { availability: "available", claims: [] },
+		propositions: { availability: "available", names: new Map() },
+	});
+	assert.equal(historicalOnly.evidenceAvailability, "partial", "a deleted historical source still marks availability partial");
 });
 
 test("encounter and self-report axes report linked, missing and unavailable sources separately", () => {
