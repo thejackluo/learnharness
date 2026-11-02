@@ -186,13 +186,15 @@ export function newAnswerResult(
 	toolCallId: string,
 	toolName: string,
 	answer: unknown,
+	rubric = false,
 ): LhMessage & ToolResultMessage {
+	const id = newMessageId();
 	return {
-		id: newMessageId(),
+		id,
 		role: "toolResult",
 		toolCallId,
 		toolName,
-		content: [{ type: "text", text: JSON.stringify(compactAnswerForModel(answer as QuestionAnswerData)) }],
+		content: [{ type: "text", text: JSON.stringify({ ...compactAnswerForModel(answer as QuestionAnswerData), ...(rubric ? { responseId: id } : {}) }) }],
 		// 0.87.1 narrowed ToolResultMessage.details to JsonRepresentation —
 		// our payloads are JSON-safe answer structures, so the cast is honest.
 		details: answer as ToolResultMessage["details"],
@@ -293,11 +295,12 @@ export function newGraphContextMessage(picks: readonly GraphContextPick[], chain
  *  payload for the transcript card. One problem may carry many
  *  submissions. */
 export function newThinkingMessage(problemCallId: string, text: string): LhMarkerMessage {
+	const id = newMessageId();
 	return {
-		id: newMessageId(),
+		id,
 		role: "custom",
 		customType: "practice-thinking",
-		content: `${THINKING_LABEL}:\n${text}`,
+		content: `${THINKING_LABEL}:\n${text}\nresponseId: ${id}`,
 		display: true,
 		details: { problemCallId, text },
 		timestamp: Date.now(),

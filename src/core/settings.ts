@@ -243,6 +243,7 @@ export interface DictationSettings {
 
 /** Agent settings — everything about the non-conversation machinery. */
 export interface AgentSettings {
+	assessmentMode?: "choice" | "free" | "mixed";
 	/** Background-role model/thinking overrides (absent role = config pin). */
 	models?: Partial<Record<BackgroundModelRole, RoleModelOverride>>;
 	/** Tool toggles keyed by tool id (absent key = enabled). User-level
@@ -508,6 +509,11 @@ function sanitizeBooleanMap(raw: unknown): Record<string, boolean> | undefined {
 
 function sanitizeAgent(raw: Record<string, unknown>): AgentSettings {
 	const out: AgentSettings = {};
+	const known = new Set(["assessmentMode", "models", "tools", "prompts", "search", "graphTools"]);
+	for (const [key, value] of Object.entries(raw)) {
+		if (!known.has(key)) (out as Record<string, unknown>)[key] = value;
+	}
+	if (raw.assessmentMode === "choice" || raw.assessmentMode === "free" || raw.assessmentMode === "mixed") out.assessmentMode = raw.assessmentMode;
 	if (raw.models !== null && typeof raw.models === "object" && !Array.isArray(raw.models)) {
 		const models: Partial<Record<BackgroundModelRole, RoleModelOverride>> = {};
 		for (const [role, override] of Object.entries(raw.models as Record<string, unknown>)) {

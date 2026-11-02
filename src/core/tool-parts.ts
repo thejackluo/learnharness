@@ -109,7 +109,7 @@ export function parseAskInput(input: unknown): AskToolInput | undefined {
 export function parseExplainInput(input: unknown): ExplainToolInput | undefined {
 	const cleaned = boundaryParse<ExplainToolInput>(explainDisplayInputSchema, input);
 	if (!cleaned) return undefined;
-	if (explainInputProblems(cleaned).length > 0) return undefined;
+	if (explainInputProblems({ correctAnswer: cleaned.correctAnswer }).length > 0) return undefined;
 	return cleaned;
 }
 

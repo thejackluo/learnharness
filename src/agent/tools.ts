@@ -1,4 +1,5 @@
 import { Type } from "typebox";
+import { evaluateTool } from "./tools/evaluate.ts";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { invalidInputResult, questionResult, serverExecute } from "./tool-execute.ts";
 import {
@@ -288,6 +289,7 @@ export interface ProberToolContext extends ProbeDoneContext {
 export function createProberTools(
 	ctx: ProberToolContext,
 	enabled?: EnabledTools,
+	mode?: "choice" | "free" | "mixed",
 ): Record<string, AgentTool<any>> {
 	// probe_done is re-added AFTER the filter, always-on by construction — it
 	// is how the phase ENDS; a prober that can never conclude is a lockout.
@@ -305,17 +307,18 @@ export function createProberTools(
 	// the settings arm. ask stays always-on. The registry keys are the
 	// PHASE names (probe/recall, owner 2026-10-09) — distinct from the
 	// teach tools so the schema boundary is visible to the model.
-	const mechanics = quizMechanics(enabled);
+	const mechanics = quizMechanics(enabled, mode);
 	// The armed quizzing tool, widened to the registry's heterogeneous
 	// AgentTool record BEFORE the filter (a conditional spread of two
 	// differently-typed literals makes the whole object's type a union —
 	// unusable as Record<string, AgentTool<any>> downstream).
 	const quizzing: Record<string, AgentTool<any>> =
-		mechanics === "free" ? { recall: probeExplainTool } : { probe: probeQuizTool };
+		{ ...(mechanics !== "choice" ? { recall: probeExplainTool } : {}), ...(mechanics !== "free" ? { probe: probeQuizTool } : {}) };
 	// healToolRecord (owner, 2026-10-09 — the whitehead generalization):
 	// the standard argument heal over the WHOLE registry — every tool,
 	// not just the one the latest wobble incident landed on.
 	return capabilityFilter(healToolRecord({
+		evaluate: evaluateTool(ctx),
 		...filterEnabledTools(
 			{
 				...quizzing,
@@ -420,7 +423,8 @@ export interface TeacherToolContext extends PlanToolContext {
  *  managed, NOT individually toggleable: quiz/explain never pass through
  *  filterEnabledTools (the 2026-09-19 wedge ruling stands — a quiz-less
  *  prober collapses its assessment flow). */
-export function quizMechanics(enabled?: EnabledTools): "choice" | "free" {
+export function quizMechanics(enabled?: EnabledTools, mode?: "choice" | "free" | "mixed"): "choice" | "free" | "mixed" {
+	if (mode) return mode;
 	return enabled?.explain === true ? "free" : "choice";
 }
 
@@ -435,20 +439,22 @@ function withoutMechanics(enabled?: EnabledTools): EnabledTools | undefined {
 export function createTeacherTools(
 	ctx: TeacherToolContext,
 	enabled?: EnabledTools,
+	mode?: "choice" | "free" | "mixed",
 ): Record<string, AgentTool<any>> {
 	// Quizzing mechanics (owner 2026-09-27): free-recall swaps the teach
 	// quiz for the teach explain — one quizzing tool at a time, whichever
 	// the settings arm. ask stays always-on.
-	const mechanics = quizMechanics(enabled);
+	const mechanics = quizMechanics(enabled, mode);
 	// Same widening as the prober's (see above) — the conditional spread of
 	// two differently-typed literals collapses into an unusable union type.
 	const quizzing: Record<string, AgentTool<any>> =
-		mechanics === "free" ? { explain: teachExplainToolFor(ctx) } : { quiz: teachQuizToolFor(ctx) };
+		{ ...(mechanics !== "choice" ? { explain: teachExplainToolFor(ctx) } : {}), ...(mechanics !== "free" ? { quiz: teachQuizToolFor(ctx) } : {}) };
 	// healToolRecord — same standard as the prober's registry (above).
 	return capabilityFilter(healToolRecord(
 		filterEnabledTools(
 			{
 			...quizzing,
+			evaluate: evaluateTool(ctx),
 			ask_user_question: askUserQuestionTool,
 			// The learner-filesystem set is always-on (user-decided 2026-09,
 			// sources v1): the teacher locates and reads learner-referenced

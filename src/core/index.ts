@@ -1,3 +1,5 @@
+export * from "./assessment.ts";
+export * from "./canonical-question.ts";
 /**
  * THE CORE PUBLIC API — the only module the shell (app/, components/) may
  * import. Everything exported here is browser-safe: pure logic + types,

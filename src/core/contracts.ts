@@ -1,3 +1,4 @@
+export * from "./contracts/assessment.ts";
 /**
  * Shared contracts — the single source of truth every component codes against.
  *

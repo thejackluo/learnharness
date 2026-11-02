@@ -15,6 +15,8 @@
  */
 
 import { Type, type Static } from "typebox";
+import { assessmentPartsSchema, assessmentSpecProblems } from "../../core/assessment.ts";
+import { evaluateTool } from "./evaluate.ts";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { resolveTargetId } from "../../core/chains.ts";
 import { readTool } from "./read.ts";
@@ -71,6 +73,7 @@ export function createPracticeGate(ctx: PracticeToolContext): PracticeGate {
 // ─── problem: the pose ───────────────────────────────────────────────────────
 
 export const problemInputObject = Type.Object({
+	parts: Type.Optional(assessmentPartsSchema),
 	statement: Type.String({
 		description:
 			"REQUIRED — the problem as the learner sees it (markdown + LaTeX). Must be self-contained and " +
@@ -135,6 +138,8 @@ export function problemTool(
 			return { ...(healed as Record<string, unknown>), target: normalized } as never;
 		},
 		execute: async (_toolCallId, input) => {
+			const problems = assessmentSpecProblems(input.parts);
+			if (problems.length) return invalidInputResult("problem", problems);
 			if (gate.problemActive) {
 				return invalidInputResult("problem", [
 					"a problem is already active — call conclude on it before posing the next one",
@@ -237,6 +242,7 @@ export function practiceTools(ctx: PracticeToolContext): Record<string, AgentToo
 	// keep their own (target-normalizing) prepareArguments as the composed
 	// inner pass; the double heal is idempotent by construction.
 	return capabilityFilter(healToolRecord({
+		evaluate: evaluateTool(ctx),
 		problem: problemTool(gate, ctx.graphNodes),
 		conclude: concludeTool(gate),
 		read: readTool,
