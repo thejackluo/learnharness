@@ -215,3 +215,53 @@ test("maps index lists unreadable files honestly and unlinking a deleted-map lin
 		globalThis.fetch = originalFetch;
 	}
 });
+
+test("skill launch checks model setup before creating a session and ignores a double click", async () => {
+	const posts: string[] = [];
+	let configured = false;
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		const url = String(input);
+		if (url === "/api/maps/map_ui") return Response.json({ state: "ok", map, view });
+		if (url.startsWith("/api/learner/evidence")) return Response.json({ availability: "complete", observations: [], nextCursor: null, profileRevision: 3 });
+		if (url === "/api/graph") return Response.json({ propositions: [] });
+		if (url === "/api/learner/profile") return Response.json({ state: "ok", profile: { revision: 3, topics: [] } });
+		if (url === "/api/models") {
+			const model = configured ? { model: { provider: "openrouter", id: "m" } } : {};
+			return Response.json({ slots: { strong: model, cheap: model, vision: model }, providers: [{ keyPresent: configured }], models: [{ provider: "openrouter", id: "m" }] });
+		}
+		if (url === "/api/chats" && init?.method === "POST") {
+			posts.push(String(init.body));
+			await new Promise((resolve) => setTimeout(resolve, 5));
+			return Response.json({ id: "chat_started", title: "t" });
+		}
+		throw new Error(`unexpected ${url}`);
+	}) as typeof fetch;
+	const assigned: string[] = [];
+	const stored = new Map<string, string>();
+	const originalStorage = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+	Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: { getItem: (k: string) => stored.get(k) ?? null, setItem: (k: string, v: string) => { stored.set(k, v); }, removeItem: (k: string) => { stored.delete(k); } } });
+	const originalLocation = Object.getOwnPropertyDescriptor(dom.window, "location");
+	Object.defineProperty(dom.window, "location", { configurable: true, value: { assign: (url: string) => { assigned.push(url); } } });
+	try {
+		const { root, container } = await mount(createElement(SubjectMapEditor, { mapId: "map_ui" }));
+		await click(button(container, "Start a session on this skill"));
+		await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
+		assert.equal(posts.length, 0, "no session is created without models and a key");
+		assert.match(container.textContent ?? "", /Set up your models and a provider key/);
+		configured = true;
+		const start = button(container, "Start a session on this skill");
+		await click(start);
+		await click(start);
+		await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+		assert.equal(posts.length, 1, "a double click creates one session");
+		assert.deepEqual(JSON.parse(posts[0]!).target, { mapId: "map_ui", skillId: "proc", skillRevision: 1 });
+		assert.deepEqual(assigned, ["/chat/chat_started"]);
+		await act(async () => root.unmount());
+	} finally {
+		globalThis.fetch = originalFetch;
+		if (originalStorage) Object.defineProperty(globalThis, "sessionStorage", originalStorage);
+		else delete (globalThis as { sessionStorage?: unknown }).sessionStorage;
+		if (originalLocation) Object.defineProperty(dom.window, "location", originalLocation);
+		else delete (dom.window as { location?: unknown }).location;
+	}
+});

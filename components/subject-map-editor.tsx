@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SessionStarter } from "@/components/start-session";
+import { savedSlotsConfigured, selectedModelUnavailable } from "@/components/setup-cta";
+import type { ModelCatalogResponse } from "@/src/core";
 import {
 	SUBJECT_MAP_LIMITS,
 	skillEvidenceStatusLabel,
@@ -174,7 +176,40 @@ export function SubjectMapEditor({ mapId }: { mapId: string }) {
 	const keySeq = useRef(0);
 	const mounted = useRef(true);
 	const starter = useRef(new SessionStarter());
+	const starting = useRef(false);
 	const [startError, setStartError] = useState<string | null>(null);
+	const [startBusy, setStartBusy] = useState(false);
+
+	/** Same no-orphan rule as the home/draft launchers: check models and keys before any chat exists. */
+	const startTargetSession = useCallback(async (skill: { id: string; title: string; objective: string; revision: number }, mode: "teach" | "practice") => {
+		if (starting.current || !map) return;
+		starting.current = true;
+		setStartBusy(true);
+		setStartError(null);
+		const fail = (message: string) => {
+			starting.current = false;
+			if (!mounted.current) return;
+			setStartBusy(false);
+			setStartError(message);
+		};
+		try {
+			const response = await fetch("/api/models", { cache: "no-store" });
+			const catalog = response.ok ? (await response.json()) as ModelCatalogResponse : undefined;
+			if (!catalog) return fail("Could not check your model setup. Try again.");
+			const strong = catalog.slots.strong?.model;
+			if (!savedSlotsConfigured(catalog.slots) || !catalog.providers.some((provider) => provider.keyPresent) || selectedModelUnavailable(catalog, strong ? `${strong.provider}:${strong.id}` : undefined)) {
+				return fail("Set up your models and a provider key in Settings before starting a session.");
+			}
+			const path = await starter.current.start({
+				title: `${mode === "practice" ? "Practice" : "Help me learn"} "${skill.title}": ${skill.objective}`,
+				...(mode === "practice" ? { kind: "practice" as const } : {}),
+				target: { mapId: map.id, skillId: skill.id, skillRevision: skill.revision },
+			}, fetch);
+			window.location.assign(path);
+		} catch {
+			fail("Could not start a session for this skill. Reload the map and try again.");
+		}
+	}, [map]);
 
 	const accept = useCallback((next: SubjectMapV1, nextView: SubjectMapGapView | null) => {
 		setMap(next);
@@ -463,19 +498,9 @@ export function SubjectMapEditor({ mapId }: { mapId: string }) {
 							onDetachEvidence={(item) => void changeEvidence("DELETE", item.evidenceId, {
 								target: { kind: "subject-skill", mapId: map.id, skillId: skill.id, skillRevision: item.skillRevision },
 							})}
-							onStart={dirty ? undefined : (() => {
+							onStart={dirty || startBusy ? undefined : (() => {
 								const savedSkill = map.skills.find((candidate) => candidate.id === skill.id);
-								if (!savedSkill) return undefined;
-								return (mode: "teach" | "practice") => {
-									setStartError(null);
-									starter.current.start({
-										title: `${mode === "practice" ? "Practice" : "Help me learn"} "${savedSkill.title}": ${savedSkill.objective}`,
-										...(mode === "practice" ? { kind: "practice" as const } : {}),
-										target: { mapId: map.id, skillId: savedSkill.id, skillRevision: savedSkill.revision },
-									}, fetch).then((path) => window.location.assign(path), () => {
-										if (mounted.current) setStartError("Could not start a session for this skill. Reload the map and try again.");
-									});
-								};
+								return savedSkill ? (mode: "teach" | "practice") => void startTargetSession(savedSkill, mode) : undefined;
 							})()}
 						/>
 					))}
