@@ -11,8 +11,9 @@ import type { UserSettings } from "../src/core/index.ts";
 
 function deferred<T>() {
 	let resolve!: (value: T) => void;
-	const promise = new Promise<T>((done) => { resolve = done; });
-	return { promise, resolve };
+	let reject!: (reason?: unknown) => void;
+	const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+	return { promise, resolve, reject };
 }
 
 class Socket extends EventTarget {
@@ -353,4 +354,18 @@ test("microphone permission resolving after unmount immediately stops the late s
 	assert.equal(f.state.stops, 1);
 	assert.equal(Socket.all.length, 0);
 	assert.equal(isDictationActive(), false);
+});
+
+test("microphone permission denial reports the error without opening a socket or submitting text", async () => {
+	const f = await fixture();
+	await f.mount();
+	const mic = deferred<{ getTracks: () => { stop: () => void }[] }>();
+	f.state.nextMic = mic.promise;
+	await act(async () => { f.dictation.toggle(); });
+	assert.equal(f.state.captures, 1);
+	await act(async () => { mic.reject(new DOMException("Permission denied", "NotAllowedError")); });
+	assert.equal(f.dictation.error, "Microphone permission denied");
+	assert.equal(f.dictation.phase, "idle");
+	assert.equal(Socket.all.length, 0);
+	assert.deepEqual(f.state.appends, []);
 });
