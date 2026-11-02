@@ -180,6 +180,7 @@ test("practice prompt includes statement and multipart prompts without commitmen
 	assert.equal(prompt.key, "prompt:problem-1");
 	assert.equal(prompt.text, "Visible problem statement.\nPart B: Visible part B.");
 	assert.doesNotMatch(prompt.text, /SECRET|modelSolution|criteria/);
+	assert.equal(practiceSpeech("numeric-problem", { statement: 17 })?.text, "17");
 });
 
 test("reply is offered only for a settled, idle, non-error transcript", () => {

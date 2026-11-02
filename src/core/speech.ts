@@ -211,9 +211,12 @@ export function questionSpeech(toolName: string, toolCallId: string, input: unkn
 /** Visible practice statement and prompts only; commitments and rubrics stay private. */
 export function practiceSpeech(
 	problemCallId: string,
-	input: { statement: string; parts?: unknown },
+	input: { statement: unknown; parts?: unknown },
 ): { key: string; text: string } | null {
-	const lines = [input.statement];
+	const statement = typeof input.statement === "string" || typeof input.statement === "number"
+		? String(input.statement)
+		: "";
+	const lines = statement ? [statement] : [];
 	for (const [index, part] of (assessmentSpecOf(input)?.parts ?? []).entries()) {
 		lines.push(`Part ${partLabel(part.label, index)}: ${part.prompt}`);
 	}
