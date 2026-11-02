@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { act, createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { createRoot, type Root } from "react-dom/client";
+import type { Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
 import test from "node:test";
 import { LearnerSection, LearnerSectionBody } from "../components/settings/learner-section.tsx";
@@ -9,7 +9,19 @@ import type { LearnerObservation, LearnerProfileV1 } from "../src/core/contracts
 import { emptyLearnerProfile } from "../src/core/learner.ts";
 
 const dom = parseHTML("<html><body></body></html>");
-Object.assign(globalThis, { window: dom.window, document: dom.document, IS_REACT_ACT_ENVIRONMENT: true });
+Object.assign(dom.document, { oninput: null });
+Object.assign(globalThis, {
+	window: dom.window,
+	document: dom.document,
+	Element: dom.window.Element,
+	HTMLElement: dom.window.HTMLElement,
+	HTMLInputElement: dom.window.HTMLInputElement,
+	HTMLTextAreaElement: dom.window.HTMLTextAreaElement,
+	Event: dom.window.Event,
+	CustomEvent: dom.window.CustomEvent,
+	IS_REACT_ACT_ENVIRONMENT: true,
+});
+const { createRoot } = await import("react-dom/client");
 const originalFetch = globalThis.fetch;
 
 test("learner section body renders escaped profile/evidence text and source-linked evidence", () => {
@@ -126,16 +138,28 @@ test("confirming reviewed excerpts preserves unsaved profile edits", async () =>
 		await act(async () => { root!.render(createElement(LearnerSection)); });
 
 		const setField = (selector: string, value: string) => {
-			const field = host.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector)!;
-			const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value");
+			const field = host.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(selector)!;
+			if (field.tagName === "SELECT") {
+				Object.defineProperty(field, "value", { configurable: true, writable: true, value });
+				field.dispatchEvent(new window.Event("change", { bubbles: true }));
+				return;
+			}
+			const prototype = field.tagName === "TEXTAREA"
+				? window.HTMLTextAreaElement.prototype
+				: window.HTMLInputElement.prototype;
+			const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
 			descriptor?.set?.call(field, value);
 			field.dispatchEvent(new window.Event("input", { bubbles: true }));
+			field.dispatchEvent(new window.Event("change", { bubbles: true }));
 		};
 		await act(async () => {
 			setField("#learner-background", "Unsaved background");
 			setField("#learner-coursework", "Unsaved coursework");
-			setField("#learner-topic-0", "Unsaved topic");
+			setField("#learner-familiarity-0", "familiar");
 		});
+		assert.equal(host.querySelector<HTMLTextAreaElement>("#learner-background")?.value, "Unsaved background");
+		assert.equal(host.querySelector<HTMLTextAreaElement>("#learner-coursework")?.value, "Unsaved coursework");
+		assert.equal(host.querySelector<HTMLSelectElement>("#learner-familiarity-0")?.value, "familiar");
 
 		const fileInput = host.querySelector<HTMLInputElement>("#learner-import-files")!;
 		Object.defineProperty(fileInput, "files", {
@@ -146,13 +170,15 @@ test("confirming reviewed excerpts preserves unsaved profile edits", async () =>
 		const button = (label: string) => [...host.querySelectorAll<HTMLButtonElement>("button")]
 			.find((element) => element.textContent?.trim() === label)!;
 		await act(async () => { button("Preview selected files").click(); });
+		assert.equal(host.querySelector<HTMLSelectElement>("#learner-familiarity-0")?.value, "familiar");
 		await act(async () => { button("Confirm reviewed excerpts").click(); });
 
 		assert.equal(host.querySelector<HTMLTextAreaElement>("#learner-background")?.value, "Unsaved background");
 		assert.equal(host.querySelector<HTMLTextAreaElement>("#learner-coursework")?.value, "Unsaved coursework");
-		assert.equal(host.querySelector<HTMLInputElement>("#learner-topic-0")?.value, "Unsaved topic");
+		assert.equal(host.querySelector<HTMLSelectElement>("#learner-familiarity-0")?.value, "familiar");
 		assert.match(host.textContent ?? "", /Profile revision 8/);
-		assert.equal(host.querySelector<HTMLTextAreaElement>("#learner-excerpt-excerpt-1")?.value, "Reviewed excerpt");
+		assert.ok(host.querySelector<HTMLTextAreaElement>("#learner-excerpt-excerpt-1"));
+		assert.match(host.textContent ?? "", /lesson\.md/);
 	} finally {
 		await act(async () => { root?.unmount(); });
 		host.remove();
