@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { LearnerSectionBody } from "../components/settings/learner-section.tsx";
 import type { LearnerObservation } from "../src/core/contracts/learner.ts";
+import { emptyLearnerProfile } from "../src/core/learner.ts";
 
 test("learner section body renders escaped profile/evidence text and source-linked evidence", () => {
 	const observation: LearnerObservation = {
@@ -45,4 +46,22 @@ test("empty completed evidence uses the required message", () => {
 		coverage: { scannedChats: 0, totalChats: 0, unreadableChats: 0 },
 	}));
 	assert.match(html, /<p class="text-sm text-muted-foreground">No assessed work yet\.<\/p>/);
+});
+
+test("revision conflict alert is programmatically focusable", () => {
+	const html = renderToStaticMarkup(createElement(LearnerSectionBody, {
+		conflictProfile: emptyLearnerProfile("2026-03-01T00:00:00.000Z"),
+	}));
+	assert.ok(html.includes('tabindex="-1"'));
+	assert.ok(html.includes('role="alert"'));
+});
+
+test("unwritable profile alert disables editing and save controls", () => {
+	const html = renderToStaticMarkup(createElement(LearnerSectionBody, {
+		profileState: "profile_unwritable",
+	}));
+	assert.ok(html.includes("cannot be edited (profile_unwritable)"));
+	assert.match(html, /<fieldset[^>]*disabled=""/);
+	const saveButton = html.match(/<button[^>]*>Save profile<\/button>/)?.[0];
+	assert.ok(saveButton?.includes("disabled"));
 });

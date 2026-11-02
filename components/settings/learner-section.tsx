@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	FAMILIARITY_LEVELS,
 	LEARNER_LIMITS,
@@ -120,6 +120,7 @@ export function LearnerSectionBody({
 	onReload = NOOP,
 	onLoadMore = NOOP,
 }: LearnerSectionBodyProps) {
+	const conflictBannerRef = useRef<HTMLDivElement>(null);
 	const excerptBytes = excerpts.reduce((total, excerpt) => total + utf8Bytes(excerpt.text), 0) +
 		drafts.reduce((total, draft) => total + utf8Bytes(draft.text), 0);
 	const editable = profileState === "absent" || profileState === "ok";
@@ -127,17 +128,26 @@ export function LearnerSectionBody({
 		? "partial"
 		: availability;
 
+	useEffect(() => {
+		if (conflictProfile) conflictBannerRef.current?.focus();
+	}, [conflictProfile]);
+
 	return (
 		<div className="flex flex-col gap-6" data-testid="learner-section-body">
 			{loading && <p className="text-xs text-muted-foreground" role="status">Loading learner profile…</p>}
 			{error && <p className="text-xs text-red-500" role="alert">{error}</p>}
 			{conflictProfile && (
-				<div className="flex items-center justify-between gap-3 rounded-sm border border-amber-500/40 px-3 py-2 text-xs" role="alert">
+				<div
+					ref={conflictBannerRef}
+					tabIndex={-1}
+					className="flex items-center justify-between gap-3 rounded-sm border border-amber-500/40 px-3 py-2 text-xs"
+					role="alert"
+				>
 					<span>Profile changed in another tab. Reload the saved profile before editing.</span>
 					<button type="button" className="underline" onClick={onReload}>Reload profile</button>
 				</div>
 			)}
-			{profileState === "corrupt" || profileState === "future" ? (
+			{profileState === "corrupt" || profileState === "future" || profileState === "profile_unwritable" ? (
 				<p className="text-xs text-red-500" role="alert">
 					The saved learner profile cannot be edited ({profileState}). Existing data was left unchanged.
 				</p>
@@ -459,8 +469,14 @@ export function LearnerSection() {
 			const body = await response.json() as {
 				profile?: LearnerProfileV1;
 				current?: { profile?: LearnerProfileV1 };
+				code?: string;
 				error?: string;
 			};
+			if (body.code === "profile_unwritable") {
+				setProfileState("profile_unwritable");
+				setConflictProfile(null);
+				throw new Error(body.error ?? "Learner profile cannot be updated.");
+			}
 			if (response.status === 409) {
 				setConflictProfile(body.current?.profile ?? null);
 				throw new Error(body.error ?? "Profile changed in another tab.");
@@ -508,8 +524,14 @@ export function LearnerSection() {
 			const body = await response.json() as {
 				profile?: LearnerProfileV1;
 				current?: { profile?: LearnerProfileV1 };
+				code?: string;
 				error?: string;
 			};
+			if (body.code === "profile_unwritable") {
+				setProfileState("profile_unwritable");
+				setConflictProfile(null);
+				throw new Error(body.error ?? "Learner profile cannot be updated.");
+			}
 			if (response.status === 409) {
 				setConflictProfile(body.current?.profile ?? null);
 				throw new Error(body.error ?? "Profile changed in another tab.");
