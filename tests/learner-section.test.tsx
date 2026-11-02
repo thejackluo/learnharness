@@ -159,3 +159,77 @@ test("confirming reviewed excerpts preserves unsaved profile edits", async () =>
 		globalThis.fetch = originalFetch;
 	}
 });
+
+test("appended evidence pages stay ordered and deduplicated", async () => {
+	const observedAt = {
+		newest: "2026-03-04T00:00:00.000Z",
+		middle: "2026-03-03T00:00:00.000Z",
+		tie: "2026-03-02T00:00:00.000Z",
+		oldest: "2026-03-01T00:00:00.000Z",
+	};
+	const observation = (id: string, prompt: string, at: string): LearnerObservation => ({
+		id,
+		chatId: "source-chat",
+		chatTitle: "Evidence source",
+		chatKind: "teach",
+		resultMessageId: `${id}-result`,
+		sourceCallId: `${id}-call`,
+		observedAt: at,
+		prompt,
+		provenance: "deterministic",
+		targets: [],
+		kind: "choice",
+		outcome: "correct",
+		tool: "quiz",
+	});
+	const firstPage = [
+		observation("middle", "Middle", observedAt.middle),
+		observation("tie-z", "Tie Z", observedAt.tie),
+		observation("oldest", "Oldest", observedAt.oldest),
+	];
+	const secondPage = [
+		observation("newest", "Newest", observedAt.newest),
+		observation("tie-z", "Tie Z", observedAt.tie),
+		observation("tie-a", "Tie A", observedAt.tie),
+	];
+	globalThis.fetch = async (input) => {
+		const url = String(input);
+		if (url === "/api/learner/profile") return Response.json({ state: "absent", profile: null });
+		if (url === "/api/learner/evidence") {
+			return Response.json({
+				availability: "partial",
+				observations: firstPage,
+				nextCursor: "next",
+				coverage: { scannedChats: 2, totalChats: 5, unreadableChats: 0 },
+			});
+		}
+		if (url === "/api/learner/evidence?cursor=next") {
+			return Response.json({
+				availability: "complete",
+				observations: secondPage,
+				nextCursor: null,
+				coverage: { scannedChats: 5, totalChats: 5, unreadableChats: 0 },
+			});
+		}
+		throw new Error(`Unexpected learner request: ${url}`);
+	};
+
+	let root: Root | undefined;
+	const host = document.createElement("div");
+	document.body.appendChild(host);
+	try {
+		root = createRoot(host);
+		await act(async () => { root!.render(createElement(LearnerSection)); });
+		const loadMore = [...host.querySelectorAll<HTMLButtonElement>("button")]
+			.find((element) => element.textContent?.trim() === "Load more observations")!;
+		await act(async () => { loadMore.click(); });
+
+		const prompts = [...host.querySelectorAll<HTMLParagraphElement>("li p.font-prose")]
+			.map((element) => element.textContent);
+		assert.deepEqual(prompts, ["Newest", "Middle", "Tie A", "Tie Z", "Oldest"]);
+	} finally {
+		await act(async () => { root?.unmount(); });
+		host.remove();
+		globalThis.fetch = originalFetch;
+	}
+});

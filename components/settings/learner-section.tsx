@@ -85,6 +85,16 @@ function provenanceLabel(observation: LearnerObservation): string {
 	}
 }
 
+function orderedUniqueObservations(observations: LearnerObservation[]): LearnerObservation[] {
+	const unique = new Map<string, LearnerObservation>();
+	for (const observation of observations) {
+		if (!unique.has(observation.id)) unique.set(observation.id, observation);
+	}
+	return [...unique.values()].sort((a, b) =>
+		b.observedAt.localeCompare(a.observedAt) || a.id.localeCompare(b.id),
+	);
+}
+
 export function LearnerSectionBody({
 	background = "",
 	coursework = "",
@@ -438,7 +448,9 @@ export function LearnerSection() {
 				error?: string;
 			};
 			if (!response.ok) throw new Error(page.error ?? `Evidence request failed (${response.status}).`);
-			setObservations((previous) => append ? [...previous, ...page.observations] : page.observations);
+			setObservations((previous) => orderedUniqueObservations(
+				append ? [...previous, ...page.observations] : page.observations,
+			));
 			setCoverage(page.coverage);
 			setAvailability(page.availability);
 			setNextCursor(page.nextCursor);
