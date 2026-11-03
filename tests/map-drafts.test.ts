@@ -136,3 +136,15 @@ test("local PDF upload extracts all pages through pdf-ops", async () => {
 	assert.equal(response.status, 200);
 	assert.equal((await response.json()).draft.skills[0].source.kind, "syllabus");
 });
+
+test("refinement without a syllabus keeps previously recorded syllabus provenance but downgrades new or altered quotes", async () => {
+	const previous: SubjectMapV1 = { ...valid, retired: [], version: 1, id: "map_test", revision: 4, createdAt: "then", updatedAt: "then", links: { propositions: [], topics: [] } };
+	const forged = { ...valid.skills[0]!, id: "torque", title: "Torque", objective: "Can compute torque", source: { kind: "syllabus" as const, sourceName: "course.txt", quote: "Compute torque" } };
+	const renamed = { ...valid.skills[0]!, id: "energy", title: "Energy", objective: "Can compute energy", source: { kind: "syllabus" as const, sourceName: "other.txt", quote: "Compute force" } };
+	const result = await refineSubjectMap(previous.id, { instruction: "Expand" }, { ...engine({ ...valid, skills: [valid.skills[0]!, forged, renamed] }), readMap: () => ({ state: "ok", map: previous }) });
+	assert.deepEqual(result.draft.skills.map((skill) => skill.source), [
+		{ kind: "syllabus", sourceName: "course.txt", quote: "Compute force" },
+		{ kind: "aiGapFill", reason: "quote not found in syllabus" },
+		{ kind: "aiGapFill", reason: "quote not found in syllabus" },
+	]);
+});

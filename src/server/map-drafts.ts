@@ -49,14 +49,16 @@ function mergeUsage(total: JobUsage | undefined, next: JobUsage | undefined): Jo
 
 const whitespace = (text: string) => text.replace(/\s+/gu, " ").trim();
 
-function verifiedQuotes(draft: PortableSubjectMapV1, syllabus?: MapSyllabus): PortableSubjectMapV1 {
+function verifiedQuotes(draft: PortableSubjectMapV1, syllabus: MapSyllabus | undefined, previous: SubjectMapDefinition | null): PortableSubjectMapV1 {
 	const uploaded = syllabus ? whitespace(syllabus.text) : "";
+	const retained = new Set((previous?.skills ?? []).flatMap((skill) =>
+		skill.source?.kind === "syllabus" ? [JSON.stringify([skill.source.sourceName, whitespace(skill.source.quote)])] : []));
 	return { ...draft, skills: draft.skills.map((skill) => {
 		if (skill.source?.kind !== "syllabus") return skill;
 		const quote = whitespace(skill.source.quote);
-		return syllabus && uploaded && quote && uploaded.includes(quote)
-			? { ...skill, source: { ...skill.source, sourceName: syllabus.name } }
-			: { ...skill, source: { kind: "aiGapFill", reason: "quote not found in syllabus" } };
+		if (syllabus && uploaded && quote && uploaded.includes(quote)) return { ...skill, source: { ...skill.source, sourceName: syllabus.name } };
+		if (quote && retained.has(JSON.stringify([skill.source.sourceName, quote]))) return skill;
+		return { ...skill, source: { kind: "aiGapFill", reason: "quote not found in syllabus" } };
 	}) };
 }
 
@@ -69,7 +71,7 @@ async function draft(input: MapDraftInput | MapRefineInput, previous: SubjectMap
 	for (let attempt = 0; attempt < 2; attempt++) {
 		const result = await (deps.drafter ?? runMapDrafter)(prompt + repair, { engine, signal: deps.signal, switches: stores.settingsStore.readSettings()?.agent?.prompts });
 		usage = mergeUsage(usage, result.usage);
-		const candidate = verifiedQuotes(result.draft, input.syllabus);
+		const candidate = verifiedQuotes(result.draft, input.syllabus, previous);
 		const normalized = parsePortableSubjectMap(candidate, now);
 		let issues: string[];
 		if (!normalized.ok) issues = normalized.issues;
