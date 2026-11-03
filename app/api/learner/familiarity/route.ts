@@ -4,11 +4,14 @@ import { latestPlacementFor, learnerJsonResponse, listFamiliaritySuggestions, ru
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-	const mapId = new URL(request.url).searchParams.get("mapId") ?? undefined;
+	const params = new URL(request.url).searchParams;
+	const mapId = params.get("mapId") ?? undefined;
+	const chatId = params.get("chatId") ?? undefined;
 	if (mapId !== undefined && !isSubjectMapId(mapId)) return learnerJsonResponse({ error: "Invalid mapId." }, 400);
+	if (chatId !== undefined && !/^[A-Za-z0-9_-]+$/.test(chatId)) return learnerJsonResponse({ error: "Invalid chatId" }, 400);
 	try {
 		return learnerJsonResponse({
-			...listFamiliaritySuggestions(mapId),
+			...listFamiliaritySuggestions(mapId, chatId === undefined ? undefined : { placementChatId: chatId }),
 			...(mapId ? { latestPlacement: latestPlacementFor(mapId) } : {}),
 			runtimeMode: runtimeMode(),
 		});
