@@ -21,6 +21,8 @@ import {
 	type SubjectMapLinks,
 	type SubjectMapV1,
 	type SubjectSkill,
+	type SubjectRegion,
+	type SkillSource,
 } from "./contracts/subject-map.ts";
 
 const SKILL_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -116,11 +118,46 @@ function skillProblems(skills: unknown, issues: string[], requireRevision: boole
 		}
 		if (!nonEmptyText(skill.title, SUBJECT_MAP_LIMITS.titleChars)) issues.push(`${label} title must be non-empty and at most ${SUBJECT_MAP_LIMITS.titleChars} characters`);
 		if (!nonEmptyText(skill.objective, SUBJECT_MAP_LIMITS.objectiveChars)) issues.push(`${label} objective must be non-empty and at most ${SUBJECT_MAP_LIMITS.objectiveChars} characters`);
+		if (skill.source !== undefined && !validSkillSource(skill.source)) issues.push(`${label} source is invalid`);
 		if (requireRevision || skill.revision !== undefined) {
 			if (!Number.isInteger(skill.revision) || (skill.revision as number) < 1) issues.push(`${label} revision must be a positive integer`);
 		}
 	});
 	return ids;
+}
+
+function validSkillSource(source: unknown): source is SkillSource {
+	if (!isRecord(source)) return false;
+	switch (source.kind) {
+		case "manual": return Object.keys(source).every((key) => key === "kind");
+		case "syllabus": return nonEmptyText(source.sourceName, SUBJECT_MAP_LIMITS.titleChars) && nonEmptyText(source.quote, SUBJECT_MAP_LIMITS.quoteChars) && Object.keys(source).every((key) => ["kind", "sourceName", "quote"].includes(key));
+		case "framework": return nonEmptyText(source.framework, SUBJECT_MAP_LIMITS.titleChars) && Object.keys(source).every((key) => ["kind", "framework"].includes(key));
+		case "aiGapFill": return nonEmptyText(source.reason, SUBJECT_MAP_LIMITS.reasonChars) && Object.keys(source).every((key) => ["kind", "reason"].includes(key));
+		default: return false;
+	}
+}
+
+function regionProblems(input: Record<string, unknown>, issues: string[]): void {
+	const ids = new Set<string>();
+	if (input.regions !== undefined) {
+		if (!Array.isArray(input.regions) || input.regions.length > SUBJECT_MAP_LIMITS.regions) {
+			issues.push(`regions must be an array of at most ${SUBJECT_MAP_LIMITS.regions} items`);
+		} else for (const region of input.regions) {
+			if (!isRecord(region) || !isSubjectSkillId(region.id) || !nonEmptyText(region.title, SUBJECT_MAP_LIMITS.titleChars) || !boundedText(region.description, SUBJECT_MAP_LIMITS.descriptionChars)) {
+				issues.push("region must have a valid id, title and description");
+				continue;
+			}
+			if (ids.has(region.id)) issues.push(`duplicate region id ${region.id}`);
+			ids.add(region.id);
+		}
+	}
+	if (Array.isArray(input.skills)) for (const skill of input.skills) {
+		if (isRecord(skill) && skill.regionId !== undefined && (typeof skill.regionId !== "string" || !ids.has(skill.regionId))) issues.push(`skill ${String(skill.id)} references unknown region ${String(skill.regionId)}`);
+	}
+}
+
+function pickRegions(input: Record<string, unknown>): { regions?: SubjectRegion[] } {
+	return input.regions === undefined ? {} : { regions: (input.regions as SubjectRegion[]).map(({ id, title, description }) => ({ id, title, description })) };
 }
 
 function edgeProblems(edges: unknown, skillIds: Set<string>, issues: string[]): void {
@@ -192,6 +229,7 @@ export function subjectMapDefinitionProblems(
 	if (!nonEmptyText(input.title, SUBJECT_MAP_LIMITS.titleChars)) issues.push(`title must be non-empty and at most ${SUBJECT_MAP_LIMITS.titleChars} characters`);
 	if (!boundedText(input.description, SUBJECT_MAP_LIMITS.descriptionChars)) issues.push(`description must be a string of at most ${SUBJECT_MAP_LIMITS.descriptionChars} characters`);
 	const ids = skillProblems(input.skills, issues, opts.requireRevisions ?? true);
+	regionProblems(input, issues);
 	const idSet = new Set(ids);
 	edgeProblems(input.edges, idSet, issues);
 	goalProblems(input.goals, idSet, issues);
@@ -249,6 +287,8 @@ function pickSkill(value: Record<string, unknown>, revision: number): SubjectSki
 		title: (value.title as string).trim(),
 		objective: (value.objective as string).trim(),
 		revision,
+		...(value.regionId === undefined ? {} : { regionId: value.regionId as string }),
+		...(value.source === undefined ? {} : { source: { ...(value.source as SkillSource) } }),
 	};
 }
 
@@ -277,6 +317,7 @@ export function reviseSubjectMapDefinition(
 	if (!isRecord(input)) return { ok: false, issues: ["map definition must be an object"] };
 	const priorRetired = previous?.retired ?? [];
 	const candidate = {
+		...(input.regions === undefined ? {} : { regions: input.regions }),
 		title: input.title,
 		description: input.description ?? "",
 		skills: input.skills,
@@ -306,6 +347,7 @@ export function reviseSubjectMapDefinition(
 	return {
 		ok: true,
 		definition: {
+			...pickRegions(candidate),
 			title: (candidate.title as string).trim(),
 			description: candidate.description as string,
 			skills,
@@ -330,9 +372,10 @@ export function portableSubjectMap(map: SubjectMapDefinition): PortableSubjectMa
 	return {
 		format: SUBJECT_MAP_FORMAT,
 		version: 1,
+		...pickRegions(map as unknown as Record<string, unknown>),
 		title: map.title,
 		description: map.description,
-		skills: map.skills.map(({ id, title, objective, revision }) => ({ id, title, objective, revision })),
+		skills: map.skills.map((skill) => pickSkill(skill as unknown as Record<string, unknown>, skill.revision)),
 		edges: map.edges.map(({ prerequisite, dependent }) => ({ prerequisite, dependent })),
 		goals: [...map.goals],
 		retired: map.retired.map(({ id, revision, title }) => ({ id, revision, title })),
@@ -353,6 +396,7 @@ export function parsePortableSubjectMap(value: unknown, now: string): SubjectMap
 	}
 	if (jsonDepthExceeds(value, SUBJECT_MAP_LIMITS.jsonDepth)) return { ok: false, issues: ["curriculum is nested too deeply"] };
 	const candidate = {
+		...(value.regions === undefined ? {} : { regions: value.regions }),
 		title: value.title,
 		description: value.description ?? "",
 		skills: value.skills,
@@ -365,6 +409,7 @@ export function parsePortableSubjectMap(value: unknown, now: string): SubjectMap
 	return {
 		ok: true,
 		definition: {
+			...pickRegions(candidate),
 			title: (candidate.title as string).trim(),
 			description: candidate.description as string,
 			skills: (candidate.skills as Record<string, unknown>[]).map((raw) => pickSkill(raw, raw.revision as number)),

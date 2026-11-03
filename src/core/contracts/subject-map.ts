@@ -13,6 +13,9 @@ export const SUBJECT_MAP_LIMITS = {
 	jsonDepth: 8,
 	maps: 100,
 	skills: 500,
+	regions: 50,
+	quoteChars: 500,
+	reasonChars: 500,
 	edges: 2000,
 	retired: 2000,
 	links: 2000,
@@ -24,6 +27,18 @@ export const SUBJECT_MAP_LIMITS = {
 
 export const SUBJECT_MAP_FORMAT = "learnharness.subject-map" as const;
 
+export interface SubjectRegion {
+	id: string;
+	title: string;
+	description: string;
+}
+
+export type SkillSource =
+	| { kind: "syllabus"; sourceName: string; quote: string }
+	| { kind: "framework"; framework: string }
+	| { kind: "aiGapFill"; reason: string }
+	| { kind: "manual" };
+
 export interface SubjectSkill {
 	/** Stable author-chosen id; never reused once retired. */
 	id: string;
@@ -32,6 +47,8 @@ export interface SubjectSkill {
 	objective: string;
 	/** Objective revision (≥1). Evidence linked at an older revision is historical. */
 	revision: number;
+	regionId?: string;
+	source?: SkillSource;
 }
 
 /** `prerequisite` must be learned before `dependent`. */
@@ -67,6 +84,7 @@ export interface SubjectMapLinks {
 }
 
 export interface SubjectMapDefinition {
+	regions?: SubjectRegion[];
 	title: string;
 	description: string;
 	skills: SubjectSkill[];
@@ -104,6 +122,7 @@ export type SubjectMapSummary =
 
 /** The versioned curriculum JSON a map imports from and exports to. */
 export interface PortableSubjectMapV1 {
+	regions?: SubjectRegion[];
 	format: typeof SUBJECT_MAP_FORMAT;
 	version: 1;
 	title: string;
