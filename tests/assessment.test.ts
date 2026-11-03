@@ -139,6 +139,8 @@ test("typed part authoring synthesizes criteria and grades numeric and exact ans
 	const casefoldI = assessmentSpecOf({ parts: [{ ...exactParts[0], id: "casefold-i", accepted: ["i"], normalize: "nfkc-trim-casefold", points: 1 }] })!.parts[0] as Extract<(typeof typed.parts)[number], { kind: "exact" }>;
 	assert.equal(gradeExact(casefoldI, "ı").award, 0);
 	assert.equal(gradeExact(casefoldI, "I").award, 1);
+	const casefoldSharpS = assessmentSpecOf({ parts: [{ ...exactParts[0], id: "casefold-sharp-s", accepted: ["Straße"], normalize: "nfkc-trim-casefold", points: 1 }] })!.parts[0] as Extract<(typeof typed.parts)[number], { kind: "exact" }>;
+	for (const value of ["Straße", "STRAẞE", "STRASSE"]) assert.equal(gradeExact(casefoldSharpS, value).award, 1);
 	assert.ok(assessmentSpecProblems([{ ...exactParts[0], id: "blank", accepted: ["  "] }]).length);
 	assert.ok(assessmentSpecProblems([{ ...numericParts[0], units: [{ symbol: "m", factor: Infinity }] }]).length);
 	assert.ok(assessmentSpecProblems([{ ...numericParts[0], units: [{ symbol: "m", factor: 1 }, { symbol: " m ", factor: 2 }] }]).length);
