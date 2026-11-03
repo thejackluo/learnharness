@@ -112,6 +112,21 @@ test("closure explains the shortest path from each prerequisite to each goal", (
 	assert.ok(order.indexOf("vars") < order.indexOf("loops") && order.indexOf("loops") < order.indexOf("recursion"));
 });
 
+test("alternative options are prerequisites in skill ordering and gap views", () => {
+	const def = {
+		...definition(["d", "a", "b"], []),
+		alternatives: [{ dependent: "d", options: ["a", "b"] }],
+	};
+	assert.deepEqual(topologicalSkillOrder(def), ["a", "b", "d"]);
+	const view = projectSubjectMapGaps({
+		map: mapOf(def),
+		associations: { availability: "available", items: [] },
+		topics: { availability: "available", claims: [] },
+		propositions: { availability: "available", names: new Map() },
+	});
+	assert.deepEqual(view.skills.map((item) => item.skill.id), ["a", "b", "d"]);
+});
+
 test("objective edits bump only that skill's revision; edge/goal edits keep revisions; removals become tombstones", () => {
 	const first = reviseSubjectMapDefinition(null, definition(["a", "b"], [["a", "b"]], ["b"]), NOW);
 	assert.ok(first.ok);

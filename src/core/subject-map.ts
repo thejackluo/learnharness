@@ -477,10 +477,13 @@ export function parsePortableSubjectMap(value: unknown, now: string): SubjectMap
 }
 
 /** Skill ids with prerequisites before dependents; ties keep authoring order. */
-export function topologicalSkillOrder(definition: Pick<SubjectMapDefinition, "skills" | "edges">): string[] {
+export function topologicalSkillOrder(definition: Pick<SubjectMapDefinition, "skills" | "edges" | "alternatives">): string[] {
 	const indegree = new Map(definition.skills.map((skill) => [skill.id, 0]));
 	const dependents = new Map<string, string[]>(definition.skills.map((skill) => [skill.id, []]));
-	for (const edge of definition.edges) {
+	for (const edge of [
+		...definition.edges,
+		...(definition.alternatives ?? []).flatMap((group) => group.options.map((option) => ({ prerequisite: option, dependent: group.dependent }))),
+	]) {
 		indegree.set(edge.dependent, (indegree.get(edge.dependent) ?? 0) + 1);
 		dependents.get(edge.prerequisite)?.push(edge.dependent);
 	}
