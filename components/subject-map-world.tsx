@@ -11,7 +11,6 @@ import {
 	worldLayout,
 	type SkillEvidenceStatus,
 	type SkillPathState,
-	type SkillRoute,
 	type SubjectMapGapView,
 	type SubjectMapV1,
 	type SubjectSkill,
@@ -30,52 +29,6 @@ const STATE_LABEL: Record<SkillPathState, string> = {
 	reachable: "Reachable",
 	locked: "Locked",
 };
-
-function optionClosureSize(
-	map: SubjectMapV1,
-	statuses: ReadonlyMap<string, SkillEvidenceStatus>,
-	startId: string,
-): number {
-	const skills = new Set(map.skills.map((skill) => skill.id));
-	const memo = new Map<string, Set<string>>();
-	const visiting = new Set<string>();
-	const closure = (id: string): Set<string> => {
-		if (!skills.has(id) || statuses.get(id) === "supporting") return new Set();
-		const cached = memo.get(id);
-		if (cached) return cached;
-		if (visiting.has(id)) return new Set([id]);
-		visiting.add(id);
-		const result = new Set([id]);
-		for (const edge of map.edges) {
-			if (edge.dependent === id) for (const prerequisite of closure(edge.prerequisite)) result.add(prerequisite);
-		}
-		for (const group of map.alternatives ?? []) {
-			if (group.dependent !== id || group.options.some((option) => statuses.get(option) === "supporting")) continue;
-			const chosen = [...group.options].sort((a, b) => closure(a).size - closure(b).size || (a < b ? -1 : a > b ? 1 : 0))[0];
-			if (chosen) for (const prerequisite of closure(chosen)) result.add(prerequisite);
-		}
-		visiting.delete(id);
-		memo.set(id, result);
-		return result;
-	};
-	return closure(startId).size;
-}
-
-function routeAlternativeEdges(
-	map: SubjectMapV1,
-	statuses: ReadonlyMap<string, SkillEvidenceStatus>,
-	route: SkillRoute | null,
-): Set<string> {
-	const members = new Set(route?.route ?? []);
-	const selected = new Set<string>();
-	for (const group of map.alternatives ?? []) {
-		if (!members.has(group.dependent) || group.options.some((option) => statuses.get(option) === "supporting")) continue;
-		const chosen = [...group.options]
-			.sort((a, b) => optionClosureSize(map, statuses, a) - optionClosureSize(map, statuses, b) || (a < b ? -1 : a > b ? 1 : 0))[0];
-		if (chosen && members.has(chosen)) selected.add(`${chosen}\u0000${group.dependent}`);
-	}
-	return selected;
-}
 
 function nodeAppearance(state: SkillPathState): { fill: string; strokeDasharray?: string; opacity: number } {
 	switch (state) {
@@ -119,7 +72,10 @@ export function SubjectMapWorld({
 	const goalTitle = map.skills.find((skill) => skill.id === goalId)?.title ?? "";
 	const route = useMemo(() => goalId ? routeToGoal(map, statuses, goalId) : null, [goalId, map, statuses]);
 	const routeMembers = useMemo(() => new Set(route?.route ?? []), [route]);
-	const chosenAlternatives = useMemo(() => routeAlternativeEdges(map, statuses, route), [map, route, statuses]);
+	const chosenAlternatives = useMemo(
+		() => new Set((route?.choices ?? []).map(({ dependent, option }) => `${option}\u0000${dependent}`)),
+		[route],
+	);
 	const nodePositions = useMemo(() => new Map(layout.nodes.map((node) => [node.skillId, node])), [layout]);
 	const selected = selectedId ? map.skills.find((skill) => skill.id === selectedId) ?? null : null;
 
@@ -128,6 +84,28 @@ export function SubjectMapWorld({
 		h: surface.current?.clientHeight || layout.height,
 	});
 	const fitFloor = () => fitZoomFor({ w: layout.width, h: layout.height }, viewportSize());
+	useEffect(() => {
+		const element = surface.current;
+		if (!element) return;
+		const box = { w: layout.width, h: layout.height };
+		const onWheel = (event: WheelEvent) => {
+			event.preventDefault();
+			const rect = element.getBoundingClientRect();
+			const size = { w: element.clientWidth || box.w, h: element.clientHeight || box.h };
+			const delta = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
+			const factor = Math.exp(-delta * 0.0015);
+			setViewport((current) => zoomedGraphView(
+				current,
+				factor,
+				fitZoomFor(box, size),
+				{ x: event.clientX - rect.left, y: event.clientY - rect.top },
+				box,
+				size,
+			));
+		};
+		element.addEventListener("wheel", onWheel, { passive: false });
+		return () => element.removeEventListener("wheel", onWheel);
+	}, [layout.height, layout.width]);
 	const zoomAtCenter = (factor: number) => {
 		const size = viewportSize();
 		setViewport((current) => zoomedGraphView(current, factor, fitFloor(), { x: size.w / 2, y: size.h / 2 }, { w: layout.width, h: layout.height }, size));
@@ -194,18 +172,12 @@ export function SubjectMapWorld({
 					try { event.currentTarget.releasePointerCapture(event.pointerId); } catch { return; }
 				}}
 				onPointerCancel={() => { drag.current = null; }}
-				onWheel={(event) => {
-					event.preventDefault();
-					const rect = event.currentTarget.getBoundingClientRect();
-					setViewport((current) => zoomedGraphView(current, event.deltaY < 0 ? 1.12 : 1 / 1.12, fitFloor(), { x: event.clientX - rect.left, y: event.clientY - rect.top }, { w: layout.width, h: layout.height }, viewportSize()));
-				}}
 			>
 				<svg
 					role="group"
 					aria-label={`World map of ${map.title}`}
-					viewBox={`0 0 ${layout.width} ${layout.height}`}
-					width={layout.width}
-					height={layout.height}
+					width="100%"
+					height="100%"
 					className="select-none"
 				>
 					<g transform={`translate(${viewport.x} ${viewport.y}) scale(${viewport.zoom})`}>
@@ -225,8 +197,7 @@ export function SubjectMapWorld({
 							const to = nodePositions.get(group.dependent);
 							if (!from || !to) return null;
 							const chosen = chosenAlternatives.has(`${option}\u0000${group.dependent}`);
-							const highlighted = chosen || (routeMembers.has(option) && routeMembers.has(group.dependent));
-							return <line key={`alternative-${option}-${group.dependent}`} x1={from.x + WORLD_NODE.width} y1={from.y + WORLD_NODE.height / 2} x2={to.x} y2={to.y + WORLD_NODE.height / 2} stroke="currentColor" strokeWidth={highlighted ? 3 : 1.5} strokeOpacity={highlighted ? 0.9 : 0.18} strokeDasharray="5 4" />;
+							return <line key={`alternative-${option}-${group.dependent}`} data-highlighted={chosen ? "true" : "false"} x1={from.x + WORLD_NODE.width} y1={from.y + WORLD_NODE.height / 2} x2={to.x} y2={to.y + WORLD_NODE.height / 2} stroke="currentColor" strokeWidth={chosen ? 3 : 1.5} strokeOpacity={chosen ? 0.9 : 0.18} strokeDasharray="5 4" />;
 						}))}
 						{layout.nodes.map((node) => {
 							const skill = map.skills.find((item) => item.id === node.skillId)!;

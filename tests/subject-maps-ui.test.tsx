@@ -300,6 +300,17 @@ test("world map is the default, mirrors routes, exposes state and keystone label
 		assert.equal(button(container, "World map").getAttribute("aria-pressed"), "true");
 		assert.equal(button(container, "List and editor").getAttribute("aria-pressed"), "false");
 		assert.ok(container.querySelector('[role="group"][aria-label="World map of <b>OS</b>"]'));
+		const svg = container.querySelector('svg[aria-label="World map of <b>OS</b>"]')!;
+		assert.equal(svg.getAttribute("width"), "100%");
+		assert.equal(svg.getAttribute("height"), "100%");
+		assert.equal(svg.hasAttribute("viewBox"), false);
+		const alternativeEdges = [...svg.querySelectorAll('line[stroke-dasharray="5 4"]')];
+		const defaultRoute = [...container.querySelectorAll("ol")].find((list) => list.getAttribute("aria-label") === "Route to Scheduling");
+		assert.ok(defaultRoute);
+		assert.match(defaultRoute?.textContent ?? "", /Processes/);
+		assert.match(defaultRoute?.textContent ?? "", /<img src=x>/);
+		assert.deepEqual(alternativeEdges.map((line) => line.getAttribute("data-highlighted")), ["true", "false"]);
+		assert.deepEqual(alternativeEdges.map((line) => line.getAttribute("stroke-width")), ["3", "1.5"]);
 		const processNode = container.querySelector<SVGGElement>('[data-skill="proc"]');
 		assert.ok(processNode);
 		assert.equal(processNode?.getAttribute("data-state"), "open");
@@ -310,6 +321,16 @@ test("world map is the default, mirrors routes, exposes state and keystone label
 		assert.ok([...container.querySelectorAll("line")].some((line) => line.getAttribute("stroke-dasharray") === "5 4"));
 		assert.match(container.textContent ?? "", /Processes — Open/);
 		assert.match(container.textContent ?? "", /Processes ◆/);
+		const surface = container.querySelector('[aria-label="Pan and zoom world map"]')!;
+		const wheel = new dom.window.Event("wheel", { bubbles: true, cancelable: true });
+		Object.defineProperties(wheel, {
+			deltaY: { value: 120 },
+			deltaMode: { value: 0 },
+			clientX: { value: 30 },
+			clientY: { value: 30 },
+		});
+		await act(async () => { surface.dispatchEvent(wheel); });
+		assert.equal(wheel.defaultPrevented, true);
 
 		const goal = container.querySelector<HTMLSelectElement>('select[aria-label="Goal"]')!;
 		await act(async () => {

@@ -62,6 +62,7 @@ export function skillPathStates(
 export interface SkillRoute {
 	goalId: string;
 	route: string[];
+	choices: { dependent: string; option: string }[];
 	skipAhead: { skillId: string; beneath: number }[];
 }
 
@@ -109,6 +110,7 @@ export function routeToGoal(
 	const groups = alternativeGroupsOf(map);
 	const memo = new Map<string, Set<string>>();
 	const visiting = new Set<string>();
+	const chosenOptionsByDependent = new Map<string, string[]>();
 	const closure = (id: string): Set<string> => {
 		const cached = memo.get(id);
 		if (cached) return cached;
@@ -116,6 +118,7 @@ export function routeToGoal(
 		if (visiting.has(id)) return new Set([id]);
 		visiting.add(id);
 		const result = new Set([id]);
+		const chosenOptions: string[] = [];
 		for (const prerequisite of prerequisites.get(id) ?? []) {
 			for (const required of closure(prerequisite)) result.add(required);
 		}
@@ -124,14 +127,21 @@ export function routeToGoal(
 			const chosen = options
 				.map((option) => ({ option, closure: closure(option) }))
 				.sort((a, b) => a.closure.size - b.closure.size || (a.option < b.option ? -1 : a.option > b.option ? 1 : 0))[0];
-			if (chosen) for (const required of chosen.closure) result.add(required);
+			if (chosen) {
+				chosenOptions.push(chosen.option);
+				for (const required of chosen.closure) result.add(required);
+			}
 		}
 		visiting.delete(id);
+		chosenOptionsByDependent.set(id, chosenOptions);
 		memo.set(id, result);
 		return result;
 	};
 	const unsatisfied = closure(goalId);
 	const route = stableTopologicalOrder(unsatisfied, dependencyEdges(map));
+	const choices = route.flatMap((dependent) =>
+		(chosenOptionsByDependent.get(dependent) ?? []).map((option) => ({ dependent, option })),
+	);
 	const states = skillPathStates(map, statuses);
 	const skipAhead = route
 		.filter((id) => skills.get(id)?.keystone === true && (states.get(id) === "open" || states.get(id) === "reachable"))
@@ -140,7 +150,7 @@ export function routeToGoal(
 			beneath: [...closure(skillId)].filter((id) => unsatisfied.has(id)).length - 1,
 		}))
 		.sort((a, b) => b.beneath - a.beneath || (a.skillId < b.skillId ? -1 : a.skillId > b.skillId ? 1 : 0));
-	return { goalId, route, skipAhead };
+	return { goalId, route, choices, skipAhead };
 }
 
 export interface WorldLayout {

@@ -81,8 +81,26 @@ test("routes choose the smallest unsatisfied alternative closure, break ties by 
 	);
 	const chosen = routeToGoal(subject, statusMap(), "goal");
 	assert.deepEqual(chosen?.route, ["a", "goal"]);
+	assert.deepEqual(chosen?.choices, [{ dependent: "goal", option: "a" }]);
 	const tieMap = map(["goal", "z", "a"].map((id) => skill(id)), [], [{ dependent: "goal", options: ["z", "a"] }]);
-	assert.deepEqual(routeToGoal(tieMap, statusMap(), "goal")?.route, ["a", "goal"]);
+	const tied = routeToGoal(tieMap, statusMap(), "goal");
+	assert.deepEqual(tied?.route, ["a", "goal"]);
+	assert.deepEqual(tied?.choices, [{ dependent: "goal", option: "a" }]);
+	assert.deepEqual(routeToGoal(tieMap, statusMap({ a: "supporting" }), "goal")?.choices, []);
+	const grouped = map(
+		["goal", "d1", "a1", "a2", "b1", "b2", "c1", "c2"].map((id) => skill(id)),
+		[["d1", "goal"]],
+		[
+			{ dependent: "goal", options: ["b2", "b1"] },
+			{ dependent: "d1", options: ["a2", "a1"] },
+			{ dependent: "goal", options: ["c2", "c1"] },
+		],
+	);
+	assert.deepEqual(routeToGoal(grouped, statusMap(), "goal")?.choices, [
+		{ dependent: "d1", option: "a1" },
+		{ dependent: "goal", option: "b1" },
+		{ dependent: "goal", option: "c1" },
+	]);
 	const required = map(["goal", "a"].map((id) => skill(id)), [["a", "goal"]]);
 	const pruned = routeToGoal(required, statusMap({ a: "supporting" }), "goal");
 	assert.deepEqual(pruned?.route, ["goal"]);
