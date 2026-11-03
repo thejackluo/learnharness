@@ -53,12 +53,22 @@ function verifiedQuotes(draft: PortableSubjectMapV1, syllabus: MapSyllabus | und
 	const uploaded = syllabus ? whitespace(syllabus.text) : "";
 	const retained = new Set((previous?.skills ?? []).flatMap((skill) =>
 		skill.source?.kind === "syllabus" ? [JSON.stringify([skill.id, skill.source.sourceName, whitespace(skill.source.quote)])] : []));
+	const retainedOwnerSkills = new Set((previous?.skills ?? [])
+		.filter((skill) => skill.source === undefined || skill.source.kind === "manual")
+		.map((skill) => skill.id));
 	return { ...draft, skills: draft.skills.map((skill) => {
-		if (skill.source?.kind !== "syllabus") return skill;
-		const quote = whitespace(skill.source.quote);
-		if (syllabus && uploaded && quote && uploaded.includes(quote)) return { ...skill, source: { ...skill.source, sourceName: syllabus.name } };
-		if (skill.source.sourceName !== syllabus?.name && quote && retained.has(JSON.stringify([skill.id, skill.source.sourceName, quote]))) return skill;
-		return { ...skill, source: { kind: "aiGapFill", reason: "quote not found in syllabus" } };
+		if (skill.source?.kind === "syllabus") {
+			const quote = whitespace(skill.source.quote);
+			if (syllabus && uploaded && quote && uploaded.includes(quote)) return { ...skill, source: { ...skill.source, sourceName: syllabus.name } };
+			if (skill.source.sourceName !== syllabus?.name && quote && retained.has(JSON.stringify([skill.id, skill.source.sourceName, quote]))) return skill;
+			return { ...skill, source: { kind: "aiGapFill", reason: "quote not found in syllabus" } };
+		}
+		if (skill.source?.kind === "framework" || skill.source?.kind === "aiGapFill") return skill;
+		if (skill.source?.kind === "manual" || skill.source == null) {
+			if (retainedOwnerSkills.has(skill.id)) return { ...skill, source: { kind: "manual" } };
+			return { ...skill, source: { kind: "aiGapFill", reason: "AI-added; not an owner-authored skill" } };
+		}
+		return skill;
 	}) };
 }
 
