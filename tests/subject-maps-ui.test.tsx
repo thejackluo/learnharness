@@ -227,6 +227,30 @@ test("familiarity inbox sends accept/reject/accept-all/revoke decisions and relo
 	} finally { globalThis.fetch = originalFetch; }
 });
 
+test("familiarity inbox shows local action and shared listing errors together", async () => {
+	const listing = {
+		profileRevision: 7,
+		suggestions: [
+			{ id: "one", mapId: map.id, skillId: "proc", status: "pending" as const, reason: { kind: "import" as const, quote: "one" }, mapTitle: "OS", skillTitle: "Processes", standing: "current" },
+		],
+	};
+	globalThis.fetch = (async () => Response.json({ error: "Unable to confirm suggestion." }, { status: 500 })) as typeof fetch;
+	try {
+		const { root, container } = await mount(createElement(FamiliaritySuggestions, {
+			mapId: map.id,
+			sharedListing: listing,
+			sharedError: "Unable to load familiarity suggestions.",
+		}));
+		await click(button(container, "Accept"));
+		const alerts = [...container.querySelectorAll('[role="alert"]')].map((alert) => alert.textContent);
+		assert.deepEqual(alerts, [
+			"Unable to confirm suggestion.",
+			"Unable to load familiarity suggestions.",
+		]);
+		await act(async () => root.unmount());
+	} finally { globalThis.fetch = originalFetch; }
+});
+
 test("AI panel explains model/key refusals with setup recovery and does not save", async () => {
 	for (const code of ["models_not_configured", "provider_key_missing"]) {
 		let calls = 0;

@@ -85,7 +85,8 @@ export function FamiliaritySuggestions({ mapId, sharedListing, sharedError, onRe
 
 	return <section aria-label="Familiarity suggestions" className="flex flex-col gap-3 border-t border-border/60 pt-4">
 		<h2 className="text-sm font-medium">Familiarity suggestions</h2>
-		{(sharedError || error) && <p role="alert" className="text-xs text-destructive">{sharedError || error}</p>}
+		{error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+		{sharedError && <p role="alert" className="text-xs text-destructive">{sharedError}</p>}
 		{listing?.suggestions.length === 0 && <p className="text-xs text-muted-foreground">No familiarity suggestions yet.</p>}
 		{GROUPS.map(([kind, label]) => {
 			const group = listing?.suggestions.filter((item) => item.reason.kind === kind) ?? [];
