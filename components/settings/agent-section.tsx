@@ -5,7 +5,9 @@
  * switches — three GROUPS (owner, 2026-09-20: clear separation — Models /
  * Tools / System prompts).
  *
- * Model slots: Strong = Prober + Teacher + Map drafter, Cheap
+ * Model slots (model-slots wave, 2026-09-20, owner ruling: SLOTS ONLY —
+ * the six per-role rows disappeared; per-role overrides remain in the
+ * schema for a future advanced surface): Strong = Prober + Teacher + Map drafter, Cheap
  * = the five workhorse roles, Vision = Visual maker + PDF reader. Each
  * slot row carries the shared dropdown (fuzzy search, arrow-walk, Enter
  * pick — ModelMenuList/ThinkingMenuList from ./model-menu.tsx) over the
@@ -61,7 +63,6 @@ import {
 	ADAPTIVE_DOCTRINE_OVERRIDE_HINT,
 	ADAPTIVE_DOCTRINE_SEGMENTS,
 	MODEL_SLOTS,
-	BACKGROUND_MODEL_ROLES,
 	resolveSettings,
 	type AgentSettings,
 	type CompactionSettings,
@@ -687,21 +688,6 @@ export function AgentSection({
 							</span>
 						</SettingsRow>
 					);
-				})}
-			</SettingsGroup>
-			<SettingsGroup label="Background model overrides" testid="group-background-models">
-				{BACKGROUND_MODEL_ROLES.map((role) => {
-					const override = agent?.models?.[role];
-					const labels = { researcher: "Researcher", demoBuilder: "Demo builder", visualMaker: "Visual maker", extractor: "Extractor", auditor: "Auditor", mapDrafter: "Map drafter" };
-					return <SettingsRow key={role} label={labels[role]}>
-						<select aria-label={`${labels[role]} model override`} value={override?.model ? `${override.model.provider}:${override.model.id}` : ""} onChange={(event) => {
-							const selected = catalog?.find((entry) => `${entry.provider}:${entry.id}` === event.currentTarget.value);
-							const next = { ...agent?.models };
-							if (selected) next[role] = { ...override, model: { provider: selected.provider, id: selected.id } };
-							else { const { model: _model, ...rest } = override ?? {}; void _model; next[role] = rest; }
-							onSectionChange({ ...agent, models: next });
-						}}><option value="">Use slot default</option>{override?.model && !catalog?.some((entry) => entry.provider === override.model?.provider && entry.id === override.model.id) && <option value={`${override.model.provider}:${override.model.id}`}>{override.model.provider}: {override.model.id} (unavailable)</option>}{catalog?.map((entry) => <option key={`${entry.provider}:${entry.id}`} value={`${entry.provider}:${entry.id}`}>{entry.provider}: {entry.id}</option>)}</select>
-					</SettingsRow>;
 				})}
 			</SettingsGroup>
 
