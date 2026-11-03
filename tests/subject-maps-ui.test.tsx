@@ -5,6 +5,7 @@ import { parseHTML } from "linkedom";
 import test from "node:test";
 import { SubjectMapEditor } from "../components/subject-map-editor.tsx";
 import { SubjectMapsHome } from "../components/subject-maps.tsx";
+import { SubjectMapDraft } from "../components/subject-map-draft.tsx";
 import type { LearnerObservation } from "../src/core/contracts/learner.ts";
 import type { SubjectMapV1 } from "../src/core/contracts/subject-map.ts";
 import { projectSubjectMapGaps } from "../src/core/subject-map.ts";
@@ -101,6 +102,97 @@ async function click(target: HTMLElement) {
 		await new Promise((resolve) => setTimeout(resolve, 0));
 	});
 }
+
+test("AI panel reviews, edits with existing controls, accepts through existing create route and discards without saving", async () => {
+	const requests: { url: string; method: string; body: unknown }[] = [];
+	const drafted = { ...map, regions: [{ id: "os", title: "OS region", description: "" }], skills: map.skills.map((skill, index) => ({ ...skill, regionId: "os", source: index === 0 ? { kind: "syllabus", sourceName: "course", quote: "Synthetic quote" } : index === 1 ? { kind: "framework", framework: "OS" } : { kind: "aiGapFill", reason: "Prerequisite gap" } })) };
+	let saved = false;
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		const url = String(input);
+		requests.push({ url, method: init?.method ?? "GET", body: init?.body });
+		if (url === "/api/subject-maps/drafts") return Response.json({ draft: drafted, issues: [] });
+		if (url === "/api/maps") return Response.json({ map: drafted });
+		throw new Error(`unexpected ${url}`);
+	}) as typeof fetch;
+	try {
+		const { root, container } = await mount(createElement(SubjectMapDraft, { onSaved: () => { saved = true; } }));
+		await click(button(container, "Draft with AI"));
+		assert.equal(container.querySelectorAll("datalist option").length, 9);
+		const upload = container.querySelector<HTMLInputElement>('#map-draft-file')!;
+		Object.defineProperty(upload, "files", { value: [new File(["Synthetic syllabus"], "course.txt")], configurable: true });
+		await act(async () => { upload.dispatchEvent(new dom.window.Event("change", { bubbles: true })); });
+		await click(button(container, "Generate draft"));
+		assert.ok(container.querySelector('[aria-label="Draft review"]'));
+		assert.match(container.textContent ?? "", /OS region/);
+		assert.match(container.textContent ?? "", /AI knowledge, not checked against the official document/);
+		assert.equal(container.querySelector('[title="Synthetic quote"]')?.textContent, "From your syllabus");
+		assert.equal(container.querySelector('[title="Prerequisite gap"]')?.textContent, "AI-added");
+		assert.match(container.textContent ?? "", /Validation passed/);
+		assert.equal(requests.length, 1, "draft review persists nothing");
+		await click(button(container, "Edit before saving"));
+		assert.ok(container.querySelector('[aria-label="Edit draft"]'));
+		assert.equal(container.querySelector<HTMLInputElement>('#draft-map-title')?.value, map.title);
+		await click(button(container, "Review edited draft"));
+		await click(button(container, "Accept"));
+		assert.equal(saved, true);
+		assert.equal(requests[1]!.url, "/api/maps");
+		const accepted = JSON.parse(String(requests[1]!.body));
+		assert.deepEqual(accepted.definition.regions, drafted.regions);
+		assert.deepEqual(accepted.definition.skills[0].source, drafted.skills[0]!.source);
+		await click(button(container, "Draft with AI"));
+		await click(button(container, "Generate draft"));
+		await click(button(container, "Discard"));
+		assert.equal(requests.length, 3);
+		await act(async () => root.unmount());
+	} finally { globalThis.fetch = originalFetch; }
+});
+
+test("AI refine review shows a diff and accepts with the original ETag", async () => {
+	let acceptedHeaders: Headers | undefined;
+	const drafted = { ...map, skills: [...map.skills, { id: "new", title: "New", objective: "Can explain a new idea", revision: 1 }], edges: [] };
+	globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+		if (init?.method === "PUT") { acceptedHeaders = new Headers(init.headers); return Response.json({ map: drafted }); }
+		return Response.json({ draft: drafted, issues: [] });
+	}) as typeof fetch;
+	try {
+		const { root, container } = await mount(createElement(SubjectMapDraft, { previous: map, onSaved: () => {} }));
+		await click(button(container, "Refine with AI"));
+		const input = container.querySelector<HTMLTextAreaElement>('#map-draft-instruction')!;
+		await act(async () => {
+			Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Expand");
+			input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+			input.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+		});
+		await click(button(container, "Generate draft"));
+		assert.match(container.querySelector('[aria-label="Refinement diff"]')?.textContent ?? "", /Added: new/);
+		assert.match(container.textContent ?? "", /Removed edges: proc → thr, thr → sched/);
+		await click(button(container, "Accept"));
+		assert.equal(acceptedHeaders?.get("if-match"), '"4"');
+		await act(async () => root.unmount());
+	} finally { globalThis.fetch = originalFetch; }
+});
+
+test("AI panel explains model/key refusals with setup recovery and does not save", async () => {
+	for (const code of ["models_not_configured", "provider_key_missing"]) {
+		let calls = 0;
+		globalThis.fetch = (async () => { calls++; return Response.json({ code, error: "Set up a model/provider key before drafting." }, { status: 503 }); }) as typeof fetch;
+		try {
+			const { root, container } = await mount(createElement(SubjectMapDraft));
+			await click(button(container, "Draft with AI"));
+			assert.equal(button(container, "Generate draft").hasAttribute("disabled"), true);
+			const upload = container.querySelector<HTMLInputElement>('#map-draft-file')!;
+			Object.defineProperty(upload, "files", { value: [new File(["Synthetic syllabus"], "course.txt")] });
+			await act(async () => { upload.dispatchEvent(new dom.window.Event("change", { bubbles: true })); });
+			await click(button(container, "Generate draft"));
+			assert.match(container.querySelector('[role="alert"]')?.textContent ?? "", /Set up a model\/provider key/);
+			assert.ok(button(container, "Set up models and provider keys"));
+			assert.equal(container.querySelector('[aria-label="Draft review"]'), null);
+			await click(button(container, "Discard"));
+			assert.equal(calls, 1);
+			await act(async () => root.unmount());
+		} finally { globalThis.fetch = originalFetch; }
+	}
+});
 
 test("map editor lists gaps with goal paths, text statuses, escaped titles and historical/unavailable evidence", async () => {
 	const requests: { url: string; method: string; headers: Headers }[] = [];

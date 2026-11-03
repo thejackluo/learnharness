@@ -38,6 +38,8 @@ A session may start from one subject-map skill (`ChatRecord.target`, validated a
 | **Stage** — presentation shell | nothing server-side | components/, graph canvas, docks — pure consumer via `/api/*` |
 | **Machine room** — host | process + config | Electron main, standalone Next server, `config.ts`, data-dir seam, BYOK keys |
 
+Subject maps can also be AI-drafted for explicit owner review. `POST /api/subject-maps/drafts` accepts a goal, framework and/or syllabus; `POST /api/subject-maps/:id/drafts` refines a full map from an instruction. The background `mapDrafter` role resolves through the strong slot (with a per-role override), uses the shared submit-agent and concurrency pool, and returns draft + validation issues + usage without persisting anything. One validation repair is allowed; a second failure returns 422. Syllabus quotes are checked as whitespace-normalized verbatim substrings, otherwise labelled AI-added. Framework sources are general AI knowledge, not official-document verification. Optional regions and source metadata round-trip in portable maps without changing objective revision semantics. Hosted syllabus uploads use the text-only import gate; local PDFs use pdf-ops text extraction in a temporary file that is deleted. Acceptance uses the existing map create/replace routes and If-Match concurrency, never a new write path.
+
 **The unifying law** (generates everything else): **imports point inward; canonical evidence is append-only where applicable; everything recomputable is derived.** The revisioned learner profile is explicit user-authored context, while its transcript observations are derived from canonical chats.
 
 ---

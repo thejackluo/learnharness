@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SessionStarter } from "@/components/start-session";
+import { SubjectMapDraft } from "@/components/subject-map-draft";
 import { savedSlotsConfigured, selectedModelUnavailable } from "@/components/setup-cta";
 import type { ModelCatalogResponse } from "@/src/core";
 import {
@@ -18,10 +19,14 @@ import {
 	type SubjectMapGapView,
 	type SubjectMapV1,
 	type SubjectSkillView,
+	type SubjectMapDefinition,
+	type SubjectRegion,
+	type SkillSource,
 } from "@/src/core";
 
-type DraftSkill = { key: string; id: string; title: string; objective: string; isNew: boolean };
+type DraftSkill = { key: string; id: string; title: string; objective: string; isNew: boolean; regionId?: string; source?: SkillSource };
 interface Draft {
+	regions?: SubjectRegion[];
 	title: string;
 	description: string;
 	skills: DraftSkill[];
@@ -43,11 +48,12 @@ const STATUS_GLYPH: Record<SkillEvidenceStatus, string> = {
 	unavailable: "⚠",
 };
 
-function draftOf(map: SubjectMapV1): Draft {
+function draftOf(map: SubjectMapDefinition): Draft {
 	return {
+		...(map.regions === undefined ? {} : { regions: map.regions }),
 		title: map.title,
 		description: map.description,
-		skills: map.skills.map((skill) => ({ key: skill.id, id: skill.id, title: skill.title, objective: skill.objective, isNew: false })),
+		skills: map.skills.map((skill) => ({ ...skill, key: skill.id, isNew: false })),
 		edges: map.edges.map((edge) => ({ ...edge })),
 		goals: [...map.goals],
 	};
@@ -55,9 +61,10 @@ function draftOf(map: SubjectMapV1): Draft {
 
 function definitionOf(draft: Draft) {
 	return {
+		...(draft.regions === undefined ? {} : { regions: draft.regions }),
 		title: draft.title,
 		description: draft.description,
-		skills: draft.skills.map(({ id, title, objective }) => ({ id, title, objective })),
+		skills: draft.skills.map(({ id, title, objective, regionId, source }) => ({ id, title, objective, ...(regionId === undefined ? {} : { regionId }), ...(source === undefined ? {} : { source }) })),
 		edges: draft.edges,
 		goals: draft.goals,
 	};
@@ -429,6 +436,7 @@ export function SubjectMapEditor({ mapId }: { mapId: string }) {
 			</header>
 
 			{notice && <p role="status" className="text-xs text-muted-foreground">{notice}</p>}
+			<SubjectMapDraft previous={map} onSaved={() => void load()} />
 			{error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 			{conflict && (
 				<div role="alert" className="flex flex-col gap-2 rounded-sm border border-destructive/60 p-3 text-sm">
@@ -538,6 +546,27 @@ export function SubjectMapEditor({ mapId }: { mapId: string }) {
 			</div>
 		</main>
 	);
+}
+
+export function SubjectMapDraftEditor({ definition, onReview, onDiscard }: { definition: SubjectMapDefinition; onReview: (definition: SubjectMapDefinition) => void; onDiscard: () => void }) {
+	const [draft, setDraft] = useState(() => draftOf(definition));
+	const sequence = useRef(0);
+	const edit = (change: (draft: Draft) => Draft) => setDraft(change);
+	const candidate = { ...definitionOf(draft), retired: definition.retired };
+	const problems = subjectMapDefinitionProblems(candidate, { requireRevisions: false });
+	const sources: Sources = { propositions: [], topics: [], observations: [], nextCursor: null, profileRevision: null, error: null };
+	return <section aria-label="Edit draft" className="flex flex-col gap-3">
+		<h3>Edit before saving</h3>
+		<label htmlFor="draft-map-title">Map title</label>
+		<input id="draft-map-title" value={draft.title} className={FIELD} onChange={(event) => { const title = event.currentTarget.value; edit((d) => ({ ...d, title })); }} />
+		<label htmlFor="draft-map-description">Description</label>
+		<textarea id="draft-map-description" value={draft.description} className={FIELD} onChange={(event) => { const description = event.currentTarget.value; edit((d) => ({ ...d, description })); }} />
+		<ul>{draft.skills.map((skill, index) => <SkillRow key={skill.key} skill={skill} index={index} draft={draft} saved={undefined} titleOf={(id) => draft.skills.find((s) => s.id === id)?.title ?? id} pathText={(path) => path.join(" → ")} sources={sources} linkingBlocked onEdit={edit} onLink={() => {}} onUnlink={() => {}} onAttachEvidence={() => {}} onDetachEvidence={() => {}} />)}</ul>
+		<button type="button" className={BUTTON} onClick={() => edit((d) => ({ ...d, skills: [...d.skills, { key: `new-${++sequence.current}`, id: "", title: "", objective: "", isNew: true }] }))}>Add skill</button>
+		{problems.length > 0 && <ul aria-label="Draft validation problems">{problems.map((problem) => <li key={problem}>{problem}</li>)}</ul>}
+		<button type="button" className={BUTTON} disabled={problems.length > 0} onClick={() => onReview({ ...candidate, skills: candidate.skills.map((skill) => ({ ...skill, revision: definition.skills.find((original) => original.id === skill.id)?.revision ?? 1 })) })}>Review edited draft</button>
+		<button type="button" className={BUTTON} onClick={onDiscard}>Discard</button>
+	</section>;
 }
 
 interface SkillRowProps {

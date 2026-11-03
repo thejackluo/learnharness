@@ -1,5 +1,7 @@
 "use client";
 
+import { SubjectMapDraft } from "@/components/subject-map-draft";
+
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SUBJECT_MAP_LIMITS, type LearningTargetRef, type SubjectMapSummary } from "@/src/core";
@@ -252,6 +254,7 @@ export function SubjectMapsHome() {
 			</section>
 
 			<LearnerMapLinks />
+			<SubjectMapDraft />
 		</main>
 	);
 }
