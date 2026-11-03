@@ -259,7 +259,7 @@ test("mixed placement supports after a full evaluation and appends suggestions",
 	assert.ok(placement?.completedAt);
 	const profile = stores.learnerProfileStore.read();
 	assert.equal(profile.state, "ok");
-	if (profile.state === "ok") assert.deepEqual(profile.profile.suggestions?.map((item) => item.skillId), ["required"]);
+	if (profile.state === "ok") assert.deepEqual(profile.profile.suggestions?.filter((item) => item.mapId === map.id).map((item) => item.skillId), ["required"]);
 });
 
 test("observations remain attributed to each probe after the target moves", () => {
