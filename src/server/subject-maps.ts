@@ -202,6 +202,7 @@ function definitionOf(map: SubjectMapV1) {
 	return {
 		title: map.title,
 		description: map.description,
+		...(map.regions === undefined ? {} : { regions: map.regions }),
 		skills: map.skills,
 		edges: map.edges,
 		goals: map.goals,

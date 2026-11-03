@@ -372,6 +372,29 @@ test("explicit evidence links resolve the current skill revision, survive object
 	assert.equal(stores.graphStore.readNodes().length, graphBefore, "no graph mutation");
 });
 
+test("skill links preserve regions and remain readable after linking and unlinking", async () => {
+	const regions = [{ id: "os", title: "OS", description: "Operating systems" }];
+	const definition = curriculum({ regions });
+	definition.skills = definition.skills.map((skill) => ({ ...skill, regionId: "os" }));
+	const imported = await importRoute.POST(request("POST", definition));
+	assert.equal(imported.status, 201);
+	const { map } = await json(imported);
+	stores.graphStore.appendNode({ id: "n_region", name: "Region fixture", statement: "Synthetic link target", aliases: [], createdAt: "2026-10-01T00:00:00.000Z", provenance: [] });
+	let revision = map.revision;
+	for (const method of ["POST", "DELETE"] as const) {
+		const response = await linksRoute[method](request(method, { kind: "proposition", skillId: "scheduling", refId: "n_region" }, { "if-match": `"${revision}"` }), ctx(map.id));
+		assert.equal(response.status, 200);
+		const updated = (await json(response)).map;
+		revision = updated.revision;
+		const read = stores.subjectMapStore.read(map.id);
+		assert.equal(read.state, "ok");
+		assert.ok(read.state === "ok");
+		assert.deepEqual(read.map.regions, regions);
+		assert.equal(read.map.skills[0]!.regionId, "os");
+		assert.equal(read.map.links.propositions.length, method === "POST" ? 1 : 0);
+	}
+});
+
 test("proposition and topic links require an existing graph node or profile topic and never count as evidence", async () => {
 	const { id, revision } = await createImported();
 	stores.graphStore.appendNode({ id: "n_sched", name: "Round robin", statement: "Round robin rotates a time slice.", aliases: [], createdAt: "2026-10-01T00:00:00.000Z", provenance: [] });
