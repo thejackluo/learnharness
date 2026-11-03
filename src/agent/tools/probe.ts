@@ -66,6 +66,14 @@ export function probeDoneTool(ctx: ProbeDoneContext): Record<string, AgentTool<a
 				const record = ctx.chatStore.getChat(ctx.chatId);
 				if (!record) return { ok: false, error: `Chat not found: ${ctx.chatId}` };
 
+				if (record.placement) {
+					return {
+						ok: false,
+						error:
+							"This is a placement run, so don't conclude the probe. Ask the current placement probe from the placement context. When the run is complete, give the short summary and end your turn.",
+					};
+				}
+
 				if (danglingQuestionOf(record.messages) !== null) {
 					return {
 						ok: false,

@@ -8,6 +8,7 @@ import { SubjectMapsHome } from "../components/subject-maps.tsx";
 import { SubjectMapDraft } from "../components/subject-map-draft.tsx";
 import { SubjectMapWorld } from "../components/subject-map-world.tsx";
 import { FamiliaritySuggestions } from "../components/familiarity-suggestions.tsx";
+import { SessionTargetPanel } from "../components/target-adaptation.tsx";
 import type { LearnerObservation } from "../src/core/contracts/learner.ts";
 import type { SubjectMapV1 } from "../src/core/contracts/subject-map.ts";
 import { projectSubjectMapGaps } from "../src/core/subject-map.ts";
@@ -225,6 +226,65 @@ test("familiarity inbox sends accept/reject/accept-all/revoke decisions and relo
 		assert.match(container.textContent ?? "", /latest suggestions have been reloaded/);
 		await act(async () => root.unmount());
 	} finally { globalThis.fetch = originalFetch; }
+});
+
+test("completed placement panel reviews suggestions without note inference controls", async () => {
+	const requests: string[] = [];
+	globalThis.fetch = (async (input: RequestInfo | URL) => {
+		const url = String(input);
+		requests.push(url);
+		if (url === "/api/chats/chat-placement/target") {
+			return Response.json({ view: null, placement: { mapId: map.id, completed: true } });
+		}
+		if (url === `/api/learner/familiarity?mapId=${map.id}`) {
+			return Response.json({
+				profileRevision: 2,
+				suggestions: [
+					{ id: "pending", mapId: map.id, skillId: "proc", status: "pending", reason: { kind: "placement" }, mapTitle: "OS", skillTitle: "Processes", standing: "current", viaSkillTitle: "Scheduling" },
+					{ id: "confirmed", mapId: map.id, skillId: "thr", status: "confirmed", reason: { kind: "placement" }, mapTitle: "OS", skillTitle: "Threads", standing: "current", viaSkillTitle: "Processes" },
+				],
+			});
+		}
+		throw new Error(`unexpected ${url}`);
+	}) as typeof fetch;
+	try {
+		const { root, container } = await mount(createElement(SessionTargetPanel, { chatId: "chat-placement" }));
+		assert.ok(container.querySelector('[data-testid="placement-complete-panel"]'));
+		assert.match(container.textContent ?? "", /Placement complete — likely known, for you to confirm/);
+		assert.match(container.textContent ?? "", /Processes/);
+		assert.match(container.textContent ?? "", /Threads/);
+		for (const label of ["Accept all", "Reject all", "Accept", "Reject", "Revoke"]) {
+			assert.ok([...container.querySelectorAll("button")].some((candidate) => candidate.textContent?.trim() === label), `${label} remains available`);
+		}
+		assert.equal(container.querySelector("textarea"), null);
+		assert.equal(container.querySelector('input[type="file"]'), null);
+		assert.doesNotMatch(container.textContent ?? "", /Infer from notes|Infer suggestions|Paste notes|Source name|Upload notes/);
+		assert.ok(requests.includes(`/api/learner/familiarity?mapId=${map.id}`));
+		await act(async () => root.unmount());
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("incomplete placement does not add a review section to the target panel", async () => {
+	const requests: string[] = [];
+	globalThis.fetch = (async (input: RequestInfo | URL) => {
+		const url = String(input);
+		requests.push(url);
+		if (url === "/api/chats/chat-incomplete/target") {
+			return Response.json({ view: null, placement: { mapId: map.id, completed: false } });
+		}
+		throw new Error(`unexpected ${url}`);
+	}) as typeof fetch;
+	try {
+		const { root, container } = await mount(createElement(SessionTargetPanel, { chatId: "chat-incomplete" }));
+		assert.equal(container.querySelector('[data-testid="placement-complete-panel"]'), null);
+		assert.equal(container.querySelector('[data-testid="target-panel"]'), null);
+		assert.deepEqual(requests, ["/api/chats/chat-incomplete/target"]);
+		await act(async () => root.unmount());
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
 });
 
 test("familiarity inbox shows local action and shared listing errors together", async () => {

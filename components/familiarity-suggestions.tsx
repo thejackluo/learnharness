@@ -20,7 +20,7 @@ const GROUPS = [
 	["conversation", "From your conversations"],
 ] as const;
 
-export function FamiliaritySuggestions({ mapId, sharedListing, sharedError, onRefresh }: { mapId?: string; sharedListing?: FamiliarityListing | null; sharedError?: string | null; onRefresh?: () => Promise<void> }) {
+export function FamiliaritySuggestions({ mapId, sharedListing, sharedError, onRefresh, reviewOnly = false }: { mapId?: string; sharedListing?: FamiliarityListing | null; sharedError?: string | null; onRefresh?: () => Promise<void>; reviewOnly?: boolean }) {
 	const [listing, setListing] = useState<FamiliarityListing | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
@@ -111,7 +111,7 @@ export function FamiliaritySuggestions({ mapId, sharedListing, sharedError, onRe
 				</ul>
 			</section>;
 		})}
-		{mapId && <div className="flex flex-col gap-2 border-t border-border/60 pt-3">
+		{mapId && !reviewOnly && <div className="flex flex-col gap-2 border-t border-border/60 pt-3">
 			<h3 className="text-xs uppercase tracking-wide">Infer from notes</h3>
 			<label className="flex flex-col gap-1 text-xs">Paste notes<textarea value={sourceText} onChange={(event) => setSourceText(event.currentTarget.value)} maxLength={200 * 1024} rows={4} className="rounded-sm border border-border bg-background p-2" /></label>
 			<label className="text-xs">Source name <input value={sourceName} onChange={(event) => setSourceName(event.currentTarget.value)} maxLength={255} className="ml-2 rounded-sm border border-border bg-background px-2 py-1" /></label>

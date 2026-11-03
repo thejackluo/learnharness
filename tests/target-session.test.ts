@@ -95,7 +95,7 @@ test("session creation validates the target at the revision the learner saw", as
 	assert.equal(stores.chatStore.getChat(plain)?.target, undefined);
 	const view = await targetRoute.GET(new Request("http://localhost"), { params: Promise.resolve({ id: plain }) });
 	assert.equal(view.headers.get("Cache-Control"), "private, no-store");
-	assert.deepEqual(await view.json(), { view: null });
+	assert.deepEqual(await view.json(), { view: null, placement: null });
 	const practicePlacement = await createSession({ title: "Practice placement", kind: "practice", placement: { mapId: map.id } });
 	assert.equal(practicePlacement.status, 400);
 	assert.equal((await practicePlacement.json() as { code: string }).code, "invalid_placement");
@@ -103,6 +103,15 @@ test("session creation validates the target at the revision the learner saw", as
 	assert.equal(validPlacement.status, 200);
 	const placementChat = await validPlacement.json() as { id: string; placement: { mapId: string } };
 	assert.equal(stores.chatStore.getChat(placementChat.id)?.placement?.mapId, map.id);
+	const activePlacementResponse = await targetRoute.GET(new Request("http://localhost"), { params: Promise.resolve({ id: placementChat.id }) });
+	assert.deepEqual((await activePlacementResponse.json() as { placement: unknown }).placement, { mapId: map.id, completed: false });
+	const run = stores.chatStore.getChat(placementChat.id)!.placement!;
+	stores.chatStore.saveTargeting(placementChat.id, { placement: { ...run, completedAt: new Date().toISOString() } });
+	const completedPlacementResponse = await targetRoute.GET(new Request("http://localhost"), { params: Promise.resolve({ id: placementChat.id }) });
+	assert.deepEqual(await completedPlacementResponse.json(), {
+		view: null,
+		placement: { mapId: map.id, completed: true },
+	});
 	const targetAndPlacement = await createSession({ title: "Both", target: threads, placement: { mapId: map.id } });
 	assert.equal(targetAndPlacement.status, 400);
 	assert.equal((await targetAndPlacement.json() as { code: string }).code, "invalid_placement");
