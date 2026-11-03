@@ -636,11 +636,17 @@ function SkillRow({ skill, index, draft, saved, titleOf, pathText, sources, link
 	const removeSkill = () => onEdit((d) => {
 		const edges = d.edges.filter((edge) => edge.prerequisite !== skill.id && edge.dependent !== skill.id);
 		const alternatives: SubjectAlternative[] = [];
+		const alternativeKeys = new Set<string>();
 		for (const group of d.alternatives ?? []) {
 			if (group.dependent === skill.id) continue;
 			const options = group.options.filter((option) => option !== skill.id);
 			if (options.length >= SUBJECT_MAP_LIMITS.alternativeOptionsMin) {
-				alternatives.push({ dependent: group.dependent, options });
+				const reduced = { dependent: group.dependent, options };
+				const key = JSON.stringify([reduced.dependent, [...reduced.options].sort()]);
+				if (!alternativeKeys.has(key)) {
+					alternatives.push(reduced);
+					alternativeKeys.add(key);
+				}
 			} else if (options.length === 1 && !edges.some((edge) => edge.prerequisite === options[0] && edge.dependent === group.dependent)) {
 				edges.push({ prerequisite: options[0]!, dependent: group.dependent });
 			}

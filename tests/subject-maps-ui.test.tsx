@@ -417,6 +417,56 @@ test("keystone checkbox and removing an alternative option preserve semantics in
 	}
 });
 
+test("removing skills deduplicates alternatives in the save payload", async () => {
+	const alternativeMap: SubjectMapV1 = {
+		...map,
+		skills: ["proc", "thr", "x", "y", "sched"].map((id) => ({
+			id,
+			title: id,
+			objective: `Explain ${id}`,
+			revision: 1,
+		})),
+		edges: [],
+		alternatives: [
+			{ dependent: "sched", options: ["proc", "thr", "x"] },
+			{ dependent: "sched", options: ["proc", "thr", "y"] },
+		],
+	};
+	const alternativeView = projectSubjectMapGaps({
+		map: alternativeMap,
+		associations: { availability: "available", items: [] },
+		topics: { availability: "available", claims: [] },
+		propositions: { availability: "available", names: new Map() },
+	});
+	const putBodies: Record<string, any>[] = [];
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		const url = String(input);
+		if (url === "/api/maps/map_ui" && init?.method === "PUT") {
+			putBodies.push(JSON.parse(String(init.body)) as Record<string, any>);
+			return Response.json({ map: alternativeMap, view: alternativeView });
+		}
+		if (url === "/api/maps/map_ui") return Response.json({ state: "ok", map: alternativeMap, view: alternativeView });
+		if (url.startsWith("/api/learner/evidence")) return Response.json({ availability: "complete", observations: [], nextCursor: null, profileRevision: 3 });
+		if (url === "/api/graph") return Response.json({ propositions: [] });
+		if (url === "/api/learner/profile") return Response.json({ state: "ok", profile: { revision: 3, topics: [] } });
+		throw new Error(`unexpected ${url}`);
+	}) as typeof fetch;
+	try {
+		const { root, container } = await mount(createElement(SubjectMapEditor, { mapId: "map_ui" }));
+		await click(button(container, "List and editor"));
+		const xRow = container.querySelector<HTMLElement>('[aria-labelledby="map-skill-x-heading"]')!;
+		await click([...xRow.querySelectorAll("button")].find((item) => item.textContent?.trim() === "Remove skill")!);
+		const yRow = container.querySelector<HTMLElement>('[aria-labelledby="map-skill-y-heading"]')!;
+		await click([...yRow.querySelectorAll("button")].find((item) => item.textContent?.trim() === "Remove skill")!);
+		await click(button(container, "Save map"));
+		assert.ok(putBodies[0]);
+		assert.deepEqual(putBodies[0]?.definition.alternatives, [{ dependent: "sched", options: ["proc", "thr"] }]);
+		await act(async () => root.unmount());
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
 test("evidence attachment sends the saved objective revision and reloads after a stale objective conflict", async () => {
 	let mapReads = 0;
 	let attachedBody: unknown;
