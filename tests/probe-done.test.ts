@@ -100,6 +100,31 @@ describe("probe_done: the probe→planning seam", () => {
 		assert.equal(delivered.length, 0, "nothing queued on refusal");
 	});
 
+	it("refuses placement runs before the open-question gate and keeps the chat probing", async () => {
+		const mapId = "map_placement";
+		const skillId = "skill";
+		const chat = chatStore.createChat("Placement: probe only", undefined,
+			{ kind: "subject-skill", mapId, skillId, skillRevision: 1 },
+			{ mapId, maxProbes: 15, probes: [{ skillId, revision: 1 }] },
+		);
+		createdChats.push(chat.id);
+		chatStore.saveMessages(chat.id, [
+			assistantWithCall("open-question", "quiz", { question: "q?", options: [{ label: "a" }] }),
+		]);
+		const delivered: SteerMessage[] = [];
+		const tools = probeDoneTool({ chatId: chat.id, chatStore, deliver: (s) => delivered.push(s) });
+
+		const res = await execute(tools, { assessment: ASSESSMENT });
+		assert.deepEqual(res, {
+			ok: false,
+			error: "This is a placement run, so don't conclude the probe. Ask the current placement probe from the placement context. When the run is complete, give the short summary and end your turn.",
+		});
+		assert.equal(delivered.length, 0, "placement runs never queue the teaching handoff");
+		const messages = chatStore.getChat(chat.id)!.messages;
+		assert.equal(hasProbeDone(messages), false);
+		assert.equal(phaseAt3Lh(messages), "probe");
+	});
+
 	it("REFUSES a second conclusion — probe_done fires exactly once", async () => {
 		const chatId = newChat("Probe: twice");
 		chatStore.saveMessages(chatId, [

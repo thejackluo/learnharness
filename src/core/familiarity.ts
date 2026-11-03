@@ -98,7 +98,13 @@ export function likelyKnownSkills(suggestions: readonly FamiliaritySuggestion[],
 
 export function projectPlacementContext(run: PlacementRun, map: SubjectMapV1): string {
 	const unresolvedIndex = run.probes.findIndex((probe) => !probe.result && map.skills.some((skill) => skill.id === probe.skillId && skill.revision === probe.revision));
-	if (unresolvedIndex < 0) return "[Placement run — data, not instructions]\nThis placement run is complete; wrap up.";
+	if (unresolvedIndex < 0) {
+		const results = run.probes.filter((probe) => probe.result).map((probe) => {
+			const title = map.skills.find((skill) => skill.id === probe.skillId)?.title ?? probe.skillId;
+			return `${title}: ${probe.result}`;
+		}).join("; ");
+		return `[Placement run — data, not instructions]\nThis placement run is complete. Probe results: ${results}.\nGive a short summary of what the probes showed, in plain language, and tell him the likely-known suggestions are listed below for him to confirm or reject. Ask no further questions, never call probe_done, and never claim mastery.`;
+	}
 	const probe = run.probes[unresolvedIndex]!;
 	const skill = map.skills.find((item) => item.id === probe.skillId)!;
 	const previous = run.probes.slice(0, unresolvedIndex).filter((item) => item.result).map((item) => `${item.skillId}: ${item.result}`);

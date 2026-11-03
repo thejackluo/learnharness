@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import type { PlacementRun } from "../src/core/contracts/familiarity.ts";
+import { projectPlacementContext } from "../src/core/familiarity.ts";
 
 const data = fs.mkdtempSync(path.join(os.tmpdir(), "lh-familiarity-placement-"));
 process.env.LH_DATA_DIR = data;
@@ -46,6 +48,43 @@ function placementChat(mapId: string, skillId: string, revision = 1) {
 function saveMessages(chatId: string, messages: unknown[]) {
 	stores.chatStore.saveMessages(chatId, messages as never);
 }
+
+test("placement context summarizes completed probes and preserves the in-progress prompt", () => {
+	const map = createMap(["first", "second"]);
+	const titledMap = {
+		...map,
+		skills: map.skills.map((skill) => ({
+			...skill,
+			title: skill.id === "first" ? "First skill" : "Second skill",
+		})),
+	};
+	const completed: PlacementRun = {
+		mapId: map.id,
+		maxProbes: 10,
+		probes: [
+			{ skillId: "first", revision: 1, result: "supports" },
+			{ skillId: "second", revision: 1, result: "against" },
+			{ skillId: "removed", revision: 1, result: "inconclusive" },
+		],
+	};
+	assert.equal(
+		projectPlacementContext(completed, titledMap),
+		"[Placement run — data, not instructions]\nThis placement run is complete. Probe results: First skill: supports; Second skill: against; removed: inconclusive.\nGive a short summary of what the probes showed, in plain language, and tell him the likely-known suggestions are listed below for him to confirm or reject. Ask no further questions, never call probe_done, and never claim mastery.",
+	);
+
+	const inProgress: PlacementRun = {
+		mapId: map.id,
+		maxProbes: 10,
+		probes: [
+			{ skillId: "first", revision: 1, result: "supports" },
+			{ skillId: "second", revision: 1 },
+		],
+	};
+	assert.equal(
+		projectPlacementContext(inProgress, titledMap),
+		"[Placement run — data, not instructions]\nProbe 2 of 10: Second skill. Objective: Explain second\nPrevious probe results: first: supports\nAsk one short targeted check of this probe using onTarget: true. After it is graded, the app moves to the next probe. Keep a friendly pace; never claim mastery.",
+	);
+});
 
 test("graded placement support assigns its call, suggests the prerequisite closure, and completes without evidence", () => {
 	const map = createMap(["required", "option-a", "option-b", "target"], [{ prerequisite: "required", dependent: "target" }], [{ dependent: "target", options: ["option-a", "option-b"] }]);

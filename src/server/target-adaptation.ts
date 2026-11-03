@@ -111,6 +111,15 @@ export function targetAdaptationFor(record: Pick<ChatRecord, "id" | "target">): 
 	});
 }
 
+export function targetPanelFor(record: Pick<ChatRecord, "id" | "target" | "placement">) {
+	return {
+		view: targetAdaptationFor(record),
+		placement: record.placement
+			? { mapId: record.placement.mapId, completed: Boolean(record.placement.completedAt) }
+			: null,
+	};
+}
+
 /** The model-facing target block, or null for sessions without a target. */
 export function targetContextFor(record: Pick<ChatRecord, "id" | "target">): string | null {
 	try {
