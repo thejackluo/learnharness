@@ -289,6 +289,7 @@ export function gradeNumeric(part: NumericPart, value: number, unit: string): Cr
 	if (!normalizedUnit || !selected) return { criterionId: criterion.id, award: 0, feedback: "Unit: missing or not one of the listed units." };
 	if (!Number.isFinite(value)) return { criterionId: criterion.id, award: 0, feedback: "Value: expected a finite number." };
 	const canonical = value * selected.factor;
+	if (!Number.isFinite(canonical)) return { criterionId: criterion.id, award: 0, feedback: "Value: outside the committed tolerance." };
 	const tolerance = part.tolerance.kind === "relative"
 		? part.answer === 0 ? 1e-9 : part.tolerance.value * Math.abs(part.answer)
 		: part.tolerance.value;

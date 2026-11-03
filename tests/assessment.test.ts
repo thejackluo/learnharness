@@ -82,6 +82,14 @@ test("typed part authoring synthesizes criteria and grades numeric and exact ans
 	assert.match(gradeNumeric(numeric, 1000.50001, "m").feedback, /^Value:/);
 	assert.match(gradeNumeric(numeric, 1000, "").feedback, /^Unit:/);
 	assert.match(gradeNumeric(numeric, 1000, "mi").feedback, /^Unit:/);
+	const overflow = assessmentSpecOf({ parts: [{
+		id: "overflow", kind: "numeric", prompt: "Enter the result", answer: 1,
+		units: [{ symbol: "m", factor: 1 }, { symbol: "km", factor: 1e300 }],
+		tolerance: { kind: "absolute", value: 0 }, points: 1,
+	}] })!.parts[0] as Extract<(typeof typed.parts)[number], { kind: "numeric" }>;
+	const overflowAward = gradeNumeric(overflow, 1e300, "km");
+	assert.equal(overflowAward.award, 0);
+	assert.equal(overflowAward.feedback, "Value: outside the committed tolerance.");
 
 	const relative = assessmentSpecOf({ parts: [{
 		id: "signed", kind: "numeric", prompt: "Enter a signed result", answer: -2,
