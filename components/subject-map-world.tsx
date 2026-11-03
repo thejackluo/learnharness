@@ -196,12 +196,12 @@ export function SubjectMapWorld({
 							const highlighted = routeMembers.has(edge.prerequisite) && routeMembers.has(edge.dependent);
 							return <line key={`required-${edge.prerequisite}-${edge.dependent}`} x1={from.x + WORLD_NODE.width} y1={from.y + WORLD_NODE.height / 2} x2={to.x} y2={to.y + WORLD_NODE.height / 2} stroke="currentColor" strokeWidth={highlighted ? 3 : 1.5} strokeOpacity={highlighted ? 0.9 : 0.18} />;
 						})}
-						{(map.alternatives ?? []).flatMap((group) => group.options.map((option) => {
+						{(map.alternatives ?? []).flatMap((group, groupIndex) => group.options.map((option) => {
 							const from = nodePositions.get(option);
 							const to = nodePositions.get(group.dependent);
 							if (!from || !to) return null;
 							const chosen = chosenAlternatives.has(`${option}\u0000${group.dependent}`);
-							return <line key={`alternative-${option}-${group.dependent}`} data-highlighted={chosen ? "true" : "false"} x1={from.x + WORLD_NODE.width} y1={from.y + WORLD_NODE.height / 2} x2={to.x} y2={to.y + WORLD_NODE.height / 2} stroke="currentColor" strokeWidth={chosen ? 3 : 1.5} strokeOpacity={chosen ? 0.9 : 0.18} strokeDasharray="5 4" />;
+							return <line key={`alternative-${groupIndex}-${option}-${group.dependent}`} data-highlighted={chosen ? "true" : "false"} x1={from.x + WORLD_NODE.width} y1={from.y + WORLD_NODE.height / 2} x2={to.x} y2={to.y + WORLD_NODE.height / 2} stroke="currentColor" strokeWidth={chosen ? 3 : 1.5} strokeOpacity={chosen ? 0.9 : 0.18} strokeDasharray="5 4" />;
 						}))}
 						{layout.nodes.map((node) => {
 							const skill = map.skills.find((item) => item.id === node.skillId)!;
