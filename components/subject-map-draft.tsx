@@ -2,20 +2,13 @@
 
 import { useState } from "react";
 import { SubjectMapDraftEditor } from "@/components/subject-map-editor";
+import { SkillSourceBadge } from "@/components/skill-source-badge";
 import { SetupDialog } from "@/components/setup-dialog";
-import { diffSubjectMaps, groupSubjectMapSkills, subjectMapDefinitionProblems, type SubjectMapDefinition, type SubjectMapV1, type SubjectSkill } from "@/src/core";
+import { diffSubjectMaps, groupSubjectMapSkills, subjectMapDefinitionProblems, type SubjectMapDefinition, type SubjectMapV1 } from "@/src/core";
 
 const suggestions = ["AP Physics 1", "AP Physics C: Mechanics", "AP Calculus BC", "IB Philosophy", "JLPT N5", "JLPT N4", "CEFR A1–B2 Japanese", "CEFR A1–B2 Spanish", "Typical university Operating Systems course"];
 const FIELD = "rounded-sm border border-border bg-background px-2 py-1.5 text-sm";
 const BUTTON = "rounded-sm border border-border px-2.5 py-1.5 text-xs hover:bg-accent disabled:opacity-50";
-
-function sourceBadge(skill: SubjectSkill) {
-	const source = skill.source;
-	if (source?.kind === "syllabus") return <span title={source.quote}>From your syllabus</span>;
-	if (source?.kind === "framework") return <span>Typical of {source.framework} (AI knowledge, not checked against the official document)</span>;
-	if (source?.kind === "aiGapFill") return <span title={source.reason}>AI-added</span>;
-	return <span>Manual</span>;
-}
 
 export function SubjectMapDraft({ previous, onSaved }: { previous?: SubjectMapV1; onSaved?: (map: SubjectMapV1) => void }) {
 	const [open, setOpen] = useState(false);
@@ -95,9 +88,10 @@ export function SubjectMapDraft({ previous, onSaved }: { previous?: SubjectMapV1
 		</> : editing ? <SubjectMapDraftEditor definition={draft} onReview={(edited) => { setDraft(edited); setEditing(false); }} onDiscard={discard} /> : <div aria-label="Draft review" className="flex flex-col gap-3">
 			<h3>{draft.title}</h3><p>{draft.description}</p>
 			<p role="status">{validation.length ? `Validation failed: ${validation.join("; ")}` : "Validation passed. Ready for your review."}</p>
-			{groupSubjectMapSkills(draft).map((group) => <section key={group.id ?? "ungrouped"}><h4>{group.title}</h4><ul>{group.skills.map((skill) => <li key={skill.id}><strong>{skill.title}</strong>: {skill.objective} · {sourceBadge(skill)}</li>)}</ul></section>)}
+			{groupSubjectMapSkills(draft).map((group) => <section key={group.id ?? "ungrouped"}><h4>{group.title}</h4><ul>{group.skills.map((skill) => <li key={skill.id}><strong>{skill.title}</strong>{skill.keystone === true && <> · <span>◆ Keystone</span></>}: {skill.objective} · <SkillSourceBadge skill={skill} /></li>)}</ul></section>)}
 			<h4>Prerequisite edges</h4><ul>{draft.edges.map((edge) => <li key={`${edge.prerequisite}-${edge.dependent}`}>{edge.prerequisite} → {edge.dependent}</li>)}</ul>
-			{diff && <section aria-label="Refinement diff"><h4>Changes</h4><p>Added: {diff.added.map((s) => s.id).join(", ") || "none"}</p><p>Removed: {diff.removed.map((s) => s.id).join(", ") || "none"}</p><p>Changed: {diff.changed.map((s) => s.id).join(", ") || "none"}</p><p>Added edges: {diff.addedEdges.map((e) => `${e.prerequisite} → ${e.dependent}`).join(", ") || "none"}</p><p>Removed edges: {diff.removedEdges.map((e) => `${e.prerequisite} → ${e.dependent}`).join(", ") || "none"}</p></section>}
+			<h4>Alternative routes</h4><ul>{(draft.alternatives ?? []).map((group, index) => <li key={`${group.dependent}-${index}`}>{group.dependent} ← one of: {group.options.join(", ")}</li>)}</ul>
+			{diff && <section aria-label="Refinement diff"><h4>Changes</h4><p>Added: {diff.added.map((s) => s.id).join(", ") || "none"}</p><p>Removed: {diff.removed.map((s) => s.id).join(", ") || "none"}</p><p>Changed: {diff.changed.map((s) => s.id).join(", ") || "none"}</p><p>Added edges: {diff.addedEdges.map((e) => `${e.prerequisite} → ${e.dependent}`).join(", ") || "none"}</p><p>Removed edges: {diff.removedEdges.map((e) => `${e.prerequisite} → ${e.dependent}`).join(", ") || "none"}</p><p>Added alternative routes: {diff.addedAlternatives.map((group) => `${group.dependent} ← one of: ${[...group.options].sort().join(", ")}`).join("; ") || "none"}</p><p>Removed alternative routes: {diff.removedAlternatives.map((group) => `${group.dependent} ← one of: ${[...group.options].sort().join(", ")}`).join("; ") || "none"}</p></section>}
 			<button type="button" className={BUTTON} disabled={busy || validation.length > 0} onClick={() => void accept()}>Accept</button>
 			<button type="button" className={BUTTON} disabled={busy} onClick={() => setEditing(true)}>Edit before saving</button>
 			<button type="button" className={BUTTON} disabled={busy} onClick={discard}>Discard</button>

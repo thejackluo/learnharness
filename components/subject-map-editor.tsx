@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SessionStarter } from "@/components/start-session";
 import { SubjectMapDraft } from "@/components/subject-map-draft";
+import { SubjectMapWorld } from "@/components/subject-map-world";
 import { savedSlotsConfigured, selectedModelUnavailable } from "@/components/setup-cta";
 import type { ModelCatalogResponse } from "@/src/core";
 import {
@@ -15,6 +16,7 @@ import {
 	type LearnerTopicClaim,
 	type SkillEvidenceStatus,
 	type SubjectEdge,
+	type SubjectAlternative,
 	type SubjectEvidenceItem,
 	type SubjectMapGapView,
 	type SubjectMapV1,
@@ -24,9 +26,10 @@ import {
 	type SkillSource,
 } from "@/src/core";
 
-type DraftSkill = { key: string; id: string; title: string; objective: string; isNew: boolean; regionId?: string; source?: SkillSource };
+type DraftSkill = { key: string; id: string; title: string; objective: string; isNew: boolean; regionId?: string; source?: SkillSource; keystone?: true };
 interface Draft {
 	regions?: SubjectRegion[];
+	alternatives?: SubjectAlternative[];
 	title: string;
 	description: string;
 	skills: DraftSkill[];
@@ -51,6 +54,7 @@ const STATUS_GLYPH: Record<SkillEvidenceStatus, string> = {
 function draftOf(map: SubjectMapDefinition): Draft {
 	return {
 		...(map.regions === undefined ? {} : { regions: map.regions }),
+		...(map.alternatives === undefined ? {} : { alternatives: map.alternatives.map((group) => ({ dependent: group.dependent, options: [...group.options] })) }),
 		title: map.title,
 		description: map.description,
 		skills: map.skills.map((skill) => ({ ...skill, key: skill.id, isNew: false })),
@@ -62,9 +66,10 @@ function draftOf(map: SubjectMapDefinition): Draft {
 function definitionOf(draft: Draft) {
 	return {
 		...(draft.regions === undefined ? {} : { regions: draft.regions }),
+		...(draft.alternatives === undefined ? {} : { alternatives: draft.alternatives.map((group) => ({ dependent: group.dependent, options: [...group.options] })) }),
 		title: draft.title,
 		description: draft.description,
-		skills: draft.skills.map(({ id, title, objective, regionId, source }) => ({ id, title, objective, ...(regionId === undefined ? {} : { regionId }), ...(source === undefined ? {} : { source }) })),
+		skills: draft.skills.map(({ id, title, objective, regionId, source, keystone }) => ({ id, title, objective, ...(regionId === undefined ? {} : { regionId }), ...(source === undefined ? {} : { source }), ...(keystone === true ? { keystone: true as const } : {}) })),
 		edges: draft.edges,
 		goals: draft.goals,
 	};
@@ -186,6 +191,7 @@ export function SubjectMapEditor({ mapId }: { mapId: string }) {
 	const starting = useRef(false);
 	const [startError, setStartError] = useState<string | null>(null);
 	const [startBusy, setStartBusy] = useState(false);
+	const [surfaceMode, setSurfaceMode] = useState<"world" | "list">("world");
 
 	/** Same no-orphan rule as the home/draft launchers: check models and keys before any chat exists. */
 	const startTargetSession = useCallback(async (skill: { id: string; title: string; objective: string; revision: number }, mode: "teach" | "practice") => {
@@ -448,6 +454,17 @@ export function SubjectMapEditor({ mapId }: { mapId: string }) {
 				</div>
 			)}
 
+			<div role="group" aria-label="Map view" className="flex gap-2">
+				<button type="button" aria-pressed={surfaceMode === "world"} onClick={() => setSurfaceMode("world")} className={BUTTON}>World map</button>
+				<button type="button" aria-pressed={surfaceMode === "list"} onClick={() => setSurfaceMode("list")} className={BUTTON}>List and editor</button>
+			</div>
+
+			{surfaceMode === "world" ? (
+				<>
+					{dirty && <p className="text-xs text-muted-foreground">World map shows the saved map; you have unsaved edits in the list view.</p>}
+					<SubjectMapWorld map={map} view={view} onStart={(skill) => void startTargetSession(skill, "teach")} startBusy={startBusy} startError={startError} />
+				</>
+			) : <>
 			<section aria-labelledby="map-goals-heading" className="flex flex-col gap-3">
 				<h2 id="map-goals-heading" className="text-xs uppercase tracking-widest text-muted-foreground">Goals and gaps</h2>
 				{view.evidenceAvailability === "unavailable" && (
@@ -547,6 +564,7 @@ export function SubjectMapEditor({ mapId }: { mapId: string }) {
 					<button type="button" onClick={() => accept(map, null)} disabled={!dirty || saving} className={BUTTON}>Discard edits</button>
 				</div>
 			</div>
+			</>}
 		</main>
 	);
 }
@@ -599,6 +617,7 @@ function SkillRow({ skill, index, draft, saved, titleOf, pathText, sources, link
 	const prerequisites = draft.edges.filter((edge) => edge.dependent === skill.id).map((edge) => edge.prerequisite);
 	const candidates = draft.skills.filter((other) => other.id && other.id !== skill.id && !prerequisites.includes(other.id));
 	const isGoal = draft.goals.includes(skill.id);
+	const alternativeGroups = (draft.alternatives ?? []).map((group, groupIndex) => ({ group, groupIndex })).filter(({ group }) => group.dependent === skill.id);
 	const update = (patch: Partial<DraftSkill>) => onEdit((d) => {
 		const previousId = d.skills[index]!.id;
 		const skills = d.skills.map((item, i) => (i === index ? { ...item, ...patch } : item));
@@ -608,15 +627,32 @@ function SkillRow({ skill, index, draft, saved, titleOf, pathText, sources, link
 			...d,
 			skills,
 			edges: d.edges.map((edge) => ({ prerequisite: rename(edge.prerequisite), dependent: rename(edge.dependent) })),
+			...(d.alternatives === undefined ? {} : {
+				alternatives: d.alternatives.map((group) => ({ dependent: rename(group.dependent), options: group.options.map(rename) })),
+			}),
 			goals: d.goals.map(rename),
 		};
 	});
-	const removeSkill = () => onEdit((d) => ({
-		...d,
-		skills: d.skills.filter((_, i) => i !== index),
-		edges: d.edges.filter((edge) => edge.prerequisite !== skill.id && edge.dependent !== skill.id),
-		goals: d.goals.filter((goal) => goal !== skill.id),
-	}));
+	const removeSkill = () => onEdit((d) => {
+		const edges = d.edges.filter((edge) => edge.prerequisite !== skill.id && edge.dependent !== skill.id);
+		const alternatives: SubjectAlternative[] = [];
+		for (const group of d.alternatives ?? []) {
+			if (group.dependent === skill.id) continue;
+			const options = group.options.filter((option) => option !== skill.id);
+			if (options.length >= SUBJECT_MAP_LIMITS.alternativeOptionsMin) {
+				alternatives.push({ dependent: group.dependent, options });
+			} else if (options.length === 1 && !edges.some((edge) => edge.prerequisite === options[0] && edge.dependent === group.dependent)) {
+				edges.push({ prerequisite: options[0]!, dependent: group.dependent });
+			}
+		}
+		return {
+			...d,
+			skills: d.skills.filter((_, i) => i !== index),
+			edges,
+			...(d.alternatives === undefined ? {} : { alternatives }),
+			goals: d.goals.filter((goal) => goal !== skill.id),
+		};
+	});
 	const linkedEvidence = new Set([...(saved?.evidence.current ?? []), ...(saved?.evidence.historical ?? [])].map((item) => item.evidenceId));
 	const linkedPropositions = new Set(saved?.encounter.propositions.map((item) => item.nodeId) ?? []);
 	const linkedTopics = new Set(saved?.selfReport.claims.map((item) => item.topicId) ?? []);
@@ -658,6 +694,26 @@ function SkillRow({ skill, index, draft, saved, titleOf, pathText, sources, link
 				}} />
 				Goal skill
 			</label>
+			<label htmlFor={`${base}-keystone`} className="flex items-center gap-2 text-xs">
+				<input
+					id={`${base}-keystone`}
+					type="checkbox"
+					checked={skill.keystone === true}
+					onChange={(event) => {
+						const checked = event.currentTarget.checked;
+						onEdit((d) => ({
+							...d,
+							skills: d.skills.map((item, i) => {
+								if (i !== index) return item;
+								if (checked) return { ...item, keystone: true };
+								const { keystone: _keystone, ...withoutKeystone } = item;
+								return withoutKeystone;
+							}),
+						}));
+					}}
+				/>
+				Keystone skill
+			</label>
 			<div className="flex flex-col gap-1 text-xs">
 				<span className="text-muted-foreground">Prerequisites</span>
 				{prerequisites.length === 0 && <span className="text-muted-foreground">None</span>}
@@ -682,6 +738,22 @@ function SkillRow({ skill, index, draft, saved, titleOf, pathText, sources, link
 						}} className={BUTTON}>Add prerequisite</button>
 					</div>
 				)}
+			</div>
+			<div className="flex flex-col gap-1 text-xs">
+				<span className="text-muted-foreground">Alternative routes</span>
+				{alternativeGroups.length === 0 && <span className="text-muted-foreground">None</span>}
+				<ul className="flex flex-col gap-1">
+					{alternativeGroups.map(({ group, groupIndex }) => (
+						<li key={`${group.dependent}-${groupIndex}`} className="flex flex-wrap items-center gap-2">
+							<span>Requires one of: {group.options.map(titleOf).join(", ")}</span>
+							<button
+								type="button"
+								className={LINK_BUTTON}
+								onClick={() => onEdit((d) => ({ ...d, alternatives: (d.alternatives ?? []).filter((_, i) => i !== groupIndex) }))}
+							>Remove alternative route</button>
+						</li>
+					))}
+				</ul>
 			</div>
 
 			{saved && (

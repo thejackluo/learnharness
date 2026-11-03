@@ -38,11 +38,12 @@ const map: SubjectMapV1 = {
 	title: "<b>OS</b>",
 	description: "",
 	skills: [
-		{ id: "proc", title: "Processes", objective: "Explain processes", revision: 1 },
+		{ id: "proc", title: "Processes", objective: "Explain processes", revision: 1, keystone: true },
 		{ id: "thr", title: "<img src=x>", objective: "Explain threads", revision: 2 },
 		{ id: "sched", title: "Scheduling", objective: "Trace schedules", revision: 1 },
 	],
 	edges: [{ prerequisite: "proc", dependent: "thr" }, { prerequisite: "thr", dependent: "sched" }],
+	alternatives: [{ dependent: "sched", options: ["proc", "thr"] }],
 	goals: ["sched"],
 	retired: [],
 	links: { propositions: [], topics: [] },
@@ -127,6 +128,8 @@ test("AI panel reviews, edits with existing controls, accepts through existing c
 		assert.match(container.textContent ?? "", /AI knowledge, not checked against the official document/);
 		assert.equal(container.querySelector('[title="Synthetic quote"]')?.textContent, "From your syllabus");
 		assert.equal(container.querySelector('[title="Prerequisite gap"]')?.textContent, "AI-added");
+		assert.match(container.textContent ?? "", /◆ Keystone/);
+		assert.match(container.textContent ?? "", /sched ← one of: proc, thr/);
 		assert.match(container.textContent ?? "", /Validation passed/);
 		assert.equal(requests.length, 1, "draft review persists nothing");
 		await click(button(container, "Edit before saving"));
@@ -139,6 +142,8 @@ test("AI panel reviews, edits with existing controls, accepts through existing c
 		const accepted = JSON.parse(String(requests[1]!.body));
 		assert.deepEqual(accepted.definition.regions, drafted.regions);
 		assert.deepEqual(accepted.definition.skills[0].source, drafted.skills[0]!.source);
+		assert.equal(accepted.definition.skills[0].keystone, true);
+		assert.deepEqual(accepted.definition.alternatives, drafted.alternatives);
 		await click(button(container, "Draft with AI"));
 		await click(button(container, "Generate draft"));
 		await click(button(container, "Discard"));
@@ -149,7 +154,7 @@ test("AI panel reviews, edits with existing controls, accepts through existing c
 
 test("AI refine review shows a diff and accepts with the original ETag", async () => {
 	let acceptedHeaders: Headers | undefined;
-	const drafted = { ...map, skills: [...map.skills, { id: "new", title: "New", objective: "Can explain a new idea", revision: 1 }], edges: [] };
+	const drafted = { ...map, skills: map.skills.map((skill, index) => index === 0 ? { ...skill, keystone: undefined } : skill).concat([{ id: "new", title: "New", objective: "Can explain a new idea", revision: 1 }]), alternatives: [], edges: [] };
 	globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
 		if (init?.method === "PUT") { acceptedHeaders = new Headers(init.headers); return Response.json({ map: drafted }); }
 		return Response.json({ draft: drafted, issues: [] });
@@ -166,6 +171,8 @@ test("AI refine review shows a diff and accepts with the original ETag", async (
 		await click(button(container, "Generate draft"));
 		assert.match(container.querySelector('[aria-label="Refinement diff"]')?.textContent ?? "", /Added: new/);
 		assert.match(container.textContent ?? "", /Removed edges: proc → thr, thr → sched/);
+		assert.match(container.textContent ?? "", /Removed alternative routes: sched ← one of: proc, thr/);
+		assert.match(container.textContent ?? "", /Changed: proc/);
 		await click(button(container, "Accept"));
 		assert.equal(acceptedHeaders?.get("if-match"), '"4"');
 		await act(async () => root.unmount());
@@ -207,6 +214,7 @@ test("dirty map editor blocks AI refinement until edits are discarded", async ()
 	}) as typeof fetch;
 	try {
 		const { root, container } = await mount(createElement(SubjectMapEditor, { mapId: map.id }));
+		await click(button(container, "List and editor"));
 		assert.equal(button(container, "Refine with AI").disabled, false);
 		await click(button(container, "Refine with AI"));
 		assert.ok(container.querySelector('[aria-label="Draft with AI"]'));
@@ -239,6 +247,7 @@ test("map editor lists gaps with goal paths, text statuses, escaped titles and h
 	}) as typeof fetch;
 	try {
 		const { root, container } = await mount(createElement(SubjectMapEditor, { mapId: "map_ui" }));
+		await click(button(container, "List and editor"));
 		const html = container.innerHTML;
 		assert.ok(html.includes("&lt;b&gt;OS&lt;/b&gt;"));
 		assert.equal(container.querySelector("img"), null, "skill titles render as text, never markup");
@@ -267,6 +276,113 @@ test("map editor lists gaps with goal paths, text statuses, escaped titles and h
 	}
 });
 
+test("world map is the default, mirrors routes, exposes state and keystone labels, and preserves list edits across toggles", async () => {
+	const worldMap: SubjectMapV1 = {
+		...map,
+		skills: [...map.skills, { id: "cleared", title: "Already cleared", objective: "Explain already", revision: 1 }],
+		goals: ["sched", "thr"],
+	};
+	const clearedSkill = worldMap.skills.at(-1)!;
+	const worldView = {
+		...view,
+		skills: [...view.skills, { ...view.skills[0]!, skill: clearedSkill, evidence: { ...view.skills[0]!.evidence, status: "supporting" as const } }],
+	};
+	globalThis.fetch = (async (input: RequestInfo | URL) => {
+		const url = String(input);
+		if (url === "/api/maps/map_ui") return Response.json({ state: "ok", map: worldMap, view: worldView });
+		if (url.startsWith("/api/learner/evidence")) return Response.json({ availability: "complete", observations: [], nextCursor: null, profileRevision: 3 });
+		if (url === "/api/graph") return Response.json({ propositions: [] });
+		if (url === "/api/learner/profile") return Response.json({ state: "ok", profile: { revision: 3, topics: [] } });
+		throw new Error(`unexpected ${url}`);
+	}) as typeof fetch;
+	try {
+		const { root, container } = await mount(createElement(SubjectMapEditor, { mapId: "map_ui" }));
+		assert.equal(button(container, "World map").getAttribute("aria-pressed"), "true");
+		assert.equal(button(container, "List and editor").getAttribute("aria-pressed"), "false");
+		assert.ok(container.querySelector('[role="group"][aria-label="World map of <b>OS</b>"]'));
+		const processNode = container.querySelector<SVGGElement>('[data-skill="proc"]');
+		assert.ok(processNode);
+		assert.equal(processNode?.getAttribute("data-state"), "open");
+		assert.match(processNode?.getAttribute("aria-label") ?? "", /keystone/);
+		assert.equal(container.querySelector('[data-skill="thr"]')?.getAttribute("data-state"), "reachable");
+		assert.equal(container.querySelector('[data-skill="sched"]')?.getAttribute("data-state"), "locked");
+		assert.equal(container.querySelector('[data-skill="cleared"]')?.getAttribute("data-state"), "cleared");
+		assert.ok([...container.querySelectorAll("line")].some((line) => line.getAttribute("stroke-dasharray") === "5 4"));
+		assert.match(container.textContent ?? "", /Processes — Open/);
+		assert.match(container.textContent ?? "", /Processes ◆/);
+
+		const goal = container.querySelector<HTMLSelectElement>('select[aria-label="Goal"]')!;
+		await act(async () => {
+			goal.querySelectorAll("option").forEach((option) => { option.selected = option.value === "thr"; });
+			goal.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+		});
+		const routeList = [...container.querySelectorAll("ol")].find((list) => list.getAttribute("aria-label") === "Route to <img src=x>");
+		assert.ok(routeList);
+		assert.match(routeList?.textContent ?? "", /<img src=x> — Reachable/);
+		assert.doesNotMatch(routeList?.textContent ?? "", /Scheduling/);
+
+		const threadNode = container.querySelector<SVGGElement>('[data-skill="thr"]')!;
+		await click(processNode as unknown as HTMLElement);
+		const key = new dom.window.Event("keydown", { bubbles: true });
+		Object.defineProperty(key, "key", { value: "Enter" });
+		await act(async () => threadNode.dispatchEvent(key));
+		assert.equal(container.querySelector('[aria-label="Selected skill"]')?.querySelector("h2")?.textContent, "<img src=x>");
+
+		await click(button(container, "List and editor"));
+		assert.equal(button(container, "List and editor").getAttribute("aria-pressed"), "true");
+		await click(button(container, "Add skill"));
+		await click(button(container, "World map"));
+		assert.match(container.textContent ?? "", /World map shows the saved map; you have unsaved edits in the list view\./);
+		await click(button(container, "List and editor"));
+		assert.match(container.textContent ?? "", /5\/500 skills/);
+		await act(async () => root.unmount());
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("keystone checkbox and removing an alternative option preserve semantics in the save payload", async () => {
+	const putBodies: Record<string, any>[] = [];
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		const url = String(input);
+		if (url === "/api/maps/map_ui" && init?.method === "PUT") {
+			putBodies.push(JSON.parse(String(init.body)) as Record<string, any>);
+			return Response.json({ map, view });
+		}
+		if (url === "/api/maps/map_ui") return Response.json({ state: "ok", map, view });
+		if (url.startsWith("/api/learner/evidence")) return Response.json({ availability: "complete", observations: [], nextCursor: null, profileRevision: 3 });
+		if (url === "/api/graph") return Response.json({ propositions: [] });
+		if (url === "/api/learner/profile") return Response.json({ state: "ok", profile: { revision: 3, topics: [] } });
+		throw new Error(`unexpected ${url}`);
+	}) as typeof fetch;
+	try {
+		const { root, container } = await mount(createElement(SubjectMapEditor, { mapId: "map_ui" }));
+		await click(button(container, "List and editor"));
+		assert.match(container.textContent ?? "", /Requires one of: Processes, <img src=x>/);
+		const checkbox = container.querySelector<HTMLInputElement>("#map-skill-proc-keystone")!;
+		await act(async () => {
+			checkbox.checked = false;
+			checkbox.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+		});
+		assert.equal(checkbox.checked, false);
+		await act(async () => {
+			checkbox.checked = true;
+			checkbox.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+		});
+		assert.equal(checkbox.checked, true);
+		const threadRow = container.querySelector<HTMLElement>('[aria-labelledby="map-skill-thr-heading"]')!;
+		await click([...threadRow.querySelectorAll("button")].find((item) => item.textContent?.trim() === "Remove skill")!);
+		await click(button(container, "Save map"));
+		assert.ok(putBodies[0]);
+		assert.equal(putBodies[0]?.definition.skills.find((skill: { id: string }) => skill.id === "proc")?.keystone, true);
+		assert.deepEqual(putBodies[0]?.definition.alternatives, []);
+		assert.ok(putBodies[0]?.definition.edges.some((edge: { prerequisite: string; dependent: string }) => edge.prerequisite === "proc" && edge.dependent === "sched"));
+		await act(async () => root.unmount());
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
 test("evidence attachment sends the saved objective revision and reloads after a stale objective conflict", async () => {
 	let mapReads = 0;
 	let attachedBody: unknown;
@@ -289,6 +405,7 @@ test("evidence attachment sends the saved objective revision and reloads after a
 	}) as typeof fetch;
 	try {
 		const { root, container } = await mount(createElement(SubjectMapEditor, { mapId: "map_ui" }));
+		await click(button(container, "List and editor"));
 		const select = container.querySelector('select[id$="-evidence"]')!;
 		await act(async () => {
 			select.querySelectorAll("option").forEach((option) => { option.selected = option.value === observation.id; });
@@ -367,12 +484,13 @@ test("skill launch checks model setup before creating a session and ignores a do
 	Object.defineProperty(dom.window, "location", { configurable: true, value: { assign: (url: string) => { assigned.push(url); } } });
 	try {
 		const { root, container } = await mount(createElement(SubjectMapEditor, { mapId: "map_ui" }));
-		await click(button(container, "Start a session on this skill"));
+		await click(container.querySelector('[data-skill="proc"]') as HTMLElement);
+		await click(button(container, "Start session"));
 		await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
 		assert.equal(posts.length, 0, "no session is created without models and a key");
 		assert.match(container.textContent ?? "", /Set up your models and a provider key/);
 		configured = true;
-		const start = button(container, "Start a session on this skill");
+		const start = button(container, "Start session");
 		await click(start);
 		await click(start);
 		await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
