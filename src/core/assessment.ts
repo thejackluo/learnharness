@@ -293,7 +293,7 @@ export function gradeNumeric(part: NumericPart, value: number, unit: string): Cr
 	const tolerance = part.tolerance.kind === "relative"
 		? part.answer === 0 ? 1e-9 : part.tolerance.value * Math.abs(part.answer)
 		: part.tolerance.value;
-	const slack = 1e-12 * Math.max(1, Math.abs(part.answer), Math.abs(canonical));
+	const slack = 4 * Number.EPSILON * Math.max(Math.abs(part.answer), Math.abs(canonical));
 	if (Math.abs(canonical - part.answer) > tolerance + slack) return { criterionId: criterion.id, award: 0, feedback: "Value: outside the committed tolerance." };
 	return { criterionId: criterion.id, award: criterion.maxPoints, feedback: "Correct." };
 }

@@ -102,6 +102,17 @@ test("typed part authoring synthesizes criteria and grades numeric and exact ans
 	}] })!.parts[0] as Extract<(typeof typed.parts)[number], { kind: "numeric" }>;
 	assert.equal(gradeNumeric(zero, 1e-10, "u").award, 1);
 	assert.match(gradeNumeric(zero, 1e-8, "u").feedback, /^Value:/);
+	const zeroAbsolute = assessmentSpecOf({ parts: [{
+		id: "zero-absolute", kind: "numeric", prompt: "Enter zero", answer: 0,
+		units: [{ symbol: "u", factor: 1 }], tolerance: { kind: "absolute", value: 0 }, points: 1,
+	}] })!.parts[0] as Extract<(typeof typed.parts)[number], { kind: "numeric" }>;
+	assert.equal(gradeNumeric(zeroAbsolute, 0, "u").award, 1);
+	assert.match(gradeNumeric(zeroAbsolute, 1e-13, "u").feedback, /^Value:/);
+	const decimal = assessmentSpecOf({ parts: [{
+		id: "decimal", kind: "numeric", prompt: "Enter 0.3", answer: 0.3,
+		units: [{ symbol: "u", factor: 1 }], tolerance: { kind: "absolute", value: 0 }, points: 1,
+	}] })!.parts[0] as Extract<(typeof typed.parts)[number], { kind: "numeric" }>;
+	assert.equal(gradeNumeric(decimal, 0.1 + 0.2, "u").award, 1);
 	const micro = assessmentSpecOf({ parts: [{
 		id: "mass", kind: "numeric", prompt: "Enter mass", answer: 1,
 		units: [{ symbol: "μg", factor: 1 }], tolerance: { kind: "absolute", value: 0 }, points: 1,
