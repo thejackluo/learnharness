@@ -152,7 +152,9 @@ test("malformed chat derivation is unreadable per source without dropping other 
 });
 
 test("learner context reads only the newest 20 readable chats", () => {
-	for (let index = 0; index < 25; index++) chatStore.createChat(`Context source ${index}`);
+	const contextChats = Array.from({ length: 25 }, (_, index) => chatStore.createChat(`Context source ${index}`));
+	const contextMtime = new Date(Date.now() + 60_000);
+	for (const chat of contextChats) fs.utimesSync(path.join(TMP_DATA, "chats", `${chat.id}.json`), contextMtime, contextMtime);
 
 	const originalGetChat = chatStore.getChat;
 	const originalListChats = chatStore.listChats;
