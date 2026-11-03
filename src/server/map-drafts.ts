@@ -52,12 +52,12 @@ const whitespace = (text: string) => text.replace(/\s+/gu, " ").trim();
 function verifiedQuotes(draft: PortableSubjectMapV1, syllabus: MapSyllabus | undefined, previous: SubjectMapDefinition | null): PortableSubjectMapV1 {
 	const uploaded = syllabus ? whitespace(syllabus.text) : "";
 	const retained = new Set((previous?.skills ?? []).flatMap((skill) =>
-		skill.source?.kind === "syllabus" ? [JSON.stringify([skill.source.sourceName, whitespace(skill.source.quote)])] : []));
+		skill.source?.kind === "syllabus" ? [JSON.stringify([skill.id, skill.source.sourceName, whitespace(skill.source.quote)])] : []));
 	return { ...draft, skills: draft.skills.map((skill) => {
 		if (skill.source?.kind !== "syllabus") return skill;
 		const quote = whitespace(skill.source.quote);
 		if (syllabus && uploaded && quote && uploaded.includes(quote)) return { ...skill, source: { ...skill.source, sourceName: syllabus.name } };
-		if (quote && retained.has(JSON.stringify([skill.source.sourceName, quote]))) return skill;
+		if (skill.source.sourceName !== syllabus?.name && quote && retained.has(JSON.stringify([skill.id, skill.source.sourceName, quote]))) return skill;
 		return { ...skill, source: { kind: "aiGapFill", reason: "quote not found in syllabus" } };
 	}) };
 }

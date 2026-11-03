@@ -148,3 +148,27 @@ test("refinement without a syllabus keeps previously recorded syllabus provenanc
 		{ kind: "aiGapFill", reason: "quote not found in syllabus" },
 	]);
 });
+
+test("retained syllabus provenance belongs to the same skill id, not a new skill copying its quote", async () => {
+	const previous: SubjectMapV1 = { ...valid, retired: [], version: 1, id: "map_test", revision: 4, createdAt: "then", updatedAt: "then", links: { propositions: [], topics: [] } };
+	const source = { kind: "syllabus" as const, sourceName: "course.txt", quote: "Compute\n  force" };
+	const original = { ...valid.skills[0]!, source };
+	const copied = { ...original, id: "copy", title: "Copied quote" };
+	for (const syllabus of [undefined, { name: "other.txt", text: "A different syllabus" }]) {
+		const result = await refineSubjectMap(previous.id, { instruction: "Expand", syllabus }, { ...engine({ ...valid, skills: [original, copied] }), readMap: () => ({ state: "ok", map: previous }) });
+		assert.deepEqual(result.draft.skills.map((skill) => skill.source), [
+			source,
+			{ kind: "aiGapFill", reason: "quote not found in syllabus" },
+		]);
+	}
+});
+
+test("a same-name syllabus upload must verify previously recorded quotes against its current text", async () => {
+	const previous: SubjectMapV1 = { ...valid, retired: [], version: 1, id: "map_test", revision: 4, createdAt: "then", updatedAt: "then", links: { propositions: [], topics: [] } };
+	for (const text of ["Revised course: Compute torque", "Revised course: Compute\n  force"]) {
+		const result = await refineSubjectMap(previous.id, { instruction: "Update", syllabus: { name: "course.txt", text } }, { ...engine(valid), readMap: () => ({ state: "ok", map: previous }) });
+		assert.deepEqual(result.draft.skills[0]!.source, text.includes("torque")
+			? { kind: "aiGapFill", reason: "quote not found in syllabus" }
+			: valid.skills[0]!.source);
+	}
+});
