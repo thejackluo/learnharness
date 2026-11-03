@@ -30,12 +30,12 @@ const STATE_LABEL: Record<SkillPathState, string> = {
 	locked: "Locked",
 };
 
-function nodeAppearance(state: SkillPathState): { fill: string; strokeDasharray?: string; opacity: number } {
+function nodeAppearance(state: SkillPathState): { fill: string; fillOpacity: number; strokeDasharray?: string; opacity: number } {
 	switch (state) {
-		case "cleared": return { fill: "currentColor", opacity: 0.16 };
-		case "open": return { fill: "none", opacity: 0.95 };
-		case "reachable": return { fill: "none", strokeDasharray: "7 4", opacity: 0.9 };
-		case "locked": return { fill: "none", strokeDasharray: "1 4", opacity: 0.35 };
+		case "cleared": return { fill: "currentColor", fillOpacity: 0.16, opacity: 0.95 };
+		case "open": return { fill: "none", fillOpacity: 1, opacity: 0.95 };
+		case "reachable": return { fill: "none", fillOpacity: 1, strokeDasharray: "7 4", opacity: 0.9 };
+		case "locked": return { fill: "none", fillOpacity: 1, strokeDasharray: "1 4", opacity: 0.35 };
 	}
 }
 
@@ -229,7 +229,7 @@ export function SubjectMapWorld({
 								}}
 							>
 								<title>{label}</title>
-								<rect x={node.x} y={node.y} width={WORLD_NODE.width} height={WORLD_NODE.height} rx={6} fill={appearance.fill} stroke="currentColor" strokeWidth={onRoute ? 3 : 1.5} strokeOpacity={appearance.opacity} strokeDasharray={appearance.strokeDasharray} />
+								<rect x={node.x} y={node.y} width={WORLD_NODE.width} height={WORLD_NODE.height} rx={6} fill={appearance.fill} fillOpacity={appearance.fillOpacity} stroke="currentColor" strokeWidth={onRoute ? 3 : 1.5} strokeOpacity={appearance.opacity} strokeDasharray={appearance.strokeDasharray} />
 								<text x={node.x + 8} y={node.y + 19} fontSize={11} fill="currentColor">
 									<tspan>{STATE_GLYPH[state]} {title}{skill.keystone ? " ◆" : ""}</tspan>
 									{evidenceMark && <tspan dx={5} aria-label={skillEvidenceStatusLabel(evidence)}>{evidenceMark}</tspan>}

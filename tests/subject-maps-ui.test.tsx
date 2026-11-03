@@ -318,6 +318,7 @@ test("world map is the default, mirrors routes, exposes state and keystone label
 		assert.equal(container.querySelector('[data-skill="thr"]')?.getAttribute("data-state"), "reachable");
 		assert.equal(container.querySelector('[data-skill="sched"]')?.getAttribute("data-state"), "locked");
 		assert.equal(container.querySelector('[data-skill="cleared"]')?.getAttribute("data-state"), "cleared");
+		assert.equal(container.querySelector('[data-skill="cleared"] rect')?.getAttribute("fill-opacity"), "0.16");
 		assert.ok([...container.querySelectorAll("line")].some((line) => line.getAttribute("stroke-dasharray") === "5 4"));
 		assert.match(container.textContent ?? "", /Processes — Open/);
 		assert.match(container.textContent ?? "", /Processes ◆/);
