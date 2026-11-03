@@ -331,6 +331,18 @@ test("world map is the default, mirrors routes, exposes state and keystone label
 		});
 		await act(async () => { surface.dispatchEvent(wheel); });
 		assert.equal(wheel.defaultPrevented, true);
+		const zoomScale = () => Number(svg.querySelector("g")?.getAttribute("transform")?.match(/scale\(([^)]+)\)/)?.[1]);
+		const beforePageWheel = zoomScale();
+		const pageWheel = new dom.window.Event("wheel", { bubbles: true, cancelable: true });
+		Object.defineProperties(pageWheel, {
+			deltaY: { value: -1 },
+			deltaMode: { value: 2 },
+			clientX: { value: 30 },
+			clientY: { value: 30 },
+		});
+		await act(async () => { surface.dispatchEvent(pageWheel); });
+		assert.equal(pageWheel.defaultPrevented, true);
+		assert.ok(zoomScale() > beforePageWheel * 1.05);
 
 		const goal = container.querySelector<HTMLSelectElement>('select[aria-label="Goal"]')!;
 		await act(async () => {

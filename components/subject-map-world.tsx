@@ -92,7 +92,11 @@ export function SubjectMapWorld({
 			event.preventDefault();
 			const rect = element.getBoundingClientRect();
 			const size = { w: element.clientWidth || box.w, h: element.clientHeight || box.h };
-			const delta = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
+			const delta = event.deltaMode === 1
+				? event.deltaY * 16
+				: event.deltaMode === 2
+					? event.deltaY * (element.clientHeight || box.h)
+					: event.deltaY;
 			const factor = Math.exp(-delta * 0.0015);
 			setViewport((current) => zoomedGraphView(
 				current,

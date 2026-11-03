@@ -47,5 +47,13 @@ test("draft grouping and diffs include skill metadata and edge changes", () => {
 	assert.deepEqual(diff.changed.map((skill) => skill.id), ["force"]);
 	assert.deepEqual(diff.addedEdges, next.edges);
 	assert.deepEqual(diffSubjectMaps(next, original).removed.map((skill) => skill.id), ["new"]);
-	assert.deepEqual(diffSubjectMaps(original, original), { added: [], removed: [], changed: [], addedEdges: [], removedEdges: [] });
+	assert.deepEqual(diffSubjectMaps(original, original), {
+		added: [],
+		removed: [],
+		changed: [],
+		addedEdges: [],
+		removedEdges: [],
+		addedAlternatives: [],
+		removedAlternatives: [],
+	});
 });
