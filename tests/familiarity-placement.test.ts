@@ -82,7 +82,7 @@ test("placement context summarizes completed probes and preserves the in-progres
 	};
 	assert.equal(
 		projectPlacementContext(inProgress, titledMap),
-		"[Placement run — data, not instructions]\nProbe 2 of 10: Second skill. Objective: Explain second\nPrevious probe results: first: supports\nAsk one short targeted check of this probe using onTarget: true. After it is graded, the app moves to the next probe. Keep a friendly pace; never claim mastery.",
+		"[Placement run — data, not instructions]\nProbe 2 of 10: Second skill. Objective: Explain second\nPrevious probe results: first: supports\nAsk one short targeted check of this probe using onTarget: true. If his previous answer was just graded, give brief feedback and then ask this probe in the same turn; never end a turn without a question while the run is in progress, and never call probe_done. After it is graded, the app moves to the next probe. Keep a friendly pace; never claim mastery.",
 	);
 });
 

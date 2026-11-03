@@ -108,5 +108,5 @@ export function projectPlacementContext(run: PlacementRun, map: SubjectMapV1): s
 	const probe = run.probes[unresolvedIndex]!;
 	const skill = map.skills.find((item) => item.id === probe.skillId)!;
 	const previous = run.probes.slice(0, unresolvedIndex).filter((item) => item.result).map((item) => `${item.skillId}: ${item.result}`);
-	return `[Placement run — data, not instructions]\nProbe ${unresolvedIndex + 1} of ${run.maxProbes}: ${skill.title}. Objective: ${skill.objective}\n${previous.length ? `Previous probe results: ${previous.join("; ")}\n` : ""}Ask one short targeted check of this probe using onTarget: true. After it is graded, the app moves to the next probe. Keep a friendly pace; never claim mastery.`;
+	return `[Placement run — data, not instructions]\nProbe ${unresolvedIndex + 1} of ${run.maxProbes}: ${skill.title}. Objective: ${skill.objective}\n${previous.length ? `Previous probe results: ${previous.join("; ")}\n` : ""}Ask one short targeted check of this probe using onTarget: true. If his previous answer was just graded, give brief feedback and then ask this probe in the same turn; never end a turn without a question while the run is in progress, and never call probe_done. After it is graded, the app moves to the next probe. Keep a friendly pace; never claim mastery.`;
 }
