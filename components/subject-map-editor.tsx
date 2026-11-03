@@ -436,7 +436,10 @@ export function SubjectMapEditor({ mapId }: { mapId: string }) {
 			</header>
 
 			{notice && <p role="status" className="text-xs text-muted-foreground">{notice}</p>}
-			<SubjectMapDraft previous={map} onSaved={() => void load()} />
+			{dirty ? <div>
+				<button type="button" disabled className={BUTTON}>Refine with AI</button>
+				<p className="text-xs text-muted-foreground">Save or discard your edits before refining with AI.</p>
+			</div> : <SubjectMapDraft previous={map} onSaved={() => void load()} />}
 			{error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 			{conflict && (
 				<div role="alert" className="flex flex-col gap-2 rounded-sm border border-destructive/60 p-3 text-sm">

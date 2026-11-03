@@ -194,6 +194,37 @@ test("AI panel explains model/key refusals with setup recovery and does not save
 	}
 });
 
+test("dirty map editor blocks AI refinement until edits are discarded", async () => {
+	const requests: string[] = [];
+	globalThis.fetch = (async (input: RequestInfo | URL) => {
+		const url = String(input);
+		requests.push(url);
+		if (url === "/api/maps/map_ui") return Response.json({ state: "ok", map, view });
+		if (url.startsWith("/api/learner/evidence")) return Response.json({ availability: "complete", observations: [], nextCursor: null, profileRevision: 3 });
+		if (url === "/api/graph") return Response.json({ propositions: [] });
+		if (url === "/api/learner/profile") return Response.json({ state: "ok", profile: { revision: 3, topics: [] } });
+		throw new Error(`unexpected ${url}`);
+	}) as typeof fetch;
+	try {
+		const { root, container } = await mount(createElement(SubjectMapEditor, { mapId: map.id }));
+		assert.equal(button(container, "Refine with AI").disabled, false);
+		await click(button(container, "Refine with AI"));
+		assert.ok(container.querySelector('[aria-label="Draft with AI"]'));
+		await click(button(container, "Add skill"));
+		assert.equal(button(container, "Refine with AI").disabled, true);
+		assert.match(container.textContent ?? "", /Save or discard your edits before refining with AI/);
+		assert.equal(container.querySelector('[aria-label="Draft with AI"]'), null);
+		await click(button(container, "Refine with AI"));
+		assert.equal(requests.some((url) => url.includes("/drafts")), false);
+		await click(button(container, "Discard edits"));
+		assert.equal(button(container, "Refine with AI").disabled, false);
+		assert.doesNotMatch(container.textContent ?? "", /Save or discard your edits before refining with AI/);
+		await click(button(container, "Refine with AI"));
+		assert.ok(container.querySelector('[aria-label="Draft with AI"]'));
+		await act(async () => root.unmount());
+	} finally { globalThis.fetch = originalFetch; }
+});
+
 test("map editor lists gaps with goal paths, text statuses, escaped titles and historical/unavailable evidence", async () => {
 	const requests: { url: string; method: string; headers: Headers }[] = [];
 	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
