@@ -211,6 +211,7 @@ describe("sanitizeUserSettings", () => {
 			"visualMaker",
 			"extractor",
 			"auditor",
+			"mapDrafter",
 		]);
 	});
 });

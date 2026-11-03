@@ -22,6 +22,12 @@ import {
 import { BACKGROUND_MODEL_ROLES, type UserSettings } from "../src/core/settings.ts";
 
 describe("resolveSettings", () => {
+	it("map drafter inherits strong and supports its own background override", () => {
+		const record: UserSettings = { version: 1, models: { strong: { model: { provider: "fake", id: "strong" } } } };
+		assert.deepEqual(resolveRoleSpec("mapDrafter", record), { provider: "fake", id: "strong", thinkingLevel: undefined });
+		record.agent = { models: { mapDrafter: { model: { provider: "fake", id: "override" } } } };
+		assert.deepEqual(resolveRoleSpec("mapDrafter", record), { provider: "fake", id: "override", thinkingLevel: undefined });
+	});
 	it("null record (first boot): non-model knobs land on factory defaults; every model view is EMPTY", () => {
 		const eff = resolveSettings(null);
 		assert.deepEqual(eff.general, { autoUpdate: true });

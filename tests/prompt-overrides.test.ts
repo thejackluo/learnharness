@@ -106,6 +106,7 @@ describe("isValidSegmentPath (the mirror-layout discipline)", () => {
 	it("accepts the shared base and numeric fragments, rejects everything else", () => {
 		assert.equal(isValidSegmentPath("system-prompt.md"), true);
 		assert.equal(isValidSegmentPath("teacher/20-teaching.md"), true);
+		assert.equal(isValidSegmentPath("map-drafter/00-draft.md"), true);
 		assert.equal(isValidSegmentPath("prober/10-probe-doctrine.md"), true);
 		// the shared/ fragments dir (sources v1): composed by BOTH agents,
 		// overridable like any other segment
@@ -160,6 +161,15 @@ describe("the override store", () => {
 });
 
 describe("the source-derived segment list", () => {
+	it("registers the map drafter's isolated, overridable prompt", () => {
+		const segments = effectivePromptSegments("map-drafter", {});
+		assert.deepEqual(segments.map((segment) => segment.path), ["map-drafter/00-draft.md"]);
+		assert.match(segments[0]!.sourceText, /verbatim quote/);
+		assert.equal(allSegmentPaths().includes("map-drafter/00-draft.md"), true);
+		promptOverrides.writeOverride("map-drafter/00-draft.md", "Owner map instructions");
+		assert.equal(effectivePromptSegments("map-drafter", { "map-drafter/00-draft.md": true })[0]!.overrideText, "Owner map instructions");
+		promptOverrides.deleteOverride("map-drafter/00-draft.md");
+	});
 	it("mirrors composeInstructions' discovery: base first, numeric fragments sorted, per agent", () => {
 		const prober = effectivePromptSegments("prober", {});
 		const teacher = effectivePromptSegments("teacher", {});

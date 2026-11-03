@@ -5,9 +5,7 @@
  * switches — three GROUPS (owner, 2026-09-20: clear separation — Models /
  * Tools / System prompts).
  *
- * Model slots (model-slots wave, 2026-09-20, owner ruling: SLOTS ONLY —
- * the six per-role rows disappeared; per-role overrides remain in the
- * schema for a future advanced surface): Strong = Prober + Teacher, Cheap
+ * Model slots: Strong = Prober + Teacher + Map drafter, Cheap
  * = the five workhorse roles, Vision = Visual maker + PDF reader. Each
  * slot row carries the shared dropdown (fuzzy search, arrow-walk, Enter
  * pick — ModelMenuList/ThinkingMenuList from ./model-menu.tsx) over the
@@ -63,6 +61,7 @@ import {
 	ADAPTIVE_DOCTRINE_OVERRIDE_HINT,
 	ADAPTIVE_DOCTRINE_SEGMENTS,
 	MODEL_SLOTS,
+	BACKGROUND_MODEL_ROLES,
 	resolveSettings,
 	type AgentSettings,
 	type CompactionSettings,
@@ -81,7 +80,7 @@ import { NativeSubscriptionBackgroundAccess } from "./subscription-connections";
 /** One slot's display identity — the tier's roster as the row hint rides
  *  with the resolved default (owner: the hint ALWAYS names the default). */
 const SLOT_META: Record<ModelSlotName, { label: string; roster: string }> = {
-	strong: { label: "Strong", roster: "The main model for your sessions" },
+	strong: { label: "Strong", roster: "The main model for your sessions and map drafts" },
 	cheap: { label: "Cheap", roster: "The assistants that research, build demos, and grade your work" },
 	vision: { label: "Vision", roster: "The assistants that draw and read PDFs" },
 };
@@ -174,7 +173,7 @@ export const PROMPT_IN_USE_HINT = "Your version is in use";
 /** One section of the prompt view — the owner's ruled order: Teacher,
  *  Prober, then Shared last. */
 export interface PromptSection {
-	id: "teacher" | "prober" | "shared";
+	id: "teacher" | "prober" | "shared" | "mapDrafter";
 	label: string;
 	/** The one header that earns a hint: "Shared" alone is not
 	 *  self-evident. Teacher/Prober are. */
@@ -190,11 +189,12 @@ export interface PromptSection {
  *  agents' own chunks keep their lists' order — which IS the prompt
  *  assembly order (numeric-prefix filename sort). Pure — exported for
  *  tests. */
-export function sectionedSegments(view: { prober: SegmentInfo[]; teacher: SegmentInfo[] }): PromptSection[] {
+export function sectionedSegments(view: { prober: SegmentInfo[]; teacher: SegmentInfo[]; mapDrafter?: SegmentInfo[] }): PromptSection[] {
 	const own = (who: "prober" | "teacher") => view[who].filter((s) => !s.shared);
 	return [
 		{ id: "teacher", label: "Teacher", segments: own("teacher") },
 		{ id: "prober", label: "Prober", segments: own("prober") },
+		...(view.mapDrafter ? [{ id: "mapDrafter" as const, label: "Map drafter", segments: view.mapDrafter }] : []),
 		{
 			id: "shared",
 			label: "Shared",
@@ -299,7 +299,7 @@ export function AgentSection({
 	/** Which search engines have a key (/api/keys) — the no-keys-anywhere
 	 *  state grays the row; per-engine marks ride the menu rows. */
 	const [engineKeys, setEngineKeys] = useState<Partial<Record<(typeof SEARCH_ENGINES)[number], boolean>>>({});
-	const [prompts, setPrompts] = useState<{ prober: SegmentInfo[]; teacher: SegmentInfo[] } | null>(null);
+	const [prompts, setPrompts] = useState<{ prober: SegmentInfo[]; teacher: SegmentInfo[]; mapDrafter?: SegmentInfo[] } | null>(null);
 	const [openSegment, setOpenSegment] = useState<string | null>(null);
 	const [segmentDraft, setSegmentDraft] = useState<Record<string, string>>({});
 	const [segmentStatus, setSegmentStatus] = useState<string | null>(null);
@@ -324,7 +324,7 @@ export function AgentSection({
 	const readPrompts = useCallback(() => {
 		fetch("/api/settings/prompts")
 			.then((r) => r.json())
-			.then((body: { prober: SegmentInfo[]; teacher: SegmentInfo[] }) => setPrompts(body))
+			.then((body: { prober: SegmentInfo[]; teacher: SegmentInfo[]; mapDrafter?: SegmentInfo[] }) => setPrompts(body))
 			.catch(() => {});
 	}, []);
 
@@ -341,7 +341,7 @@ export function AgentSection({
 	useEffect(() => {
 		fetch("/api/settings/prompts")
 			.then((r) => r.json())
-			.then((body: { prober: SegmentInfo[]; teacher: SegmentInfo[] }) => setPrompts(body))
+			.then((body: { prober: SegmentInfo[]; teacher: SegmentInfo[]; mapDrafter?: SegmentInfo[] }) => setPrompts(body))
 			.catch(() => setPrompts(null));
 		fetch("/api/keys")
 			.then((r) => r.json())
@@ -687,6 +687,21 @@ export function AgentSection({
 							</span>
 						</SettingsRow>
 					);
+				})}
+			</SettingsGroup>
+			<SettingsGroup label="Background model overrides" testid="group-background-models">
+				{BACKGROUND_MODEL_ROLES.map((role) => {
+					const override = agent?.models?.[role];
+					const labels = { researcher: "Researcher", demoBuilder: "Demo builder", visualMaker: "Visual maker", extractor: "Extractor", auditor: "Auditor", mapDrafter: "Map drafter" };
+					return <SettingsRow key={role} label={labels[role]}>
+						<select aria-label={`${labels[role]} model override`} value={override?.model ? `${override.model.provider}:${override.model.id}` : ""} onChange={(event) => {
+							const selected = catalog?.find((entry) => `${entry.provider}:${entry.id}` === event.currentTarget.value);
+							const next = { ...agent?.models };
+							if (selected) next[role] = { ...override, model: { provider: selected.provider, id: selected.id } };
+							else { const { model: _model, ...rest } = override ?? {}; void _model; next[role] = rest; }
+							onSectionChange({ ...agent, models: next });
+						}}><option value="">Use slot default</option>{override?.model && !catalog?.some((entry) => entry.provider === override.model?.provider && entry.id === override.model.id) && <option value={`${override.model.provider}:${override.model.id}`}>{override.model.provider}: {override.model.id} (unavailable)</option>}{catalog?.map((entry) => <option key={`${entry.provider}:${entry.id}`} value={`${entry.provider}:${entry.id}`}>{entry.provider}: {entry.id}</option>)}</select>
+					</SettingsRow>;
 				})}
 			</SettingsGroup>
 

@@ -127,7 +127,10 @@ describe("AgentSection (thin SSR)", () => {
 		assert.equal((html.match(/>Default<\/span>/g) ?? []).length, 0, "no Default trigger");
 		assert.ok(!html.includes('data-testid="menu-default"'), "no Default row");
 		assert.equal((html.match(/>—<\/span>/g) ?? []).length, 6, "three slots × two — triggers");
-		// the per-role rows are GONE (slots-only)
+		assert.ok(html.includes('data-testid="group-background-models"'), "Background overrides sub-group");
+		assert.ok(html.includes('aria-label="Map drafter model override"'), "Map drafter override");
+		assert.ok(html.includes("map drafts"), "Strong roster includes map drafting");
+		// Legacy role-row selectors remain retired.
 		for (const role of ["researcher", "demoBuilder", "visualMaker"]) {
 			assert.ok(!html.includes(`data-testid="role-row-${role}"`), `${role} retired`);
 		}

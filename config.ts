@@ -52,6 +52,7 @@ export type ModelRole =
 	| "visualMaker"
 	| "pdfReader"
 	| "extractor"
+	| "mapDrafter"
 	| "auditor";
 
 /**

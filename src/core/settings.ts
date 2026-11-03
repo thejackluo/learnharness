@@ -47,6 +47,7 @@ export const BACKGROUND_MODEL_ROLES = [
 	"visualMaker",
 	"extractor",
 	"auditor",
+	"mapDrafter",
 ] as const;
 
 export type BackgroundModelRole = (typeof BACKGROUND_MODEL_ROLES)[number];
@@ -221,6 +222,7 @@ export function slotsConfigured(models: ModelsSettings | undefined): boolean {
 export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
 	prober: "strong",
 	teacher: "strong",
+	mapDrafter: "strong",
 	researcher: "cheap",
 	demoBuilder: "cheap",
 	extractor: "cheap",
