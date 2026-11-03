@@ -172,3 +172,74 @@ test("a same-name syllabus upload must verify previously recorded quotes against
 			: valid.skills[0]!.source);
 	}
 });
+
+test("fresh drafts cannot claim manual provenance for AI-added skills", async () => {
+	const manual = { ...valid.skills[0]!, source: { kind: "manual" as const } };
+	const missing = { ...valid.skills[0]!, id: "energy", title: "Energy", objective: "Can explain energy", source: null };
+	const result = await draftSubjectMap({ goal: "Physics" }, engine({
+		...valid,
+		skills: [manual, missing],
+	} as unknown as PortableSubjectMapV1));
+	assert.deepEqual(result.draft.skills.map((skill) => skill.source), [
+		{ kind: "aiGapFill", reason: "AI-added; not an owner-authored skill" },
+		{ kind: "aiGapFill", reason: "AI-added; not an owner-authored skill" },
+	]);
+});
+
+test("refinements preserve manual provenance only for retained owner skills", async () => {
+	const baseSkills = [
+		{ ...valid.skills[0]!, id: "owner-manual", source: { kind: "manual" as const } },
+		((skill) => { const { source: _source, ...withoutSource } = skill; return { ...withoutSource, id: "owner-legacy" }; })(valid.skills[0]!),
+		{ ...valid.skills[0]!, id: "ai-gap", source: { kind: "aiGapFill" as const, reason: "Existing AI gap" } },
+		{ ...valid.skills[0]!, id: "framework", source: { kind: "framework" as const, framework: "AP Physics" } },
+	];
+	const previous: SubjectMapV1 = {
+		...valid,
+		skills: baseSkills,
+		retired: [],
+		version: 1,
+		id: "map_test",
+		revision: 4,
+		createdAt: "then",
+		updatedAt: "then",
+		links: { propositions: [], topics: [] },
+	};
+	const draft = {
+		...valid,
+		goals: ["owner-manual"],
+		skills: [
+			{ ...valid.skills[0]!, id: "owner-manual", source: { kind: "manual" as const } },
+			{ ...valid.skills[0]!, id: "owner-legacy", source: null },
+			{ ...valid.skills[0]!, id: "ai-gap", source: { kind: "manual" as const } },
+			{ ...valid.skills[0]!, id: "framework", source: { kind: "manual" as const } },
+			{ ...valid.skills[0]!, id: "new-skill", source: { kind: "manual" as const } },
+		],
+	} as unknown as PortableSubjectMapV1;
+	const result = await refineSubjectMap(previous.id, { instruction: "Refine" }, {
+		...engine(draft),
+		readMap: () => ({ state: "ok", map: previous }),
+	});
+	assert.deepEqual(result.draft.skills.map((skill) => skill.source), [
+		{ kind: "manual" },
+		{ kind: "manual" },
+		{ kind: "aiGapFill", reason: "AI-added; not an owner-authored skill" },
+		{ kind: "aiGapFill", reason: "AI-added; not an owner-authored skill" },
+		{ kind: "aiGapFill", reason: "AI-added; not an owner-authored skill" },
+	]);
+});
+
+test("repair-pass output receives the same manual-provenance verification", async () => {
+	const invalid = { ...valid, goals: ["missing"] };
+	const repaired = {
+		...valid,
+		skills: [
+			{ ...valid.skills[0]!, source: { kind: "manual" as const } },
+			{ ...valid.skills[0]!, id: "energy", title: "Energy", objective: "Can explain energy", source: null },
+		],
+	} as unknown as PortableSubjectMapV1;
+	const result = await draftSubjectMap({ goal: "Physics" }, engine(invalid, repaired));
+	assert.deepEqual(result.draft.skills.map((skill) => skill.source), [
+		{ kind: "aiGapFill", reason: "AI-added; not an owner-authored skill" },
+		{ kind: "aiGapFill", reason: "AI-added; not an owner-authored skill" },
+	]);
+});
