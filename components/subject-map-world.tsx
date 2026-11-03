@@ -51,16 +51,20 @@ export function SubjectMapWorld({
 	onStart,
 	startBusy,
 	startError,
+	likelyKnown = new Set(),
+	latestPlacement,
 }: {
 	map: SubjectMapV1;
 	view: SubjectMapGapView;
 	onStart: (skill: SubjectSkill) => void;
 	startBusy: boolean;
 	startError: string | null;
+	likelyKnown?: ReadonlySet<string>;
+	latestPlacement?: { probes: { skillId: string; result?: string }[]; completed: boolean } | null;
 }) {
 	const layout = useMemo(() => worldLayout(map), [map]);
 	const statuses = useMemo(() => new Map(view.skills.map((skill) => [skill.skill.id, skill.evidence.status])), [view]);
-	const states = useMemo(() => skillPathStates(map, statuses), [map, statuses]);
+	const states = useMemo(() => skillPathStates(map, statuses, likelyKnown), [map, statuses, likelyKnown]);
 	const [goalId, setGoalId] = useState(map.goals[0] ?? "");
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [viewport, setViewport] = useState<Viewport>({ zoom: 1, x: 0, y: 0 });
@@ -70,7 +74,7 @@ export function SubjectMapWorld({
 		if (!map.goals.includes(goalId)) setGoalId(map.goals[0] ?? "");
 	}, [goalId, map.goals]);
 	const goalTitle = map.skills.find((skill) => skill.id === goalId)?.title ?? "";
-	const route = useMemo(() => goalId ? routeToGoal(map, statuses, goalId) : null, [goalId, map, statuses]);
+	const route = useMemo(() => goalId ? routeToGoal(map, statuses, goalId, likelyKnown) : null, [goalId, map, statuses, likelyKnown]);
 	const routeMembers = useMemo(() => new Set(route?.route ?? []), [route]);
 	const chosenAlternatives = useMemo(
 		() => new Set((route?.choices ?? []).map(({ dependent, option }) => `${option}\u0000${dependent}`)),
@@ -209,8 +213,11 @@ export function SubjectMapWorld({
 							const evidence = statuses.get(skill.id) ?? "notChecked";
 							const appearance = nodeAppearance(state);
 							const evidenceMark = evidenceBadge(evidence);
+							const probe = latestPlacement?.probes.find((item) => item.skillId === skill.id);
+							const probeLabel = probe ? (!probe.result && !latestPlacement?.completed ? "Probing" : probe.result ? `Probe: ${probe.result}` : undefined) : undefined;
+							const likely = likelyKnown.has(skill.id) && state !== "cleared";
 							const onRoute = routeMembers.has(skill.id);
-							const label = `${skill.title}: ${STATE_LABEL[state]}${skill.keystone ? ", keystone" : ""}${evidence === "needsPractice" || evidence === "mixed" ? `, ${skillEvidenceStatusLabel(evidence)}` : ""}${onRoute ? ", on route" : ""}`;
+							const label = `${skill.title}: ${STATE_LABEL[state]}${likely ? ", Likely known (you confirmed)" : ""}${probeLabel ? `, ${probeLabel}` : ""}${skill.keystone ? ", keystone" : ""}${evidence === "needsPractice" || evidence === "mixed" ? `, ${skillEvidenceStatusLabel(evidence)}` : ""}${onRoute ? ", on route" : ""}`;
 							const title = skill.title.length > 22 ? `${skill.title.slice(0, 22)}…` : skill.title;
 							return <g
 								key={skill.id}
@@ -234,6 +241,7 @@ export function SubjectMapWorld({
 									<tspan>{STATE_GLYPH[state]} {title}{skill.keystone ? " ◆" : ""}</tspan>
 									{evidenceMark && <tspan dx={5} aria-label={skillEvidenceStatusLabel(evidence)}>{evidenceMark}</tspan>}
 								</text>
+								{(likely || probeLabel) && <text x={node.x + 8} y={node.y + 36} fontSize={9} fill="currentColor">{likely ? "Likely known (you confirmed)" : probeLabel}</text>}
 							</g>;
 						})}
 					</g>

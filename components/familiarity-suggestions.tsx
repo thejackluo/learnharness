@@ -11,16 +11,17 @@ type Suggestion = {
 	mapTitle: string;
 	skillTitle: string;
 	standing: string;
+	viaSkillTitle?: string;
 };
-type Listing = { profileRevision: number; suggestions: Suggestion[]; runtimeMode?: string };
+export type FamiliarityListing = { profileRevision: number; suggestions: Suggestion[]; runtimeMode?: string; likelyKnownSkillIds?: string[]; latestPlacement?: { probes: { skillId: string; result?: string }[]; completed: boolean } | null };
 const GROUPS = [
 	["placement", "From a placement run"],
 	["import", "From your notes"],
 	["conversation", "From your conversations"],
 ] as const;
 
-export function FamiliaritySuggestions({ mapId }: { mapId?: string }) {
-	const [listing, setListing] = useState<Listing | null>(null);
+export function FamiliaritySuggestions({ mapId, sharedListing, onRefresh }: { mapId?: string; sharedListing?: FamiliarityListing | null; onRefresh?: () => Promise<void> }) {
+	const [listing, setListing] = useState<FamiliarityListing | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [sourceText, setSourceText] = useState("");
@@ -30,12 +31,13 @@ export function FamiliaritySuggestions({ mapId }: { mapId?: string }) {
 		try {
 			const response = await fetch(`/api/learner/familiarity${mapId ? `?mapId=${encodeURIComponent(mapId)}` : ""}`, { cache: "no-store" });
 			if (!response.ok) throw new Error("Unable to load familiarity suggestions.");
-			setListing(await response.json() as Listing);
+			setListing(await response.json() as FamiliarityListing);
 			setError(null);
 		} catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load familiarity suggestions."); }
 	}, [mapId]);
 
-	useEffect(() => { void load(); }, [load]);
+	useEffect(() => { if (sharedListing === undefined) void load(); }, [load, sharedListing]);
+	useEffect(() => { if (sharedListing !== undefined) setListing(sharedListing); }, [sharedListing]);
 
 	const decide = async (items: Suggestion[], status: "confirmed" | "rejected") => {
 		if (!listing || !items.length) return;
@@ -46,10 +48,10 @@ export function FamiliaritySuggestions({ mapId }: { mapId?: string }) {
 				method: "POST", headers: { "content-type": "application/json" },
 				body: JSON.stringify({ ids: items.map((item) => item.id), status, expectedRevision: listing.profileRevision }),
 			});
-			if (response.status === 409) { await load(); setError("Your profile changed. The latest suggestions have been reloaded."); return; }
+			if (response.status === 409) { await (onRefresh ?? load)(); setError("Your profile changed. The latest suggestions have been reloaded."); return; }
 			const body = await response.json() as { error?: string };
 			if (!response.ok) throw new Error(body.error ?? "Unable to update suggestions.");
-			await load();
+			await (onRefresh ?? load)();
 		} catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to update suggestions."); }
 		finally { setBusy(false); }
 	};
@@ -76,7 +78,7 @@ export function FamiliaritySuggestions({ mapId }: { mapId?: string }) {
 				? `${result.error ?? result.message ?? "Familiarity inference is unavailable."} Configure a strong model and provider key in Settings.`
 				: result.error ?? "Unable to infer familiarity.");
 			setSourceText("");
-			await load();
+			await (onRefresh ?? load)();
 		} catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to infer familiarity."); }
 		finally { setBusy(false); }
 	};
@@ -99,7 +101,7 @@ export function FamiliaritySuggestions({ mapId }: { mapId?: string }) {
 				<ul className="flex flex-col gap-2">
 					{group.map((item) => <li key={item.id} className="rounded-sm border border-border/60 p-2 text-sm">
 						<p><strong>{item.skillTitle}</strong> · {item.mapTitle}</p>
-						{item.reason.quote ? <blockquote className="mt-1 text-xs text-muted-foreground">“{item.reason.quote}”</blockquote> : <p className="text-xs text-muted-foreground">Suggested from a placement result. This is not evidence.</p>}
+						{item.reason.quote ? <blockquote className="mt-1 text-xs text-muted-foreground">“{item.reason.quote}”</blockquote> : <p className="text-xs text-muted-foreground">You passed a check on {item.viaSkillTitle ?? "another skill"}. This is not evidence.</p>}
 						{item.standing !== "current" ? <p className="mt-1 text-xs">Objective changed — not counted</p> :
 							item.status === "confirmed" ? <><p className="mt-1 text-xs">Likely known (you confirmed)</p><button disabled={busy} type="button" onClick={() => void decide([item], "rejected")} className="mt-1 text-xs underline">Revoke</button></> :
 							<div className="mt-1 flex gap-3"><button disabled={busy || !actionable.includes(item)} type="button" onClick={() => void decide([item], "confirmed")} className="text-xs underline">Accept</button>

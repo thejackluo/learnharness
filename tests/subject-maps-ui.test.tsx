@@ -6,6 +6,8 @@ import test from "node:test";
 import { SubjectMapEditor } from "../components/subject-map-editor.tsx";
 import { SubjectMapsHome } from "../components/subject-maps.tsx";
 import { SubjectMapDraft } from "../components/subject-map-draft.tsx";
+import { SubjectMapWorld } from "../components/subject-map-world.tsx";
+import { FamiliaritySuggestions } from "../components/familiarity-suggestions.tsx";
 import type { LearnerObservation } from "../src/core/contracts/learner.ts";
 import type { SubjectMapV1 } from "../src/core/contracts/subject-map.ts";
 import { projectSubjectMapGaps } from "../src/core/subject-map.ts";
@@ -175,6 +177,52 @@ test("AI refine review shows a diff and accepts with the original ETag", async (
 		assert.match(container.textContent ?? "", /Changed: proc/);
 		await click(button(container, "Accept"));
 		assert.equal(acceptedHeaders?.get("if-match"), '"4"');
+		await act(async () => root.unmount());
+	} finally { globalThis.fetch = originalFetch; }
+});
+
+test("familiarity inbox sends accept/reject/accept-all/revoke decisions and reloads on conflict", async () => {
+	const requests: { ids: string[]; status: string; expectedRevision: number }[] = [];
+	let refreshes = 0;
+	const listing = {
+		profileRevision: 7,
+		suggestions: [
+			{ id: "one", mapId: map.id, skillId: "proc", status: "pending" as const, reason: { kind: "import" as const, quote: "one" }, mapTitle: "OS", skillTitle: "Processes", standing: "current" },
+			{ id: "two", mapId: map.id, skillId: "thr", status: "pending" as const, reason: { kind: "import" as const, quote: "two" }, mapTitle: "OS", skillTitle: "Threads", standing: "current" },
+			{ id: "three", mapId: map.id, skillId: "sched", status: "confirmed" as const, reason: { kind: "import" as const, quote: "three" }, mapTitle: "OS", skillTitle: "Scheduling", standing: "current" },
+		],
+	};
+	globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+		if (init?.body) requests.push(JSON.parse(String(init.body)) as typeof requests[number]);
+		return Response.json({}, { status: 200 });
+	}) as typeof fetch;
+	try {
+		const { root, container } = await mount(createElement(FamiliaritySuggestions, {
+			mapId: map.id, sharedListing: listing, onRefresh: async () => { refreshes++; },
+		}));
+		await click(button(container, "Accept"));
+		await click(button(container, "Reject"));
+		await click(button(container, "Accept all"));
+		await click(button(container, "Revoke"));
+		assert.deepEqual(requests, [
+			{ ids: ["one"], status: "confirmed", expectedRevision: 7 },
+			{ ids: ["one"], status: "rejected", expectedRevision: 7 },
+			{ ids: ["one", "two"], status: "confirmed", expectedRevision: 7 },
+			{ ids: ["three"], status: "rejected", expectedRevision: 7 },
+		]);
+		assert.equal(refreshes, 4);
+		await act(async () => root.unmount());
+	} finally { globalThis.fetch = originalFetch; }
+
+	let conflictRefresh = 0;
+	globalThis.fetch = (async () => new Response("{}", { status: 409 })) as typeof fetch;
+	try {
+		const { root, container } = await mount(createElement(FamiliaritySuggestions, {
+			mapId: map.id, sharedListing: listing, onRefresh: async () => { conflictRefresh++; },
+		}));
+		await click(button(container, "Accept"));
+		assert.equal(conflictRefresh, 1);
+		assert.match(container.textContent ?? "", /latest suggestions have been reloaded/);
 		await act(async () => root.unmount());
 	} finally { globalThis.fetch = originalFetch; }
 });
@@ -373,6 +421,22 @@ test("world map is the default, mirrors routes, exposes state and keystone label
 	} finally {
 		globalThis.fetch = originalFetch;
 	}
+});
+
+test("world map marks confirmed likely-known nodes and current/resolved placement probes", async () => {
+	const { root, container } = await mount(createElement(SubjectMapWorld, {
+		map,
+		view,
+		likelyKnown: new Set(["proc"]),
+		latestPlacement: { probes: [{ skillId: "proc" }, { skillId: "thr", result: "supports" }], completed: false },
+		onStart: () => {},
+		startBusy: false,
+		startError: null,
+	}));
+	assert.match(container.textContent ?? "", /Likely known \(you confirmed\)/);
+	assert.match(container.textContent ?? "", /Probing/);
+	assert.match(container.textContent ?? "", /Probe: supports/);
+	await act(async () => root.unmount());
 });
 
 test("keystone checkbox and removing an alternative option preserve semantics in the save payload", async () => {

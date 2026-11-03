@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SessionStarter } from "@/components/start-session";
 import { SubjectMapDraft } from "@/components/subject-map-draft";
 import { FamiliaritySuggestions } from "@/components/familiarity-suggestions";
+import type { FamiliarityListing } from "@/components/familiarity-suggestions";
 import { SubjectMapWorld } from "@/components/subject-map-world";
 import { savedSlotsConfigured, selectedModelUnavailable } from "@/components/setup-cta";
 import type { ModelCatalogResponse } from "@/src/core";
@@ -193,6 +194,13 @@ export function SubjectMapEditor({ mapId }: { mapId: string }) {
 	const [startError, setStartError] = useState<string | null>(null);
 	const [startBusy, setStartBusy] = useState(false);
 	const [surfaceMode, setSurfaceMode] = useState<"world" | "list">("world");
+	const [familiarityListing, setFamiliarityListing] = useState<FamiliarityListing | null>(null);
+	const refreshFamiliarity = useCallback(async () => {
+		try {
+			const response = await fetch(`/api/learner/familiarity?mapId=${encodeURIComponent(mapId)}`, { cache: "no-store" });
+			if (response.ok) setFamiliarityListing(await response.json() as FamiliarityListing);
+		} catch {}
+	}, [mapId]);
 
 	/** Same no-orphan rule as the home/draft launchers: check models and keys before any chat exists. */
 	const startTargetSession = useCallback(async (skill: { id: string; title: string; objective: string; revision: number }, mode: "teach" | "practice") => {
@@ -301,6 +309,15 @@ export function SubjectMapEditor({ mapId }: { mapId: string }) {
 			mounted.current = false;
 		};
 	}, [load, loadSources]);
+	useEffect(() => {
+		void refreshFamiliarity();
+		const focus = () => void refreshFamiliarity();
+		window.addEventListener("focus", focus);
+		const timer = familiarityListing?.latestPlacement && !familiarityListing.latestPlacement.completed
+			? window.setInterval(() => void refreshFamiliarity(), 5000)
+			: undefined;
+		return () => { window.removeEventListener("focus", focus); if (timer !== undefined) window.clearInterval(timer); };
+	}, [refreshFamiliarity, familiarityListing?.latestPlacement?.completed, familiarityListing?.latestPlacement?.probes.length]);
 
 	const edit = (change: (draft: Draft) => Draft) => {
 		setDraft((current) => (current ? change(current) : current));
@@ -457,7 +474,7 @@ export function SubjectMapEditor({ mapId }: { mapId: string }) {
 				</div>
 			</header>
 			{startError && <p role="alert" className="text-xs text-destructive">{startError}</p>}
-			<FamiliaritySuggestions mapId={map.id} />
+			<FamiliaritySuggestions mapId={map.id} sharedListing={familiarityListing} onRefresh={refreshFamiliarity} />
 
 			{notice && <p role="status" className="text-xs text-muted-foreground">{notice}</p>}
 			{dirty ? <div>
@@ -480,7 +497,7 @@ export function SubjectMapEditor({ mapId }: { mapId: string }) {
 			{surfaceMode === "world" ? (
 				<>
 					{dirty && <p className="text-xs text-muted-foreground">World map shows the saved map; you have unsaved edits in the list view.</p>}
-					<SubjectMapWorld map={map} view={view} onStart={(skill) => void startTargetSession(skill, "teach")} startBusy={startBusy} startError={startError} />
+					<SubjectMapWorld map={map} view={view} likelyKnown={new Set(familiarityListing?.likelyKnownSkillIds ?? [])} latestPlacement={familiarityListing?.latestPlacement ?? null} onStart={(skill) => void startTargetSession(skill, "teach")} startBusy={startBusy} startError={startError} />
 				</>
 			) : <>
 			<section aria-labelledby="map-goals-heading" className="flex flex-col gap-3">

@@ -66,6 +66,14 @@ test("empty completed evidence uses the required message", () => {
 	assert.match(html, /<p class="text-sm text-muted-foreground">No assessed work yet\.<\/p>/);
 });
 
+test("Override details are collapsed by default", () => {
+	const html = renderToStaticMarkup(createElement(LearnerSectionBody, {}));
+	const details = html.match(/<details[^>]*>/)?.[0];
+	assert.ok(details);
+	assert.doesNotMatch(details, /\bopen(?:=|\s|>)/);
+	assert.match(html, /<summary[^>]*>Override<\/summary>/);
+});
+
 test("revision conflict alert is programmatically focusable", () => {
 	const html = renderToStaticMarkup(createElement(LearnerSectionBody, {
 		conflictProfile: emptyLearnerProfile("2026-03-01T00:00:00.000Z"),
