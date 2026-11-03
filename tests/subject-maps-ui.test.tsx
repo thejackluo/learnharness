@@ -281,6 +281,65 @@ test("dirty map editor blocks AI refinement until edits are discarded", async ()
 	} finally { globalThis.fetch = originalFetch; }
 });
 
+test("world route distinguishes confirmed likely-known goals from cleared goals", async () => {
+	const likely = await mount(createElement(SubjectMapWorld, {
+		map, view, likelyKnown: new Set(["proc", "thr", "sched"]),
+		onStart: () => {}, startBusy: false, startError: null,
+	}));
+	const likelyRoute = [...likely.container.querySelectorAll("ol")].find((list) => list.getAttribute("aria-label") === "Route to Scheduling");
+	assert.match(likelyRoute?.textContent ?? "", /You confirmed this goal as likely known \(not demonstrated evidence\)\./);
+	assert.doesNotMatch(likelyRoute?.textContent ?? "", /supporting evidence/);
+	assert.notEqual(likely.container.querySelector('[data-skill="sched"]')?.getAttribute("data-state"), "cleared");
+	await act(async () => likely.root.unmount());
+
+	const supporting = { ...observation, id: "ev:cleared:r:k:", outcome: "correct" } as LearnerObservation;
+	const clearedView = projectSubjectMapGaps({
+		map,
+		associations: {
+			availability: "available",
+			items: [{ evidenceId: supporting.id, target: { kind: "subject-skill", mapId: map.id, skillId: "sched", skillRevision: 1 }, attachedAt: NOW, observation: supporting }],
+		},
+		topics: { availability: "available", claims: [] },
+		propositions: { availability: "available", names: new Map() },
+	});
+	const cleared = await mount(createElement(SubjectMapWorld, {
+		map, view: clearedView, onStart: () => {}, startBusy: false, startError: null,
+	}));
+	const clearedRoute = [...cleared.container.querySelectorAll("ol")].find((list) => list.getAttribute("aria-label") === "Route to Scheduling");
+	assert.match(clearedRoute?.textContent ?? "", /Goal already has supporting evidence\. This is not a mastery score\./);
+	assert.equal(cleared.container.querySelector('[data-skill="sched"]')?.getAttribute("data-state"), "cleared");
+	await act(async () => cleared.root.unmount());
+});
+
+test("map editor reports familiarity listing failures and clears the alert after recovery", async () => {
+	let familiarityUnavailable = true;
+	globalThis.fetch = (async (input: RequestInfo | URL) => {
+		const url = String(input);
+		if (url === "/api/maps/map_ui") return Response.json({ state: "ok", map, view });
+		if (url.startsWith("/api/learner/evidence")) return Response.json({ availability: "complete", observations: [], nextCursor: null, profileRevision: 3 });
+		if (url === "/api/graph") return Response.json({ propositions: [] });
+		if (url === "/api/learner/profile") return Response.json({ state: "ok", profile: { revision: 3, topics: [] } });
+		if (url.startsWith("/api/learner/familiarity?mapId=")) {
+			return familiarityUnavailable
+				? Response.json({ error: "Unavailable" }, { status: 503 })
+				: Response.json({ profileRevision: 3, suggestions: [], likelyKnownSkillIds: [], latestPlacement: null });
+		}
+		throw new Error(`unexpected ${url}`);
+	}) as typeof fetch;
+	try {
+		const { root, container } = await mount(createElement(SubjectMapEditor, { mapId: map.id }));
+		assert.equal(container.querySelector('[role="alert"]')?.textContent, "Unable to load familiarity suggestions.");
+		familiarityUnavailable = false;
+		await act(async () => {
+			window.dispatchEvent(new Event("focus"));
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		});
+		assert.equal(container.querySelector('[role="alert"]')?.textContent, undefined);
+		assert.match(container.textContent ?? "", /No familiarity suggestions yet\./);
+		await act(async () => root.unmount());
+	} finally { globalThis.fetch = originalFetch; }
+});
+
 test("map editor lists gaps with goal paths, text statuses, escaped titles and historical/unavailable evidence", async () => {
 	const requests: { url: string; method: string; headers: Headers }[] = [];
 	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {

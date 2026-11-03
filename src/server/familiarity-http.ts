@@ -35,9 +35,9 @@ async function requestInput(request: Request): Promise<{ mapId: string; source: 
 	return { mapId: body.mapId, source: { name: body.source.name, text: body.source.text } };
 }
 
-export async function handleFamiliarityInferenceRequest(request: Request): Promise<Response> {
+export async function handleFamiliarityInferenceRequest(request: Request, infer = inferFamiliarity): Promise<Response> {
 	try {
-		return learnerJsonResponse(await inferFamiliarity(await requestInput(request), { signal: request.signal }));
+		return learnerJsonResponse(await infer(await requestInput(request), { signal: request.signal }));
 	} catch (error) {
 		if (error instanceof FamiliarityInputError) return learnerJsonResponse({ error: error.message }, error.status);
 		if (error instanceof ModelsNotConfiguredError || error instanceof ProviderKeyMissingError) return learnerJsonResponse(error.envelope, 503);

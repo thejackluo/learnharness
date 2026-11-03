@@ -20,7 +20,7 @@ const GROUPS = [
 	["conversation", "From your conversations"],
 ] as const;
 
-export function FamiliaritySuggestions({ mapId, sharedListing, onRefresh }: { mapId?: string; sharedListing?: FamiliarityListing | null; onRefresh?: () => Promise<void> }) {
+export function FamiliaritySuggestions({ mapId, sharedListing, sharedError, onRefresh }: { mapId?: string; sharedListing?: FamiliarityListing | null; sharedError?: string | null; onRefresh?: () => Promise<void> }) {
 	const [listing, setListing] = useState<FamiliarityListing | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
@@ -85,7 +85,7 @@ export function FamiliaritySuggestions({ mapId, sharedListing, onRefresh }: { ma
 
 	return <section aria-label="Familiarity suggestions" className="flex flex-col gap-3 border-t border-border/60 pt-4">
 		<h2 className="text-sm font-medium">Familiarity suggestions</h2>
-		{error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+		{(sharedError || error) && <p role="alert" className="text-xs text-destructive">{sharedError || error}</p>}
 		{listing?.suggestions.length === 0 && <p className="text-xs text-muted-foreground">No familiarity suggestions yet.</p>}
 		{GROUPS.map(([kind, label]) => {
 			const group = listing?.suggestions.filter((item) => item.reason.kind === kind) ?? [];

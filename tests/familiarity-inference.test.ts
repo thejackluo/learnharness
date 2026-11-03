@@ -63,3 +63,19 @@ test("inference route returns missing-map 404 and models-not-configured 503 enve
 	assert.equal(unavailable.status, 503);
 	assert.equal((await unavailable.json() as { code: string }).code, "models_not_configured");
 });
+
+test("local multipart inference uses the uploaded markdown filename as source name", async () => {
+	const form = new FormData();
+	form.set("mapId", map.id);
+	form.set("files", new File(["Synthetic learner notes."], "learner-notes.md", { type: "text/markdown" }));
+	let received: { mapId: string; source: { name: string; text: string } } | undefined;
+	const response = await http.handleFamiliarityInferenceRequest(
+		new Request("http://localhost/api/learner/familiarity/infer", { method: "POST", body: form }),
+		async (input) => {
+			received = input;
+			return { added: 0, merged: 0, discarded: 0, usage: undefined, profileRevision: 0 };
+		},
+	);
+	assert.equal(response.status, 200);
+	assert.deepEqual(received, { mapId: map.id, source: { name: "learner-notes.md", text: "Synthetic learner notes." } });
+});

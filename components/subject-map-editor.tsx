@@ -195,11 +195,16 @@ export function SubjectMapEditor({ mapId }: { mapId: string }) {
 	const [startBusy, setStartBusy] = useState(false);
 	const [surfaceMode, setSurfaceMode] = useState<"world" | "list">("world");
 	const [familiarityListing, setFamiliarityListing] = useState<FamiliarityListing | null>(null);
+	const [familiarityError, setFamiliarityError] = useState<string | null>(null);
 	const refreshFamiliarity = useCallback(async () => {
 		try {
 			const response = await fetch(`/api/learner/familiarity?mapId=${encodeURIComponent(mapId)}`, { cache: "no-store" });
-			if (response.ok) setFamiliarityListing(await response.json() as FamiliarityListing);
-		} catch {}
+			if (!response.ok) throw new Error();
+			setFamiliarityListing(await response.json() as FamiliarityListing);
+			setFamiliarityError(null);
+		} catch {
+			setFamiliarityError("Unable to load familiarity suggestions.");
+		}
 	}, [mapId]);
 
 	/** Same no-orphan rule as the home/draft launchers: check models and keys before any chat exists. */
@@ -474,7 +479,7 @@ export function SubjectMapEditor({ mapId }: { mapId: string }) {
 				</div>
 			</header>
 			{startError && <p role="alert" className="text-xs text-destructive">{startError}</p>}
-			<FamiliaritySuggestions mapId={map.id} sharedListing={familiarityListing} onRefresh={refreshFamiliarity} />
+			<FamiliaritySuggestions mapId={map.id} sharedListing={familiarityListing} sharedError={familiarityError} onRefresh={refreshFamiliarity} />
 
 			{notice && <p role="status" className="text-xs text-muted-foreground">{notice}</p>}
 			{dirty ? <div>

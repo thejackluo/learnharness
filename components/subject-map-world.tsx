@@ -255,7 +255,9 @@ export function SubjectMapWorld({
 					<h2 className="text-sm font-medium">Route</h2>
 					<ol aria-label={`Route to ${goalTitle || "goal"}`} className="list-decimal pl-5 text-sm">
 						{route && route.route.length > 0 && route.route.map((id) => <li key={id}>{map.skills.find((skill) => skill.id === id)?.title ?? id} — {STATE_LABEL[states.get(id) ?? "locked"]}</li>)}
-						{route && route.route.length === 0 && <li>Goal already has supporting evidence. This is not a mastery score.</li>}
+						{route && route.route.length === 0 && <li>{likelyKnown.has(goalId) && states.get(goalId) !== "cleared"
+							? "You confirmed this goal as likely known (not demonstrated evidence)."
+							: "Goal already has supporting evidence. This is not a mastery score."}</li>}
 					</ol>
 				</div>
 				{route && route.skipAhead.length > 0 && <div>

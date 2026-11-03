@@ -12,8 +12,9 @@ const profileRoute = await import("../app/api/learner/profile/route.ts");
 const previewRoute = await import("../app/api/learner/import/preview/route.ts");
 const confirmRoute = await import("../app/api/learner/import/confirm/route.ts");
 const evidenceRoute = await import("../app/api/learner/evidence/route.ts");
+const decisionsRoute = await import("../app/api/learner/familiarity/decisions/route.ts");
 const { stores } = await import("../src/server/stores.ts");
-const { attachEvidenceTarget, listEvidenceAssociations } = await import("../src/server/learner.ts");
+const { attachEvidenceTarget, detachEvidenceTarget, getLearnerObservation, listEvidenceAssociations } = await import("../src/server/learner.ts");
 
 test.after(() => {
 	fs.rmSync(TMP_DATA, { recursive: true, force: true });
@@ -301,4 +302,99 @@ test("evidence pagination preserves all observations from a chat beyond the page
 	assert.equal(response.status, 200);
 	const body = await json(response);
 	assert.equal(body.observations.filter((observation: { chatId: string }) => observation.chatId === chat.id).length, 51);
+});
+
+test("profile PUT, evidence attach/detach and import-confirm preserve suggestions", async () => {
+	const initial = stores.learnerProfileStore.read();
+	assert.ok(initial.state === "ok" || initial.state === "absent");
+	const base = initial.profile;
+	const suggestion = {
+		id: "preserved-suggestion",
+		mapId: "map_synthetic",
+		skillId: "synthetic",
+		skillRevision: 1,
+		reason: { kind: "import" as const, sourceName: "notes.md", quote: "I know this" },
+		status: "pending" as const,
+		createdAt: "2026-03-01T00:00:00.000Z",
+	};
+	const seeded = stores.learnerProfileStore.replace({
+		background: base.background,
+		coursework: base.coursework,
+		topics: base.topics,
+		excerpts: base.excerpts,
+		associations: base.associations,
+		suggestions: [...(base.suggestions ?? []), suggestion],
+	}, base.revision);
+
+	const put = await profileRoute.PUT(jsonRequest("PUT", {
+		expectedRevision: seeded.revision,
+		background: seeded.background,
+		coursework: seeded.coursework,
+		topics: seeded.topics,
+		excerpts: seeded.excerpts.map(({ id, text }) => ({ id, text })),
+		suggestions: [{ ...suggestion, status: "rejected" }],
+	}));
+	assert.equal(put.status, 200);
+	let profile = (await json(put)).profile;
+	assert.deepEqual(profile.suggestions, seeded.suggestions, "PUT cannot replace suggestions supplied by the client");
+
+	const chat = stores.chatStore.createChat("Suggestion-preserving evidence");
+	stores.chatStore.saveMessages(chat.id, [evidenceMessage(chat.id)]);
+	const observation = getLearnerObservation(`ev:${encodeURIComponent(chat.id)}:${encodeURIComponent(`${chat.id}-result-0`)}:${encodeURIComponent(`${chat.id}-call-0`)}:`);
+	assert.equal(observation.status, "available");
+	if (observation.status !== "available") throw new Error("expected synthetic observation");
+	const target = { kind: "subject-skill" as const, mapId: "map_synthetic", skillId: "synthetic", skillRevision: 1 };
+	profile = attachEvidenceTarget({ evidenceId: observation.observation.id, target, expectedRevision: profile.revision });
+	assert.deepEqual(profile.suggestions, seeded.suggestions);
+	profile = detachEvidenceTarget({ evidenceId: observation.observation.id, target, expectedRevision: profile.revision });
+	assert.deepEqual(profile.suggestions, seeded.suggestions);
+
+	const confirm = await confirmRoute.POST(jsonRequest("POST", {
+		expectedRevision: profile.revision,
+		excerpts: [{ sourceName: "new-notes.md", text: "A synthetic excerpt." }],
+	}));
+	assert.equal(confirm.status, 200);
+	profile = (await json(confirm)).profile;
+	assert.deepEqual(profile.suggestions, seeded.suggestions);
+});
+
+test("familiarity decisions reject stale revisions, unknown ids, and invalid statuses", async () => {
+	const current = stores.learnerProfileStore.read();
+	assert.ok(current.state === "ok");
+	if (current.state !== "ok") return;
+	const stale = await decisionsRoute.POST(jsonRequest("POST", {
+		ids: ["preserved-suggestion"], status: "confirmed", expectedRevision: current.profile.revision - 1,
+	}));
+	assert.equal(stale.status, 409);
+	const unknown = await decisionsRoute.POST(jsonRequest("POST", {
+		ids: ["unknown-suggestion"], status: "confirmed", expectedRevision: current.profile.revision,
+	}));
+	assert.equal(unknown.status, 400);
+	const invalid = await decisionsRoute.POST(jsonRequest("POST", {
+		ids: ["preserved-suggestion"], status: "pending", expectedRevision: current.profile.revision,
+	}));
+	assert.equal(invalid.status, 400);
+});
+
+test("legacy profile without suggestions loads and round-trips without invented fields", () => {
+	const read = stores.learnerProfileStore.read();
+	assert.equal(read.state, "ok");
+	if (read.state !== "ok") return;
+	const legacy = { ...read.profile } as Record<string, unknown>;
+	delete legacy.suggestions;
+	fs.writeFileSync(path.join(TMP_DATA, "learner", "profile.json"), `${JSON.stringify(legacy)}\n`);
+	const loaded = stores.learnerProfileStore.read();
+	assert.equal(loaded.state, "ok");
+	if (loaded.state !== "ok") return;
+	assert.equal(loaded.profile.suggestions, undefined);
+	stores.learnerProfileStore.replace({
+		background: loaded.profile.background,
+		coursework: loaded.profile.coursework,
+		topics: loaded.profile.topics,
+		excerpts: loaded.profile.excerpts,
+		associations: loaded.profile.associations,
+	}, loaded.profile.revision);
+	const roundTrip = JSON.parse(fs.readFileSync(path.join(TMP_DATA, "learner", "profile.json"), "utf8")) as Record<string, unknown>;
+	assert.equal(Object.hasOwn(roundTrip, "suggestions"), false);
+	assert.deepEqual(Object.keys(roundTrip).sort(), ["associations", "background", "coursework", "excerpts", "revision", "topics", "updatedAt", "version"]);
 });
