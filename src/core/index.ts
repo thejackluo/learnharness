@@ -86,6 +86,7 @@ export * from "./coverage.ts";
 // export share it. Pure, browser-safe.
 export * from "./session-markdown.ts";
 export * from "./subject-map.ts";
+export * from "./pathways.ts";
 export * from "./map-draft-review.ts";
 export * from "./activity.ts";
 export * from "./adaptation.ts";
