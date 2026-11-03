@@ -1,5 +1,5 @@
 import type { FamiliaritySuggestion, PlacementProbe, PlacementRun, SubjectMapV1 } from "../core/contracts.ts";
-import { PLACEMENT_MAX_PROBES, deriveChatObservations } from "../core";
+import { PLACEMENT_MAX_PROBES, assessmentSpecOf, deriveChatObservations, modelJudgedSpec } from "../core";
 import { decideFamiliaritySuggestions, mergeFamiliaritySuggestions, nextPlacementProbe, placementSuggestionTargets, quoteInText, normalizeQuoteText, projectPlacementContext, suggestionStanding, likelyKnownSkills } from "../core/familiarity.ts";
 import { evidencePolarity, subjectSkillTargetStatus } from "../core/subject-map.ts";
 import { LearnerProfileConflictError, LearnerProfileUnavailableError } from "../store/learner.ts";
@@ -165,6 +165,10 @@ export function listFamiliaritySuggestions(mapId?: string) {
 	};
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
 export function advancePlacement(chatId: string): void {
 	const record = stores.chatStore.getChat(chatId);
 	if (!record?.placement || record.placement.completedAt) return;
@@ -188,16 +192,54 @@ export function advancePlacement(chatId: string): void {
 			item.attributedTarget.skillId === current.skillId &&
 			item.attributedTarget.skillRevision === current.revision,
 		);
-		const calls = [...new Set(observations.map((item) => item.sourceCallId))].sort((a, b) => {
-			const aa = observations.filter((o) => o.sourceCallId === a).map((o) => o.observedAt).sort()[0] ?? "";
-			const bb = observations.filter((o) => o.sourceCallId === b).map((o) => o.observedAt).sort()[0] ?? "";
-			return aa.localeCompare(bb);
-		});
-		const graded = calls.find((call) => observations.some((item) => item.sourceCallId === call && evidencePolarity(item) !== null));
-		if (graded) {
-			const forCall = observations.filter((item) => item.sourceCallId === graded);
-			current.result = forCall.some((item) => evidencePolarity(item) === "against") ? "against" : forCall.some((item) => evidencePolarity(item) === "supports") ? "supports" : "inconclusive";
-			const matching = forCall.find((item) => evidencePolarity(item) === current.result);
+		const sourceCalls = new Map<string, { arguments: unknown }>();
+		const resultMessages = new Map<string, (typeof record.messages)[number]>();
+		const evaluatedResponseIds = new Set<string>();
+		for (const message of record.messages) {
+			if (message.role === "assistant") {
+				for (const part of message.content) {
+					if (part.type === "toolCall") sourceCalls.set(part.id, part);
+				}
+			} else if (message.role === "toolResult") {
+				resultMessages.set(message.id, message);
+				if (message.toolName === "evaluate" && !message.isError && isRecord(message.details) && typeof message.details.responseId === "string") {
+					evaluatedResponseIds.add(message.details.responseId);
+				}
+			}
+		}
+		const pendingResponses = new Map<string, number>();
+		for (const message of record.messages) {
+			if (message.role !== "toolResult" || !isRecord(message.details) || !isRecord(message.details.autoEvaluation) || evaluatedResponseIds.has(message.id)) continue;
+			const source = sourceCalls.get(message.toolCallId);
+			const spec = source ? assessmentSpecOf(source.arguments) : undefined;
+			if (spec && modelJudgedSpec(spec)) pendingResponses.set(message.id, message.timestamp);
+		}
+		const groups = new Map<string, { observations: typeof observations; observedAt: string }>();
+		for (const observation of observations) {
+			const result = resultMessages.get(observation.resultMessageId);
+			const responseId = result?.role === "toolResult" && result.toolName === "evaluate" &&
+				isRecord(result.details) && typeof result.details.responseId === "string"
+				? result.details.responseId
+				: observation.resultMessageId;
+			const group = groups.get(responseId);
+			if (group) {
+				group.observations.push(observation);
+				if (observation.observedAt < group.observedAt) group.observedAt = observation.observedAt;
+			} else {
+				groups.set(responseId, { observations: [observation], observedAt: observation.observedAt });
+			}
+		}
+		for (const [responseId, timestamp] of pendingResponses) {
+			if (!groups.has(responseId)) groups.set(responseId, { observations: [], observedAt: new Date(timestamp).toISOString() });
+		}
+		const orderedGroups = [...groups].map(([responseId, group]) => ({ responseId, ...group })).sort((a, b) => a.observedAt.localeCompare(b.observedAt));
+		const graded = orderedGroups.find((group) =>
+			pendingResponses.has(group.responseId) || group.observations.some((item) => evidencePolarity(item) !== null),
+		);
+		if (graded && !pendingResponses.has(graded.responseId)) {
+			const forResponse = graded.observations;
+			current.result = forResponse.some((item) => evidencePolarity(item) === "against") ? "against" : forResponse.some((item) => evidencePolarity(item) === "supports") ? "supports" : "inconclusive";
+			const matching = forResponse.find((item) => evidencePolarity(item) === current.result);
 			if (matching) current.observationId = matching.id;
 			if (current.result === "supports" && current.observationId) {
 				const statuses = new Map(awaitlessGapView(map).skills.map((item) => [item.skill.id, item.evidence.status]));

@@ -10,7 +10,7 @@ const [{ stores }, { advancePlacement }] = await Promise.all([
 	import("../src/server/stores.ts"),
 	import("../src/server/familiarity.ts"),
 ]);
-const { assessmentSpecOf, autoEvaluate } = await import("../src/core/assessment.ts");
+const { assessmentSpecOf, autoEvaluate, modelJudgedSpec, scoreEvaluation } = await import("../src/core/assessment.ts");
 test.after(() => fs.rmSync(data, { recursive: true, force: true }));
 
 function createMap(skillIds: string[], edges: { prerequisite: string; dependent: string }[] = [], alternatives: { dependent: string; options: string[] }[] = []) {
@@ -42,6 +42,73 @@ function placementChat(mapId: string, skillId: string, revision = 1) {
 		{ kind: "subject-skill", mapId, skillId, skillRevision: revision },
 		{ mapId, maxProbes: 10, probes: [{ skillId, revision }] },
 	);
+}
+
+function mixedRecall(sourceCallId: string, now: number) {
+	const input = {
+		question: "Calculate and explain",
+		correctAnswer: "The result is one.",
+		onTarget: true,
+		parts: [
+			{
+				id: "number", kind: "numeric", prompt: "Enter one.",
+				answer: 1, units: [{ symbol: "u", factor: 1 }],
+				tolerance: { kind: "absolute", value: 0 }, points: 1,
+			},
+			{
+				id: "reason", kind: "structured", prompt: "Explain your reasoning.",
+				fields: [{ id: "explanation", label: "Explanation", kind: "paragraph" }],
+				criteria: [{ id: "reasoning", description: "Reasoning", maxPoints: 1, expectedEvidence: "A valid explanation." }],
+			},
+		],
+	};
+	const responseId = `${sourceCallId}-result`;
+	const spec = assessmentSpecOf(input)!;
+	const partResponses = [
+		{ partId: "number", kind: "numeric", value: 1, unit: "u" },
+		{ partId: "reason", kind: "structured", fields: [{ id: "explanation", text: "A valid explanation." }] },
+	];
+	const autoEvaluation = autoEvaluate(spec, partResponses, { sourceCallId, responseId })!;
+	return {
+		sourceCallId,
+		responseId,
+		spec,
+		messages: [
+			call(sourceCallId, "recall", input, now),
+			{
+				id: responseId, role: "toolResult", toolCallId: sourceCallId, toolName: "recall",
+				content: [], details: { kind: "explain", partResponses, autoEvaluation },
+				isError: false, timestamp: now + 1,
+			},
+		],
+	};
+}
+
+function mixedEvaluation(
+	sourceCallId: string,
+	responseId: string,
+	spec: NonNullable<ReturnType<typeof assessmentSpecOf>>,
+	award: number,
+	now: number,
+) {
+	const modelSpec = modelJudgedSpec(spec)!;
+	const evaluationCallId = `${sourceCallId}-evaluate`;
+	const evaluation = {
+		version: 1,
+		sourceCallId,
+		responseId,
+		evaluationId: `${evaluationCallId}-result`,
+		provenance: "modelJudged",
+		spec: modelSpec,
+		...scoreEvaluation(modelSpec, [{ criterionId: "reasoning", award, feedback: award === 0 ? "Incorrect." : "Correct." }]),
+	};
+	return [
+		call(evaluationCallId, "evaluate", {}, now + 2),
+		{
+			id: `${evaluationCallId}-result`, role: "toolResult", toolCallId: evaluationCallId, toolName: "evaluate",
+			content: [], details: evaluation, isError: false, timestamp: now + 3,
+		},
+	];
 }
 
 function saveMessages(chatId: string, messages: unknown[]) {
@@ -135,6 +202,64 @@ test("an on-target auto-graded recall result supports and completes its placemen
 	assert.equal(placement?.probes[0]?.result, "supports");
 	assert.equal(placement?.probes[0]?.observationId, `ev:${encodeURIComponent(chat.id)}:${responseId}:${sourceCallId}:${encodeURIComponent("distance")}`);
 	assert.ok(placement?.completedAt);
+});
+
+test("mixed placement remains unresolved until the response is evaluated", () => {
+	const map = createMap(["target"]);
+	const chat = placementChat(map.id, "target");
+	const fixture = mixedRecall("recall-mixed-pending", Date.now());
+	saveMessages(chat.id, fixture.messages);
+
+	advancePlacement(chat.id);
+
+	const record = stores.chatStore.getChat(chat.id)!;
+	assert.equal(record.placement?.probes[0]?.result, undefined);
+	assert.equal(record.placement?.completedAt, undefined);
+	assert.equal(record.target?.skillId, "target");
+});
+
+test("mixed placement is against when its structured criterion is not met", () => {
+	const map = createMap(["target"]);
+	const chat = placementChat(map.id, "target");
+	const now = Date.now();
+	const fixture = mixedRecall("recall-mixed-against", now);
+	saveMessages(chat.id, fixture.messages);
+	advancePlacement(chat.id);
+	assert.equal(stores.chatStore.getChat(chat.id)?.placement?.probes[0]?.result, undefined);
+
+	saveMessages(chat.id, [
+		...stores.chatStore.getChat(chat.id)!.messages,
+		...mixedEvaluation(fixture.sourceCallId, fixture.responseId, fixture.spec, 0, now),
+	]);
+	advancePlacement(chat.id);
+
+	const placement = stores.chatStore.getChat(chat.id)?.placement;
+	assert.equal(placement?.probes[0]?.result, "against");
+	assert.ok(placement?.completedAt);
+});
+
+test("mixed placement supports after a full evaluation and appends suggestions", () => {
+	const map = createMap(["required", "target"], [{ prerequisite: "required", dependent: "target" }]);
+	const chat = placementChat(map.id, "target");
+	const now = Date.now();
+	const fixture = mixedRecall("recall-mixed-supports", now);
+	saveMessages(chat.id, fixture.messages);
+	advancePlacement(chat.id);
+	assert.equal(stores.chatStore.getChat(chat.id)?.placement?.probes[0]?.result, undefined);
+
+	saveMessages(chat.id, [
+		...stores.chatStore.getChat(chat.id)!.messages,
+		...mixedEvaluation(fixture.sourceCallId, fixture.responseId, fixture.spec, 1, now),
+	]);
+	advancePlacement(chat.id);
+
+	const placement = stores.chatStore.getChat(chat.id)?.placement;
+	assert.equal(placement?.probes[0]?.result, "supports");
+	assert.ok(placement?.probes[0]?.observationId);
+	assert.ok(placement?.completedAt);
+	const profile = stores.learnerProfileStore.read();
+	assert.equal(profile.state, "ok");
+	if (profile.state === "ok") assert.deepEqual(profile.profile.suggestions?.map((item) => item.skillId), ["required"]);
 });
 
 test("observations remain attributed to each probe after the target moves", () => {
