@@ -209,7 +209,8 @@ export function advancePlacement(chatId: string): void {
 		}
 		const pendingResponses = new Map<string, number>();
 		for (const message of record.messages) {
-			if (message.role !== "toolResult" || !isRecord(message.details) || !isRecord(message.details.autoEvaluation) || evaluatedResponseIds.has(message.id)) continue;
+			if (message.role !== "toolResult" || !current.callIds?.includes(message.toolCallId) ||
+				!isRecord(message.details) || !isRecord(message.details.autoEvaluation) || evaluatedResponseIds.has(message.id)) continue;
 			const source = sourceCalls.get(message.toolCallId);
 			const spec = source ? assessmentSpecOf(source.arguments) : undefined;
 			if (spec && modelJudgedSpec(spec)) pendingResponses.set(message.id, message.timestamp);

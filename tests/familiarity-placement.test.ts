@@ -44,11 +44,11 @@ function placementChat(mapId: string, skillId: string, revision = 1) {
 	);
 }
 
-function mixedRecall(sourceCallId: string, now: number) {
+function mixedRecall(sourceCallId: string, now: number, onTarget = true, toolName: "explain" | "recall" = "recall") {
 	const input = {
 		question: "Calculate and explain",
 		correctAnswer: "The result is one.",
-		onTarget: true,
+		onTarget,
 		parts: [
 			{
 				id: "number", kind: "numeric", prompt: "Enter one.",
@@ -74,9 +74,9 @@ function mixedRecall(sourceCallId: string, now: number) {
 		responseId,
 		spec,
 		messages: [
-			call(sourceCallId, "recall", input, now),
+			call(sourceCallId, toolName, input, now),
 			{
-				id: responseId, role: "toolResult", toolCallId: sourceCallId, toolName: "recall",
+				id: responseId, role: "toolResult", toolCallId: sourceCallId, toolName,
 				content: [], details: { kind: "explain", partResponses, autoEvaluation },
 				isError: false, timestamp: now + 1,
 			},
@@ -260,6 +260,43 @@ test("mixed placement supports after a full evaluation and appends suggestions",
 	const profile = stores.learnerProfileStore.read();
 	assert.equal(profile.state, "ok");
 	if (profile.state === "ok") assert.deepEqual(profile.profile.suggestions?.filter((item) => item.mapId === map.id).map((item) => item.skillId), ["required"]);
+});
+
+test("an off-target pending mixed answer does not block an on-target pure-auto result", () => {
+	const map = createMap(["target"]);
+	const chat = placementChat(map.id, "target");
+	const now = Date.now();
+	const offTarget = mixedRecall("explain-off-target-mixed", now, false, "explain");
+	const input = {
+		question: "Convert the distance",
+		correctAnswer: "One kilometer",
+		onTarget: true,
+		parts: [{
+			id: "distance", kind: "numeric", prompt: "Give the distance in meters.",
+			answer: 1000, units: [{ symbol: "m", factor: 1 }],
+			tolerance: { kind: "absolute", value: 0 }, points: 1,
+		}],
+	};
+	const sourceCallId = "recall-on-target-pure-auto";
+	const responseId = `${sourceCallId}-result`;
+	const spec = assessmentSpecOf(input)!;
+	const partResponses = [{ partId: "distance", kind: "numeric", value: 1000, unit: "m" }];
+	const autoEvaluation = autoEvaluate(spec, partResponses, { sourceCallId, responseId })!;
+	saveMessages(chat.id, [
+		...offTarget.messages,
+		call(sourceCallId, "recall", input, now + 2),
+		{
+			id: responseId, role: "toolResult", toolCallId: sourceCallId, toolName: "recall",
+			content: [], details: { kind: "explain", partResponses, autoEvaluation },
+			isError: false, timestamp: now + 3,
+		},
+	]);
+
+	advancePlacement(chat.id);
+
+	const placement = stores.chatStore.getChat(chat.id)?.placement;
+	assert.equal(placement?.probes[0]?.result, "supports");
+	assert.ok(placement?.completedAt);
 });
 
 test("observations remain attributed to each probe after the target moves", () => {
