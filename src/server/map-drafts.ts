@@ -53,9 +53,9 @@ function verifiedQuotes(draft: PortableSubjectMapV1, syllabus: MapSyllabus | und
 	const uploaded = syllabus ? whitespace(syllabus.text) : "";
 	const retained = new Set((previous?.skills ?? []).flatMap((skill) =>
 		skill.source?.kind === "syllabus" ? [JSON.stringify([skill.id, skill.source.sourceName, whitespace(skill.source.quote)])] : []));
-	const retainedOwnerSkills = new Set((previous?.skills ?? [])
+	const retainedOwnerSkills = new Map((previous?.skills ?? [])
 		.filter((skill) => skill.source === undefined || skill.source.kind === "manual")
-		.map((skill) => skill.id));
+		.map((skill) => [skill.id, skill]));
 	return { ...draft, skills: draft.skills.map((skill) => {
 		if (skill.source?.kind === "syllabus") {
 			const quote = whitespace(skill.source.quote);
@@ -65,7 +65,11 @@ function verifiedQuotes(draft: PortableSubjectMapV1, syllabus: MapSyllabus | und
 		}
 		if (skill.source?.kind === "framework" || skill.source?.kind === "aiGapFill") return skill;
 		if (skill.source?.kind === "manual" || skill.source == null) {
-			if (retainedOwnerSkills.has(skill.id)) return { ...skill, source: { kind: "manual" } };
+			const ownerSkill = retainedOwnerSkills.get(skill.id);
+			if (ownerSkill) {
+				if (whitespace(ownerSkill.title) === whitespace(skill.title) && whitespace(ownerSkill.objective) === whitespace(skill.objective)) return { ...skill, source: { kind: "manual" } };
+				return { ...skill, source: { kind: "aiGapFill", reason: "AI revised an owner skill" } };
+			}
 			return { ...skill, source: { kind: "aiGapFill", reason: "AI-added; not an owner-authored skill" } };
 		}
 		return skill;

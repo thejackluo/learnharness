@@ -259,6 +259,28 @@ test("refinements preserve manual provenance only for retained owner skills", as
 	]);
 });
 
+test("owner provenance requires unchanged whitespace-normalized titles and objectives", async () => {
+	for (const source of [undefined, { kind: "manual" as const }]) {
+		const owner = { ...valid.skills[0]!, source };
+		const previous: SubjectMapV1 = { ...valid, skills: [owner], retired: [], version: 1, id: "map_test", revision: 4, createdAt: "then", updatedAt: "then", links: { propositions: [], topics: [] } };
+		for (const draftSource of [undefined, { kind: "manual" as const }]) {
+			for (const change of [
+				{ title: "  Force\n", objective: "Can\n compute  force" },
+				{ title: "Newton's laws", objective: owner.objective },
+				{ title: owner.title, objective: "Can explain inertia" },
+			]) {
+				const result = await refineSubjectMap(previous.id, { instruction: "Refine" }, {
+					...engine({ ...valid, skills: [{ ...owner, ...change, source: draftSource }] }),
+					readMap: () => ({ state: "ok", map: previous }),
+				});
+				assert.deepEqual(result.draft.skills[0]!.source, change.title.trim() === "Force" && change.objective.includes("compute")
+					? { kind: "manual" }
+					: { kind: "aiGapFill", reason: "AI revised an owner skill" });
+			}
+		}
+	}
+});
+
 test("repair-pass output receives the same manual-provenance verification", async () => {
 	const invalid = { ...valid, goals: ["missing"] };
 	const repaired = {
