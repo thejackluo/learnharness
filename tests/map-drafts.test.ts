@@ -50,6 +50,11 @@ test("missing or unmatched syllabus quotes are downgraded", async () => {
 	}
 });
 
+test("verified quotes are attributed to the uploaded syllabus rather than the model's name", async () => {
+	const result = await draftSubjectMap({ syllabus: { name: "actual-syllabus.txt", text: "Week 1: Compute\n force" } }, engine(valid));
+	assert.deepEqual(result.draft.skills[0]!.source, { kind: "syllabus", sourceName: "actual-syllabus.txt", quote: "Compute force" });
+});
+
 test("new drafts use existing create semantics for objective revisions", async () => {
 	const result = await draftSubjectMap({ framework: "AP Physics 1" }, engine({ ...valid, skills: [{ ...valid.skills[0]!, revision: 99 }] }));
 	assert.equal(result.draft.skills[0]!.revision, 1);

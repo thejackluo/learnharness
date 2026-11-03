@@ -54,7 +54,9 @@ function verifiedQuotes(draft: PortableSubjectMapV1, syllabus?: MapSyllabus): Po
 	return { ...draft, skills: draft.skills.map((skill) => {
 		if (skill.source?.kind !== "syllabus") return skill;
 		const quote = whitespace(skill.source.quote);
-		return uploaded && quote && uploaded.includes(quote) ? skill : { ...skill, source: { kind: "aiGapFill", reason: "quote not found in syllabus" } };
+		return syllabus && uploaded && quote && uploaded.includes(quote)
+			? { ...skill, source: { ...skill.source, sourceName: syllabus.name } }
+			: { ...skill, source: { kind: "aiGapFill", reason: "quote not found in syllabus" } };
 	}) };
 }
 
