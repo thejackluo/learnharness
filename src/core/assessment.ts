@@ -276,7 +276,8 @@ export function specNeedsSharedText(spec: AssessmentSpecV1): boolean {
 
 export function normalizeExact(value: string, mode: ExactNormalize): string {
 	const normalized = value.normalize("NFKC").trim();
-	return mode === "nfkc-trim-casefold" ? normalized.toUpperCase().toLowerCase() : normalized;
+	if (mode !== "nfkc-trim-casefold") return normalized;
+	return normalized.split("ı").map(part => part.toUpperCase().toLowerCase()).join("ı");
 }
 
 type NumericPart = Extract<AssessmentPart, { kind: "numeric" }>;
