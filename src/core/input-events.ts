@@ -1,6 +1,6 @@
 import { deterministicAnswer, questionDataOf } from "./canonical-question.ts";
 import { dismissedAnswer } from "./question-core.ts";
-import { assessmentSpecOf } from "./assessment.ts";
+import { assessmentSpecOf, autoEvaluate, modelJudgedSpec, partResponseProblems, specNeedsSharedText } from "./assessment.ts";
 import { resolveTeachingStimulus, teachingStimulusRefOf } from "./activity.ts";
 /**
  * THE INPUT-EVENTS CONTRACT (Wave B, owner ruling 2026-09-26: "input
@@ -39,6 +39,7 @@ import {
 	concludedByDismissalPair,
 	danglingQuestionOf,
 	newAnswerResult,
+	newMessageId,
 	newNextMessage,
 	newProblemDismissedMarker,
 	newThinkingMessage,
@@ -222,6 +223,12 @@ export function inputAppends(
 			const q = questionDataOf(pending.tool, pending.toolCallId, pending.input);
 			const a = input.answer;
 			if (!q || a.kind !== q.kind || a.dismissed) throw new ChatInputError("answer kind or pending question is invalid");
+			const spec = q.kind === "explain" ? assessmentSpecOf(pending.input) : undefined;
+			const needsSharedText = !spec || specNeedsSharedText(spec);
+			if (spec) {
+				const responseProblems = partResponseProblems(spec, a.partResponses);
+				if (responseProblems.length) throw new ChatInputError(responseProblems.join("; "));
+			}
 			if (!Array.isArray(a.answers)) throw new ChatInputError("answers must be an array");
 			const values = a.answers.map(a => a?.value);
 			if (values.some(v => typeof v !== "string" || !q.options.some(o => o.value === v)) || new Set(values).size !== values.length) throw new ChatInputError("unknown or duplicate selection");
@@ -229,15 +236,38 @@ export function inputAppends(
 			for (const key of ["text", "other", "thinking", "readingThinking"] as const) {
 				if (a[key] !== undefined && typeof a[key] !== "string") throw new ChatInputError(`${key} must be text`);
 			}
-			if (q.mode === "text" ? !a.text?.trim() || values.length > 0 : !values.length && a.dontKnow !== true && !(q.kind === "ask" && a.other?.trim())) throw new ChatInputError("empty or invalid answer");
+			if (q.mode === "text"
+				? (needsSharedText && !a.text?.trim()) || values.length > 0
+				: !values.length && a.dontKnow !== true && !(q.kind === "ask" && a.other?.trim())) {
+				throw new ChatInputError("empty or invalid answer");
+			}
 			if (a.confidence !== undefined && !Number.isFinite(a.confidence)) throw new ChatInputError("confidence must be finite");
 			// A linked activity is re-resolved from THIS record at answer time
 			// and snapshotted; any client-sent stimulus is ignored.
 			const ref = teachingStimulusRefOf(pending.input);
 			const resolved = ref ? resolveTeachingStimulus(record.messages, ref) : undefined;
 			if (resolved && !resolved.ok) throw new ChatInputError(`stimulus source unavailable: ${resolved.problem}`);
-			const answer = deterministicAnswer(q, { values, dontKnow: a.dontKnow === true, other: q.kind === "ask" ? a.other : undefined, text: q.mode === "text" ? a.text : undefined, thinking: a.thinking, readingThinking: a.readingThinking, confidence: a.confidence }, pending.tool);
-			return [newAnswerResult(input.toolCallId, pending.tool, resolved?.ok ? { ...answer, stimulus: resolved.snapshot } : answer, assessmentSpecOf(pending.input) !== undefined)];
+			const answer = deterministicAnswer(q, {
+				values,
+				dontKnow: a.dontKnow === true,
+				other: q.kind === "ask" ? a.other : undefined,
+				text: q.mode === "text" && needsSharedText ? a.text : undefined,
+				thinking: a.thinking,
+				readingThinking: a.readingThinking,
+				confidence: a.confidence,
+				partResponses: spec ? a.partResponses : undefined,
+			}, pending.tool);
+			const resultId = newMessageId();
+			const autoEvaluation = spec ? autoEvaluate(spec, answer.partResponses, {
+				sourceCallId: input.toolCallId,
+				responseId: resultId,
+			}) : undefined;
+			const completed = {
+				...answer,
+				...(resolved?.ok ? { stimulus: resolved.snapshot } : {}),
+				...(autoEvaluation ? { autoEvaluation } : {}),
+			};
+			return [newAnswerResult(input.toolCallId, pending.tool, completed, !!(spec && modelJudgedSpec(spec)), resultId)];
 		}
 		case "continue":
 			return dismissalConclusion(record);

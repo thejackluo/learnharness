@@ -35,6 +35,50 @@ test("multipart dock exposes labels and maxima but only one answer textarea and 
 	assert.doesNotMatch(answered, /Auto-graded/);
 });
 
+test("typed explain dock renders only safe controls and answered cards show typed responses and auto-feedback", () => {
+	const typedInput = {
+		question: "Answer each part",
+		correctAnswer: "Secret commitment",
+		parts: [
+			{ id: "distance", kind: "numeric", prompt: "Distance", answer: 1000, units: [{ symbol: "m", factor: 1 }, { symbol: "km", factor: 1000 }], tolerance: { kind: "absolute", value: 0.1 }, points: 1 },
+			{ id: "word", kind: "exact", prompt: "Word", accepted: ["SECRET ACCEPTED"], normalize: "nfkc-trim-casefold", points: 1 },
+			{ id: "reason", kind: "structured", prompt: "Explain", fields: [{ id: "why", label: "Why", kind: "paragraph" }], criteria: [{ id: "logic", description: "Logic", maxPoints: 1, expectedEvidence: "Secret criterion" }] },
+		],
+	};
+	const markup = renderToStaticMarkup(<QuestionDock toolName="explain" toolCallId="typed" input={typedInput} expanded onExpand={() => {}} onSubmit={() => {}} />);
+	assert.match(markup, /inputMode="decimal"/);
+	assert.match(markup, /<datalist/);
+	assert.match(markup, /for="question-typed-distance-value"/);
+	assert.match(markup, /for="question-typed-word-text"/);
+	assert.match(markup, /for="question-typed-reason-why"/);
+	assert.doesNotMatch(markup, /Secret commitment|SECRET ACCEPTED|Secret criterion|expectedEvidence|tolerance/);
+	assert.doesNotMatch(markup, /data-testid="answer-field"/);
+
+	const spec = assessmentSpecOf(typedInput)!;
+	const response = buildAnswer(questionDataOf("explain", "typed", typedInput)!, {
+		partResponses: [
+			{ partId: "distance", kind: "numeric", value: 1, unit: "km" },
+			{ partId: "word", kind: "exact", text: "secret accepted" },
+			{ partId: "reason", kind: "structured", fields: [{ id: "why", text: "Because it follows." }] },
+		],
+	});
+	const autoEvaluation = {
+		version: 1 as const, sourceCallId: "typed", responseId: "typed-result", evaluationId: "auto:typed-result",
+		provenance: "deterministic" as const,
+		spec: { version: 1 as const, parts: spec.parts.filter(part => part.kind === "numeric" || part.kind === "exact") },
+		...scoreEvaluation({ version: 1, parts: spec.parts.filter(part => part.kind === "numeric" || part.kind === "exact") }, [
+			{ criterionId: "distance", award: 1, feedback: "Correct." },
+			{ criterionId: "word", award: 1, feedback: "Correct." },
+		]),
+	};
+	const answered = renderToStaticMarkup(<AnsweredCard answer={{ ...response, autoEvaluation }} input={typedInput} />);
+	assert.match(answered, /Your answers/);
+	assert.match(answered, /1 km/);
+	assert.match(answered, /secret accepted/);
+	assert.match(answered, /Because it follows/);
+	assert.match(answered, /Auto-graded/);
+});
+
 test("evaluation feedback renders actual partial credit and null coverage, not invented totals", () => {
 	assert.equal(evaluation.totals.awarded, 3);
 	const markup = renderToStaticMarkup(<AssessmentFeedback evaluation={evaluation} />);

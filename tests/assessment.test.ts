@@ -5,13 +5,13 @@ import path from "node:path";
 import test from "node:test";
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import type { LhMessage } from "../src/core/native-messages.ts";
-import type { AssessmentEvaluationV1, CriterionAward } from "../src/core/contracts/assessment.ts";
+import type { AssessmentEvaluationV1, AssessmentPartResponse, CriterionAward } from "../src/core/contracts/assessment.ts";
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "lh-assessments-"));
 process.env.LH_DATA_DIR = dataDir;
 process.env.OPENROUTER_API_KEY ??= "test-key-presence-gate";
 const { chatStore } = await import("../src/store/chats.ts");
-const { assessmentSpecOf, assessmentSpecProblems, criterionOutcome, evaluationProblems, scoreEvaluation } = await import("../src/core/assessment.ts");
+const { assessmentSpecOf, assessmentSpecProblems, autoEvaluate, criterionOutcome, evaluationProblems, gradeExact, gradeNumeric, partResponseProblems, scoreEvaluation } = await import("../src/core/assessment.ts");
 const { inputAppends, dismissAppends } = await import("../src/core/input-events.ts");
 const { buildAnswer, dismissedAnswer } = await import("../src/core/question-core.ts");
 const { questionDataOf } = await import("../src/core/canonical-question.ts");
@@ -63,6 +63,174 @@ test("rubric authoring validates shape, finite bounds, unique ids and caps; lega
 	assert.ok(assessmentSpecProblems(many).length);
 	const rejected = await probeExplainTool.execute("invalid", { ...free, parts: [parts[0]!, parts[0]!] });
 	assert.equal(rejected.isError, true);
+});
+
+test("typed part authoring synthesizes criteria and grades numeric and exact answers deterministically", () => {
+	const numericParts = [{
+		id: "distance", kind: "numeric", prompt: "Enter the distance", answer: 1000,
+		units: [{ symbol: "m", factor: 1 }, { symbol: "km", factor: 1000 }],
+		tolerance: { kind: "absolute", value: 0.5 }, points: 2,
+	}];
+	const typed = assessmentSpecOf({ parts: numericParts })!;
+	assert.equal(assessmentSpecProblems(numericParts).length, 0);
+	assert.equal(typed.parts[0]?.kind, "numeric");
+	assert.equal("points" in typed.parts[0]!, false);
+	assert.equal(typed.parts[0]?.criteria[0]?.id, "distance");
+	assert.equal(gradeNumeric(typed.parts[0] as Extract<(typeof typed.parts)[number], { kind: "numeric" }>, 1, "km").award, 2);
+	const numeric = typed.parts[0] as Extract<(typeof typed.parts)[number], { kind: "numeric" }>;
+	assert.equal(gradeNumeric(numeric, 1000.5, "m").award, 2, "the tolerance boundary is inclusive");
+	assert.match(gradeNumeric(numeric, 1000.50001, "m").feedback, /^Value:/);
+	assert.match(gradeNumeric(numeric, 1000, "").feedback, /^Unit:/);
+	assert.match(gradeNumeric(numeric, 1000, "mi").feedback, /^Unit:/);
+
+	const relative = assessmentSpecOf({ parts: [{
+		id: "signed", kind: "numeric", prompt: "Enter a signed result", answer: -2,
+		units: [{ symbol: "u", factor: 1 }], tolerance: { kind: "relative", value: 0.1 }, points: 1,
+	}] })!.parts[0] as Extract<(typeof typed.parts)[number], { kind: "numeric" }>;
+	assert.equal(gradeNumeric(relative, -2.2, "u").award, 1);
+	const zero = assessmentSpecOf({ parts: [{
+		id: "zero", kind: "numeric", prompt: "Enter zero", answer: 0,
+		units: [{ symbol: "u", factor: 1 }], tolerance: { kind: "relative", value: 0.1 }, points: 1,
+	}] })!.parts[0] as Extract<(typeof typed.parts)[number], { kind: "numeric" }>;
+	assert.equal(gradeNumeric(zero, 1e-10, "u").award, 1);
+	assert.match(gradeNumeric(zero, 1e-8, "u").feedback, /^Value:/);
+	const micro = assessmentSpecOf({ parts: [{
+		id: "mass", kind: "numeric", prompt: "Enter mass", answer: 1,
+		units: [{ symbol: "μg", factor: 1 }], tolerance: { kind: "absolute", value: 0 }, points: 1,
+	}] })!.parts[0] as Extract<(typeof typed.parts)[number], { kind: "numeric" }>;
+	assert.equal(gradeNumeric(micro, 1, "µg").award, 1);
+
+	const exactParts = [{
+		id: "word", kind: "exact", prompt: "Name the word", accepted: [" Café ", "CAFE\u0301"],
+		normalize: "nfkc-trim-casefold", points: 1,
+	}];
+	const exactSpec = assessmentSpecOf({ parts: exactParts })!;
+	assert.deepEqual(assessmentSpecProblems(exactParts), []);
+	const exact = exactSpec.parts[0] as Extract<(typeof typed.parts)[number], { kind: "exact" }>;
+	assert.equal(exact.criteria[0]?.id, "word");
+	assert.equal(gradeExact(exact, "café").award, 1);
+	assert.equal(gradeExact(exact, "tea").feedback, "Not an accepted answer.");
+	const ascii = assessmentSpecOf({ parts: [{ ...exactParts[0], id: "ascii", accepted: ["ABC"], normalize: "nfkc-trim", points: 1 }] })!.parts[0] as Extract<(typeof typed.parts)[number], { kind: "exact" }>;
+	assert.equal(gradeExact(ascii, "ＡＢＣ").award, 1);
+	assert.equal(gradeExact(ascii, "abc").award, 0, "nfkc-trim preserves case");
+	const kana = assessmentSpecOf({ parts: [{ ...exactParts[0], id: "kana", accepted: ["カタカナ"], normalize: "nfkc-trim", points: 1 }] })!.parts[0] as Extract<(typeof typed.parts)[number], { kind: "exact" }>;
+	assert.equal(gradeExact(kana, "ｶﾀｶﾅ").award, 1);
+	const casefold = assessmentSpecOf({ parts: [{ ...exactParts[0], id: "casefold", accepted: ["SS"], normalize: "nfkc-trim-casefold", points: 1 }] })!.parts[0] as Extract<(typeof typed.parts)[number], { kind: "exact" }>;
+	assert.equal(gradeExact(casefold, "ß").award, 1);
+	assert.ok(assessmentSpecProblems([{ ...exactParts[0], id: "blank", accepted: ["  "] }]).length);
+	assert.ok(assessmentSpecProblems([{ ...numericParts[0], units: [{ symbol: "m", factor: Infinity }] }]).length);
+	assert.ok(assessmentSpecProblems([{ ...numericParts[0], units: [{ symbol: "m", factor: 1 }, { symbol: " m ", factor: 2 }] }]).length);
+	assert.ok(assessmentSpecProblems([{ ...numericParts[0], points: 1.001 }]).length);
+	assert.ok(assessmentSpecProblems([{ ...numericParts[0], answer: Infinity }]).length);
+	assert.ok(assessmentSpecProblems([{ ...numericParts[0], units: [{ symbol: " ", factor: 1 }] }]).length);
+	assert.ok(assessmentSpecProblems([{ ...numericParts[0], units: [{ symbol: "m", factor: 0 }] }]).length);
+	assert.ok(assessmentSpecProblems([{ ...numericParts[0], tolerance: { kind: "relative", value: Infinity } }]).length);
+	assert.ok(assessmentSpecProblems([{ ...numericParts[0], tolerance: { kind: "absolute", value: -1 } }]).length);
+	assert.ok(assessmentSpecProblems([{ ...exactParts[0], accepted: Array(21).fill("x") }]).length);
+	assert.ok(assessmentSpecProblems([{ ...exactParts[0], accepted: ["x".repeat(201)] }]).length);
+	assert.ok(assessmentSpecProblems([{ ...exactParts[0], normalize: "unknown" }]).length);
+	assert.ok(assessmentSpecProblems([{ ...numericParts[0], id: "distance", points: 1 }, { id: "explain", prompt: "x", criteria: [{ id: "distance", description: "x", maxPoints: 1, expectedEvidence: "x" }] }]).length);
+	const synthesizedCap = [
+		...Array.from({ length: 3 }, (_, index) => ({ ...numericParts[0], id: `number-${index}` })),
+		...Array.from({ length: 5 }, (_, partIndex) => ({
+			id: `free-${partIndex}`, prompt: "Explain",
+			criteria: Array.from({ length: 6 }, (_, criterionIndex) => ({
+				id: `free-criterion-${partIndex}-${criterionIndex}`, description: "Reason", maxPoints: 1, expectedEvidence: "A reason",
+			})),
+		})),
+	];
+	assert.ok(assessmentSpecProblems(synthesizedCap).length, "synthesized typed criteria count toward the 32-criterion limit");
+});
+
+test("typed response validation, deterministic evaluation, and server answer reconstruction ignore forged grading", async () => {
+	const input = {
+		question: "Enter the result",
+		correctAnswer: "Commitment",
+		parts: [{
+			id: "result", kind: "numeric", prompt: "Distance", answer: 1000,
+			units: [{ symbol: "m", factor: 1 }, { symbol: "km", factor: 1000 }],
+			tolerance: { kind: "absolute", value: 0.5 }, points: 2,
+		}],
+	};
+	const rubric = assessmentSpecOf(input)!;
+	const responses: AssessmentPartResponse[] = [{ partId: "result", kind: "numeric", value: 1, unit: "km" }];
+	assert.deepEqual(partResponseProblems(rubric, responses), []);
+	assert.ok(partResponseProblems(rubric, undefined).length);
+	assert.ok(partResponseProblems(rubric, [{ ...responses[0], partId: "unknown" }]).length);
+	assert.ok(partResponseProblems(rubric, [responses[0], responses[0]]).length);
+	const source = call("explain", input);
+	const question = questionDataOf("explain", "source", input)!;
+	const forgedPartResponses = [{
+		...responses[0], award: 999, correct: true, committed: "forged",
+		autoEvaluation: { provenance: "modelJudged" },
+	}] as unknown as AssessmentPartResponse[];
+	const answer = buildAnswer(question, { partResponses: forgedPartResponses });
+	assert.deepEqual(Object.keys(answer.partResponses![0]!), ["partId", "kind", "value", "unit"]);
+	const forged = { ...answer, correct: true, committed: "forged", autoEvaluation: { provenance: "modelJudged" } } as typeof answer;
+	const appended = inputAppends({ messages: [source] }, { type: "answer", toolCallId: "source", answer: forged })[0]!;
+	assert.equal(appended.role, "toolResult");
+	if (appended.role !== "toolResult") return;
+	const saved = appended.details as unknown as typeof answer;
+	assert.equal(saved.correct, undefined);
+	assert.equal(saved.committed, "Commitment");
+	assert.equal(saved.autoEvaluation?.provenance, "deterministic");
+	assert.equal(saved.autoEvaluation?.evaluationId, `auto:${appended.id}`);
+	assert.equal(saved.autoEvaluation?.criteria[0]?.award, 2);
+	assert.equal((saved.partResponses?.[0] as unknown as Record<string, unknown>).committed, undefined);
+	const compact = JSON.parse(appended.content[0]?.type === "text" ? appended.content[0].text : "{}");
+	assert.equal(compact.parts[0].award, 2);
+	assert.throws(() => inputAppends({ messages: [source] }, { type: "answer", toolCallId: "source", answer: { ...answer, partResponses: [{ ...responses[0], kind: "exact" }] } as unknown as typeof answer }));
+
+	const structured = assessmentSpecOf({ parts: [{
+		id: "argument", kind: "structured", prompt: "Reconstruct", fields: [
+			{ id: "premise", label: "Premise", kind: "line" },
+			{ id: "conclusion", label: "Conclusion", kind: "paragraph" },
+		], criteria: [{ id: "logic", description: "Logic", maxPoints: 2, expectedEvidence: "Valid inference" }],
+	}] })!;
+	const valid = [{ partId: "argument", kind: "structured", fields: [{ id: "premise", text: "P" }, { id: "conclusion", text: "Therefore Q" }] }];
+	assert.deepEqual(partResponseProblems(structured, valid), []);
+	for (const fields of [
+		[{ id: "premise", text: "P" }],
+		[{ id: "premise", text: "P" }, { id: "premise", text: "Q" }],
+		[{ id: "premise", text: "P" }, { id: "unknown", text: "Q" }],
+		[{ id: "premise", text: "" }, { id: "conclusion", text: " " }],
+		[{ id: "premise", text: "x".repeat(501) }, { id: "conclusion", text: "Q" }],
+		[{ id: "premise", text: "P" }, { id: "conclusion", text: "x".repeat(4001) }],
+	]) assert.ok(partResponseProblems(structured, [{ partId: "argument", kind: "structured", fields }]).length);
+	const auto = autoEvaluate(rubric, responses, { sourceCallId: "source", responseId: "response" })!;
+	assert.equal(auto.provenance, "deterministic");
+	assert.equal(auto.evaluationId, "auto:response");
+	assert.deepEqual(auto.spec.parts.map(part => part.kind), ["numeric"]);
+	const autoOnlyEvaluation = await evaluator([source, appended]).execute("auto-only-eval", {
+		sourceCallId: "source", responseId: appended.id,
+		criteria: [{ criterionId: "result", award: 2, feedback: "Correct." }],
+	});
+	assert.equal(autoOnlyEvaluation.isError, true);
+	assert.match(autoOnlyEvaluation.content[0]?.type === "text" ? autoOnlyEvaluation.content[0].text : "", /only auto-graded parts/);
+
+	const mixedInput = {
+		...input,
+		parts: [...input.parts, {
+			id: "reasoning", prompt: "Explain why", criteria: [
+				{ id: "reason", description: "Reason", maxPoints: 2, expectedEvidence: "A valid explanation" },
+			],
+		}],
+	};
+	const mixedSource = call("explain", mixedInput, "mixed-source");
+	const mixedQuestion = questionDataOf("explain", "mixed-source", mixedInput)!;
+	const mixedAnswer = buildAnswer(mixedQuestion, { text: "Because the premises imply it.", partResponses: responses });
+	const mixedResult = inputAppends({ messages: [mixedSource] }, { type: "answer", toolCallId: "mixed-source", answer: mixedAnswer })[0]!;
+	const deterministicRejected = await evaluator([mixedSource, mixedResult]).execute("mixed-eval", {
+		sourceCallId: "mixed-source", responseId: mixedResult.id,
+		criteria: [{ criterionId: "result", award: 2, feedback: "Correct." }],
+	});
+	assert.equal(deterministicRejected.isError, true);
+	const modelEvaluation = await evaluator([mixedSource, mixedResult]).execute("mixed-eval", {
+		sourceCallId: "mixed-source", responseId: mixedResult.id,
+		criteria: [{ criterionId: "reason", award: 2, feedback: "Valid reasoning." }],
+	});
+	assert.equal(modelEvaluation.isError, undefined);
+	assert.deepEqual((modelEvaluation.details as AssessmentEvaluationV1).spec.parts.map(part => part.id), ["reasoning"]);
 });
 
 test("pure scoring derives 3/4, coverage and all four outcomes without fabricating null awards", () => {

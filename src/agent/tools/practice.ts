@@ -15,7 +15,7 @@
  */
 
 import { Type, type Static } from "typebox";
-import { assessmentPartsSchema, assessmentSpecProblems } from "../../core/assessment.ts";
+import { assessmentSpecProblems, freeAssessmentPartsSchema } from "../../core/assessment.ts";
 import { onTargetField } from "../../core/question-core.ts";
 import { evaluateTool } from "./evaluate.ts";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -77,7 +77,7 @@ export function createPracticeGate(ctx: PracticeToolContext): PracticeGate {
 // ─── problem: the pose ───────────────────────────────────────────────────────
 
 export const problemInputObject = Type.Object({
-	parts: Type.Optional(assessmentPartsSchema),
+	parts: Type.Optional(freeAssessmentPartsSchema),
 	statement: Type.String({
 		description:
 			"REQUIRED — the problem as the learner sees it (markdown + LaTeX). Must be self-contained and " +

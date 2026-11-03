@@ -187,8 +187,8 @@ export function newAnswerResult(
 	toolName: string,
 	answer: unknown,
 	rubric = false,
+	id = newMessageId(),
 ): LhMessage & ToolResultMessage {
-	const id = newMessageId();
 	return {
 		id,
 		role: "toolResult",

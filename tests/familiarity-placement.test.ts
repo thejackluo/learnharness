@@ -10,6 +10,7 @@ const [{ stores }, { advancePlacement }] = await Promise.all([
 	import("../src/server/stores.ts"),
 	import("../src/server/familiarity.ts"),
 ]);
+const { assessmentSpecOf, autoEvaluate } = await import("../src/core/assessment.ts");
 test.after(() => fs.rmSync(data, { recursive: true, force: true }));
 
 function createMap(skillIds: string[], edges: { prerequisite: string; dependent: string }[] = [], alternatives: { dependent: string; options: string[] }[] = []) {
@@ -100,6 +101,40 @@ test("criterion observations match the probe by attributed target, not evaluate 
 	]);
 	advancePlacement(chat.id);
 	assert.equal(stores.chatStore.getChat(chat.id)?.placement?.probes[0]?.result, "supports");
+});
+
+test("an on-target auto-graded recall result supports and completes its placement probe", () => {
+	const map = createMap(["target"]);
+	const chat = placementChat(map.id, "target");
+	const now = Date.now();
+	const input = {
+		question: "Convert the distance",
+		correctAnswer: "One kilometer",
+		onTarget: true,
+		parts: [{
+			id: "distance", kind: "numeric", prompt: "Give the distance in meters.",
+			answer: 1000, units: [{ symbol: "m", factor: 1 }],
+			tolerance: { kind: "absolute", value: 0 }, points: 1,
+		}],
+	};
+	const sourceCallId = "recall-auto";
+	const responseId = "recall-auto-result";
+	const spec = assessmentSpecOf(input)!;
+	const partResponses = [{ partId: "distance", kind: "numeric", value: 1000, unit: "m" }];
+	const autoEvaluation = autoEvaluate(spec, partResponses, { sourceCallId, responseId })!;
+	saveMessages(chat.id, [
+		call(sourceCallId, "recall", input, now),
+		{
+			id: responseId, role: "toolResult", toolCallId: sourceCallId, toolName: "recall",
+			content: [], details: { kind: "explain", partResponses, autoEvaluation },
+			isError: false, timestamp: now + 1,
+		},
+	]);
+	advancePlacement(chat.id);
+	const placement = stores.chatStore.getChat(chat.id)?.placement;
+	assert.equal(placement?.probes[0]?.result, "supports");
+	assert.equal(placement?.probes[0]?.observationId, `ev:${encodeURIComponent(chat.id)}:${responseId}:${sourceCallId}:${encodeURIComponent("distance")}`);
+	assert.ok(placement?.completedAt);
 });
 
 test("observations remain attributed to each probe after the target moves", () => {

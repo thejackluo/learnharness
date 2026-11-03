@@ -197,6 +197,8 @@ export function questionSpeech(toolName: string, toolCallId: string, input: unkn
 		.filter((value): value is string => typeof value === "string" && !!value.trim());
 	for (const [index, part] of (assessmentSpecOf(input)?.parts ?? []).entries()) {
 		lines.push(`Part ${partLabel(part.label, index)}: ${part.prompt}`);
+		if (part.kind === "numeric") lines.push(`Units: ${part.units.map(unit => unit.symbol).join(", ")}`);
+		if (part.kind === "structured") lines.push(`Fields: ${part.fields.map(field => field.label).join(", ")}`);
 	}
 	for (const [index, option] of question.options.entries()) {
 		const description = kind !== "quiz" && option.description ? ` ${option.description}` : "";

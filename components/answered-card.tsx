@@ -9,7 +9,7 @@ import { ToolContentResponse } from "@/components/ai-elements/message";
 import type { QuestionAnswerData } from "@/src/core";
 import { answerForPresentation, assessmentSpecOf, parseAskInput, parseQuizInput, stimulusSnapshotOf } from "@/src/core";
 import { ActivityStimulusNote } from "@/components/activity-card";
-import { AssessmentCommitment } from "@/components/assessment-card";
+import { AssessmentCommitment, AssessmentFeedback } from "@/components/assessment-card";
 
 /**
  * Static rendering of an answered question (tool part in `output-available`).
@@ -45,12 +45,13 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 	const askInput = answer.kind === "ask" ? parseAskInput(input) : undefined;
 	const parsedDetails = askInput?.details ?? (answer.kind === "quiz" ? parseQuizInput(input)?.details : undefined);
 	const descByIndex = new Map((askInput?.options ?? []).map((o, i) => [i + 1, o.description]));
+	const assessment = isExplain ? assessmentSpecOf(input) : undefined;
 
 	return (
 		<>
 		{savedAnswer.gradingProvenance === "deterministic" && <div className="text-xs font-medium text-muted-foreground">Auto-graded</div>}
 		{isExplain && stimulusSnapshotOf(savedAnswer.stimulus) && <ActivityStimulusNote toolCallId={savedAnswer.stimulus!.toolCallId} title={savedAnswer.stimulus!.guide.title} />}
-		{isExplain && assessmentSpecOf(input) && <AssessmentCommitment spec={assessmentSpecOf(input)!} />}
+		{isExplain && assessment && <AssessmentCommitment spec={assessment} />}
 		{/* The reading channel LIFTED (owner round, 2026-10-05): thoughts
 		    captured while reading are chronologically PRIOR to the question —
 		    rendered as its own user-side block ABOVE the card, the unified
@@ -165,6 +166,29 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 			)}
 
 			{answer.text && <div className="lh-prose mt-2 whitespace-pre-wrap">“{answer.text}”</div>}
+			{isExplain && answer.partResponses?.length ? (
+				<div className="mt-3 space-y-2" data-testid="part-responses">
+					<strong className="text-sm">Your answers</strong>
+					{answer.partResponses.map(response => {
+						const part = assessment?.parts.find(candidate => candidate.id === response.partId);
+						return <section key={response.partId} className="rounded-lg bg-muted/50 p-2 text-sm">
+							<strong>{part?.label ?? response.partId}</strong>
+							{response.kind === "numeric" ? (
+								<div className="whitespace-pre-wrap">{response.value}{response.unit ? ` ${response.unit}` : ""}</div>
+							) : response.kind === "exact" ? (
+								<div className="whitespace-pre-wrap">{response.text}</div>
+							) : response.fields.map(field => {
+								const label = part?.kind === "structured" ? part.fields.find(candidate => candidate.id === field.id)?.label : undefined;
+								return <div key={field.id} className="mt-1">
+									<span className="text-xs font-medium text-muted-foreground">{label ?? field.id}</span>
+									<div className="whitespace-pre-wrap">{field.text}</div>
+								</div>;
+							})}
+						</section>;
+					})}
+				</div>
+			) : null}
+			{isExplain && answer.autoEvaluation && <div className="mt-3"><AssessmentFeedback evaluation={answer.autoEvaluation} /></div>}
 
 			{/* The confidence record (owner round 6): the slider's rail, disc
 			    removed — the missing handle itself says "this is a record, not a

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { ArrowDownIcon, ChevronRightIcon, PlayIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
@@ -18,6 +18,8 @@ import {
 	questionDataOf,
 	questionSpeech,
 	assessmentSpecOf,
+	partResponsesFromDraft,
+	specNeedsSharedText,
 	teachingStimulusRefOf,
 	sumAssessmentPoints,
 	toolQuestionKind,
@@ -283,6 +285,13 @@ function QuestionDockForm({
 	const qd = useMemo<QuestionData>(() => {
 		return questionDataOf(toolName, toolCallId, input)!;
 	}, [toolCallId, toolName, input]);
+	const assessmentSpec = useMemo(() => assessmentSpecOf(input), [input]);
+	const needsSharedAnswer = qd.mode === "text" && (!assessmentSpec || specNeedsSharedText(assessmentSpec));
+	const textFieldTargets = assessmentSpec?.parts.flatMap(part => part.kind === "exact"
+		? [{ partId: part.id, fieldId: "text", label: "Answer", kind: "line" as const }]
+		: part.kind === "structured"
+			? part.fields.map(field => ({ partId: part.id, fieldId: field.id, label: field.label, kind: field.kind }))
+			: []) ?? [];
 	const promptSpeech = useMemo(
 		() => questionSpeech(toolName, toolCallId, input),
 		[toolCallId, toolName, input],
@@ -297,6 +306,17 @@ function QuestionDockForm({
 	const [thinking, setThinking] = useState(initialDraft?.thinking ?? "");
 	const [other, setOther] = useState(initialDraft?.other ?? "");
 	const [text, setText] = useState(initialDraft?.text ?? "");
+	const [partDrafts, setPartDrafts] = useState(initialDraft?.parts ?? {});
+	const partDraftsRef = useRef(initialDraft?.parts ?? {});
+	const setPartDraft = (partId: string, fieldId: string, value: string) => {
+		const next = {
+			...partDraftsRef.current,
+			[partId]: { ...(partDraftsRef.current[partId] ?? {}), [fieldId]: value },
+		};
+		partDraftsRef.current = next;
+		setPartDrafts(next);
+	};
+	const activeTextField = useRef(textFieldTargets[0]);
 	/* Refs MIRROR the two dictation-target fields ("nothing gets lost"
 	 * round, owner 2026-10-01): the run's flush lands via setState, which
 	 * a closure waiting through `await finishDictation()` cannot observe
@@ -315,35 +335,44 @@ function QuestionDockForm({
 	// mode owns "Your answer", select modes own "Your thinking". The claim
 	// is effect-scoped, so the question unmounting releases it and
 	// dictation falls back to the composer automatically.
+	const dictationEnabled = dictationClaim && (
+		qd.mode !== "text" || needsSharedAnswer || textFieldTargets.length > 0
+	);
 	useDictationTarget(
 		useCallback(
 			(t: string) => {
 				// Ref-first (see the refs block above): the join is computed from
 				// the mirror, then both mirrors agree with state — a submit
 				// resuming post-finish reads the tail, never a stale closure.
-				if (qd.mode === "text") {
+				if (qd.mode === "text" && needsSharedAnswer) {
 					const v = joinDictation(answerTextRef.current, t);
 					answerTextRef.current = v;
 					setText(v);
+				} else if (qd.mode === "text") {
+					const target = activeTextField.current ?? textFieldTargets[0];
+					if (!target) return;
+					const previous = partDraftsRef.current[target.partId]?.[target.fieldId] ?? "";
+					setPartDraft(target.partId, target.fieldId, joinDictation(previous, t));
 				} else {
 					const v = joinDictation(thinkingTextRef.current, t);
 					thinkingTextRef.current = v;
 					setThinking(v);
 				}
 			},
-			[qd.mode],
+			[needsSharedAnswer, qd.mode, setPartDraft, textFieldTargets],
 		),
 		// Released while a teach check sits unrevealed (owner 2026-10-03):
 		// the reading-thinking field owns dictated speech during the reading.
-		dictationClaim,
+		dictationEnabled,
 	);
 
 	const toggle = (idx: number) => setSel(toggleOption(selectMode, sel, idx));
 
-	const canSubmit =
-		qd.mode === "text"
-			? text.trim().length > 0
-			: sel.dontKnow || (sel.otherSelected && other.trim().length > 0) || sel.selected.size > 0;
+	const partSubmission = assessmentSpec ? partResponsesFromDraft(assessmentSpec, partDrafts) : undefined;
+	const canSubmit = (qd.mode === "text"
+		? !needsSharedAnswer || text.trim().length > 0
+		: sel.dontKnow || (sel.otherSelected && other.trim().length > 0) || sel.selected.size > 0)
+		&& (!assessmentSpec || partSubmission?.complete === true);
 
 	const submit = () => {
 		if (!canSubmit || compactionRunning) return;
@@ -365,8 +394,9 @@ function QuestionDockForm({
 			dontKnow: sel.dontKnow,
 			values: [...sel.selected].map((i) => qd.options[i]!.value),
 			other: sel.otherSelected ? other : undefined,
-			text: qd.mode === "text" ? answerTextRef.current : undefined,
+			text: needsSharedAnswer ? answerTextRef.current : undefined,
 			thinking: qd.mode !== "text" ? thinkingTextRef.current.trim() || undefined : undefined,
+			partResponses: assessmentSpec ? partResponsesFromDraft(assessmentSpec, partDraftsRef.current).responses : undefined,
 			// Sent only once the learner set it (50 means 50; untouched means
 			// nothing stated); buildAnswer drops it on "I don't know".
 			confidence: kind === "quiz" && confIdx !== null ? CONFIDENCE_STOPS[confIdx] : undefined,
@@ -378,9 +408,20 @@ function QuestionDockForm({
 			thinking: thinkingTextRef.current,
 			other,
 			text: answerTextRef.current,
+			parts: partDraftsRef.current,
 			confidenceIndex: confIdx,
 		});
 		onSubmit(buildAnswer(qd, req, toolName));
+	};
+	const handleTypedKeyDown = (e: ReactKeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+		if (e.key === "Escape" && onEscape) {
+			e.preventDefault();
+			e.stopPropagation();
+			onEscape();
+		} else if (e.key === "Enter" && (!e.shiftKey || e.metaKey || e.ctrlKey)) {
+			e.preventDefault();
+			submit();
+		}
 	};
 
 	/* ENTER SUBMITS FROM ANYWHERE (owner round 6, 2026-10-05): the same
@@ -826,10 +867,93 @@ function QuestionDockForm({
 			{stimulusRef && (
 				<div className="px-4 pt-2"><ActivityStimulusNote toolCallId={stimulusRef.toolCallId} title={stimulusGuide?.title} objective={stimulusGuide?.objective} /></div>
 			)}
-			{assessmentSpecOf(input)?.parts.map(part => (
+			{assessmentSpec?.parts.map(part => (
 				<div key={part.id} className="px-4 py-2 text-sm">
 					<strong>{part.label ?? part.id} · {sumAssessmentPoints(part.criteria.map(c => c.maxPoints))} pts</strong>
 					<ToolContentResponse>{part.prompt}</ToolContentResponse>
+					{part.kind === "numeric" && (
+						<div className="mt-2 grid gap-2 sm:grid-cols-2">
+							<div>
+								<label htmlFor={`question-${toolCallId}-${part.id}-value`} className="mb-1 block text-xs font-medium text-muted-foreground">Value</label>
+								<input
+									id={`question-${toolCallId}-${part.id}-value`}
+									type="text"
+									inputMode="decimal"
+									autoComplete="off"
+									value={partDrafts[part.id]?.value ?? ""}
+									onChange={e => setPartDraft(part.id, "value", e.target.value)}
+									onKeyDown={handleTypedKeyDown}
+									className="lh-input min-h-10 w-full rounded-md border border-border/70 bg-background/60 px-2.5 py-2 outline-none focus:border-primary/50"
+								/>
+							</div>
+							<div>
+								<label htmlFor={`question-${toolCallId}-${part.id}-unit`} className="mb-1 block text-xs font-medium text-muted-foreground">Unit</label>
+								<input
+									id={`question-${toolCallId}-${part.id}-unit`}
+									type="text"
+									list={`question-${toolCallId}-${part.id}-units`}
+									autoComplete="off"
+									maxLength={20}
+									value={partDrafts[part.id]?.unit ?? ""}
+									onChange={e => setPartDraft(part.id, "unit", e.target.value)}
+									onKeyDown={handleTypedKeyDown}
+									className="lh-input min-h-10 w-full rounded-md border border-border/70 bg-background/60 px-2.5 py-2 outline-none focus:border-primary/50"
+								/>
+								<datalist id={`question-${toolCallId}-${part.id}-units`}>
+									{part.units.map(unit => <option key={unit.symbol} value={unit.symbol} />)}
+								</datalist>
+							</div>
+						</div>
+					)}
+					{part.kind === "exact" && (
+						<div className="mt-2">
+							<label htmlFor={`question-${toolCallId}-${part.id}-text`} className="mb-1 block text-xs font-medium text-muted-foreground">Answer</label>
+							<input
+								id={`question-${toolCallId}-${part.id}-text`}
+								type="text"
+								maxLength={200}
+								value={partDrafts[part.id]?.text ?? ""}
+								onFocus={() => { activeTextField.current = { partId: part.id, fieldId: "text", label: "Answer", kind: "line" }; }}
+								onChange={e => setPartDraft(part.id, "text", e.target.value)}
+								onKeyDown={handleTypedKeyDown}
+								className="lh-input min-h-10 w-full rounded-md border border-border/70 bg-background/60 px-2.5 py-2 outline-none focus:border-primary/50"
+							/>
+						</div>
+					)}
+					{part.kind === "structured" && (
+						<div className="mt-2 space-y-2">
+							{part.fields.map(field => {
+								const controlId = `question-${toolCallId}-${part.id}-${field.id}`;
+								const target = { partId: part.id, fieldId: field.id, label: field.label, kind: field.kind };
+								return <div key={field.id}>
+									<label htmlFor={controlId} className="mb-1 block text-xs font-medium text-muted-foreground">{field.label}</label>
+									{field.kind === "paragraph" ? (
+										<textarea
+											id={controlId}
+											maxLength={4000}
+											rows={3}
+											value={partDrafts[part.id]?.[field.id] ?? ""}
+											onFocus={() => { activeTextField.current = target; }}
+											onChange={e => setPartDraft(part.id, field.id, e.target.value)}
+											onKeyDown={handleTypedKeyDown}
+											className="lh-input min-h-10 w-full resize-y rounded-md border border-border/70 bg-background/60 px-2.5 py-2 outline-none focus:border-primary/50"
+										/>
+									) : (
+										<input
+											id={controlId}
+											type="text"
+											maxLength={500}
+											value={partDrafts[part.id]?.[field.id] ?? ""}
+											onFocus={() => { activeTextField.current = target; }}
+											onChange={e => setPartDraft(part.id, field.id, e.target.value)}
+											onKeyDown={handleTypedKeyDown}
+											className="lh-input min-h-10 w-full rounded-md border border-border/70 bg-background/60 px-2.5 py-2 outline-none focus:border-primary/50"
+										/>
+									)}
+								</div>;
+							})}
+						</div>
+					)}
 				</div>
 			))}
 			<form
@@ -839,15 +963,17 @@ function QuestionDockForm({
 					submit();
 				}}
 			>
-				<div
-					data-testid={qd.mode === "text" ? "answer-field" : "thinking-field"}
-					className="rounded-[10px] border border-border/70 bg-background/60 transition-colors focus-within:border-primary/50"
-				>
-					<div className="px-2.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+				{needsSharedAnswer || qd.mode !== "text" ? (
+					<div
+						data-testid={qd.mode === "text" ? "answer-field" : "thinking-field"}
+						className="rounded-[10px] border border-border/70 bg-background/60 transition-colors focus-within:border-primary/50"
+					>
+					<label htmlFor={`question-${toolCallId}-${qd.mode === "text" ? "shared-answer" : "thinking"}`} className="block px-2.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 						{qd.mode === "text" ? "Your answer" : "YOUR THINKING"}
-					</div>
+					</label>
 					{qd.mode === "text" ? (
 						<textarea
+							id={`question-${toolCallId}-shared-answer`}
 							value={text}
 							onChange={(e) => {
 								answerTextRef.current = e.target.value;
@@ -876,6 +1002,7 @@ function QuestionDockForm({
 						/>
 					) : (
 						<textarea
+							id={`question-${toolCallId}-thinking`}
 							ref={thinkingRef}
 							value={thinking}
 							onChange={(e) => {
@@ -923,6 +1050,20 @@ function QuestionDockForm({
 						</Button>
 					</div>
 				</div>
+				) : (
+					<div className="flex items-center justify-between gap-2 p-1">
+						<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
+							{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}
+						</span>
+						<Button
+							type="submit"
+							disabled={!canSubmit || compactionRunning}
+							className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium"
+						>
+							Submit answer
+						</Button>
+					</div>
+				)}
 			</form>
 		</div>
 	);

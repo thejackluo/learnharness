@@ -195,6 +195,7 @@ function explainDescription(name: "explain" | "recall", nodeId: boolean): string
 		"correctAnswer is the FULL correct answer in your own words, reasoning included, COMMITTED before he ever " +
 		"sees the question. When his answer returns, grade it strictly against the commitment — never revise it " +
 		"after seeing his words. He sees the committed answer on submit. " +
+		"Typed numeric and exact parts are graded automatically by the app; free and structured criteria are evaluated with `evaluate`. " +
 		(nodeId
 			? "Set `nodeId` (required) to the plan node this question is about — validated at call time against the session's plan map. "
 			: "") +

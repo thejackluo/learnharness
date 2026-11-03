@@ -136,8 +136,27 @@ function criterionObservations(
 	onTarget: ReadonlySet<string> = new Set(),
 	hintedProblems: ReadonlySet<string> = new Set(),
 ): LearnerObservation[] {
-	if (result.isError || result.toolName !== "evaluate" || !isRecord(result.details)) return [];
-	const details = result.details;
+	if (result.isError || !isRecord(result.details)) return [];
+	let details: Record<string, unknown>;
+	let observationCallId: string;
+	if (result.toolName === "evaluate") {
+		details = result.details;
+		observationCallId = result.toolCallId;
+	} else if (
+		(result.toolName === "explain" || result.toolName === "recall") &&
+		result.details.kind === "explain" &&
+		result.details.dismissed !== true &&
+		isRecord(result.details.autoEvaluation)
+	) {
+		details = result.details.autoEvaluation;
+		observationCallId = result.toolCallId;
+		if (
+			details.provenance !== "deterministic" ||
+			details.responseId !== result.id ||
+			details.sourceCallId !== result.toolCallId ||
+			details.evaluationId !== `auto:${result.id}`
+		) return [];
+	} else return [];
 	if (
 		details.version !== 1 ||
 		(details.provenance !== "deterministic" && details.provenance !== "modelJudged") ||
@@ -179,14 +198,14 @@ function criterionObservations(
 			id: learnerObservationId({
 				chatId: record.id,
 				resultMessageId: result.id,
-				callId: result.toolCallId,
+				callId: observationCallId,
 				criterionId,
 			}),
 			chatId: record.id,
 			chatTitle: record.title,
 			chatKind: record.kind === "practice" ? "practice" : "teach",
 			resultMessageId: result.id,
-			sourceCallId: result.toolCallId,
+			sourceCallId: observationCallId,
 			observedAt: atIso(result),
 			prompt: part.prompt.slice(0, 500),
 			provenance: details.provenance,

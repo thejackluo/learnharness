@@ -22,6 +22,7 @@ import type { TeachingStimulusSnapshot } from "./contracts/activity.ts";
 import { Type, type Static } from "typebox";
 import { stripModelValueDebris } from "./value-debris.ts";
 import { assessmentDisplayPartsSchema, assessmentPartsSchema, assessmentSpecProblems } from "./assessment.ts";
+import type { AssessmentEvaluationV1, AssessmentPartResponse } from "./contracts/assessment.ts";
 
 // ─── shared types ───────────────────────────────────────────────────────────
 
@@ -456,6 +457,8 @@ export interface QuestionAnswerData {
 	 *  about (never client-supplied). Absent without a stimulus. */
 	stimulus?: TeachingStimulusSnapshot;
 	gradingProvenance?: "deterministic";
+	partResponses?: AssessmentPartResponse[];
+	autoEvaluation?: AssessmentEvaluationV1;
 	kind: QuestionKind;
 	/** The persisted call's tool NAME (owner, 2026-10-09): probe-phase
 	 *  calls are `probe`/`recall`, teach calls `quiz`/`explain` — the
@@ -512,6 +515,7 @@ export interface AnswerRequest {
 	thinking?: string; // the reasoning-on-the-question channel (was `note`)
 	readingThinking?: string; // the thinking-while-reading channel (check answers)
 	confidence?: number; // quiz only: 0-100 raw probability, sent only when the learner set it — an explicit 50 stays 50
+	partResponses?: AssessmentPartResponse[];
 }
 
 /** The confidence slider's snap stops (owner, 2026-10-01): raw probability
@@ -547,6 +551,7 @@ export interface QuestionFormDraft {
 	thinking: string;
 	other: string;
 	text: string;
+	parts?: Record<string, Record<string, string>>;
 	/** Null = the learner has not stated a confidence. */
 	confidenceIndex: number | null;
 }
@@ -747,6 +752,13 @@ export function buildAnswer(qd: QuestionData, req: AnswerRequest, tool?: string)
 		thinking: req.thinking?.trim() || undefined,
 		readingThinking: req.readingThinking?.trim() || undefined,
 		answeredAt: new Date().toISOString(),
+		...(req.partResponses?.length ? {
+			partResponses: req.partResponses.map(response => response.kind === "numeric"
+				? { partId: response.partId, kind: response.kind, value: response.value, unit: response.unit.trim() }
+				: response.kind === "exact"
+					? { partId: response.partId, kind: response.kind, text: response.text.trim() }
+					: { partId: response.partId, kind: response.kind, fields: response.fields.map(field => ({ id: field.id, text: field.text.trim() })) }),
+		} : {}),
 	};
 	// resolve selected option values → OptionAnswer (in display order)
 	if (req.values && req.values.length > 0) {
@@ -828,5 +840,22 @@ export function compactAnswerForModel(ad: QuestionAnswerData): Record<string, un
 	const thinking = ad.thinking ?? ad.note;
 	if (thinking) out.thinking = thinking;
 	if (ad.readingThinking) out.thinkingWhileReading = ad.readingThinking;
+	if (Array.isArray(ad.partResponses) && ad.partResponses.length) {
+		const autoCriteria = new Map((ad.autoEvaluation?.criteria ?? []).map(criterion => [criterion.criterionId, criterion]));
+		const autoParts = new Map((ad.autoEvaluation?.spec.parts ?? []).map(part => [part.id, part]));
+		out.parts = ad.partResponses.map(response => {
+			const criterion = autoParts.get(response.partId)?.criteria[0];
+			const award = criterion ? autoCriteria.get(criterion.id) : undefined;
+			return {
+				...response,
+				...(award && criterion ? {
+					award: award.award,
+					maxPoints: award.maxPoints,
+					outcome: award.outcome,
+					feedback: award.feedback,
+				} : {}),
+			};
+		});
+	}
 	return out;
 }

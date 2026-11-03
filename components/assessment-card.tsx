@@ -8,6 +8,7 @@ export function AssessmentCommitment({ spec }: { spec: AssessmentSpecV1 }) {
 	return <div className="space-y-3 text-sm" data-testid="assessment-commitment">{spec.parts.map(p => <section key={p.id}>
 		<strong>{p.label ?? p.id}</strong>
 		<ToolContentResponse>{p.prompt}</ToolContentResponse>
+		{p.kind === "structured" && <div className="text-xs text-muted-foreground">Fields: {p.fields.map(field => field.label).join(", ")}</div>}
 		{p.criteria.map(c => <div key={c.id} className="my-2 border-l pl-3">
 			<div>{c.description} · {c.maxPoints} pts</div>
 			<ToolContentResponse>{c.expectedEvidence}</ToolContentResponse>

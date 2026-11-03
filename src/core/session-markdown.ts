@@ -82,6 +82,14 @@ function toolResultBody(result: ToolResultMessage, ctx?: MarkdownContext): { hea
 				answers: string[];
 				other: string;
 				dismissed: boolean;
+				partResponses: Array<{
+					partId?: string;
+					kind?: string;
+					value?: number;
+					unit?: string;
+					text?: string;
+					fields?: Array<{ id?: string; text?: string }>;
+				}>;
 		  }>
 		| undefined;
 
@@ -106,6 +114,21 @@ function toolResultBody(result: ToolResultMessage, ctx?: MarkdownContext): { hea
 		else if (out?.correct === true) body.push("The learner answered correctly.");
 		else if (out?.correct === false) body.push("The learner answered incorrectly.");
 		else if (typeof out?.text === "string" && out.text.trim()) body.push(`The learner answered in his own words: ${out.text.trim()}`);
+		if (Array.isArray(out?.partResponses) && out.partResponses.length) {
+			body.push("**The learner's answers:**");
+			for (const response of out.partResponses) {
+				if (response.kind === "numeric" && typeof response.value === "number") {
+					body.push(`- **${response.partId ?? "Part"}:** ${response.value}${response.unit ? ` ${response.unit}` : ""}`);
+				} else if (response.kind === "exact" && typeof response.text === "string") {
+					body.push(`- **${response.partId ?? "Part"}:** ${response.text}`);
+				} else if (response.kind === "structured" && Array.isArray(response.fields)) {
+					body.push(`- **${response.partId ?? "Part"}:**`);
+					for (const field of response.fields) {
+						if (typeof field.text === "string") body.push(`  - ${field.id ?? "Field"}: ${field.text}`);
+					}
+				}
+			}
+		}
 		if (typeof out?.note === "string" && out.note) body.push(`*(his thinking: ${out.note})*`);
 		const stimulus = stimulusSnapshotOf((result.details as { stimulus?: unknown } | undefined)?.stimulus);
 		if (stimulus) body.push(`*(about the activity: ${stimulus.guide.title})*`);
