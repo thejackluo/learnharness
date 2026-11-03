@@ -40,8 +40,9 @@ test("likely-known affects readiness but is never cleared", () => {
 	const states = skillPathStates(map, new Map(), new Set(["skill_a"]));
 	assert.equal(states.get("skill_a"), "open");
 	assert.equal(states.get("skill_c"), "reachable");
+	const route = routeToGoal(map, new Map(), "skill_c", new Set(["skill_a"]));
 	assert.equal(states.get("skill_a"), "open");
-	assert.ok(routeToGoal(map, new Map(), "skill_c", new Set(["skill_a"])));
+	assert.deepEqual(route?.route, ["skill_b", "skill_c"]);
 });
 
 test("quote normalization and verification use whitespace-normalized verbatim text", () => {
@@ -59,11 +60,26 @@ test("pending suggestions merge by map, skill, and reason kind; decisions can be
 	const duplicate = mergeFamiliaritySuggestions(first.suggestions, [candidate], "2026-01-02T00:00:00.000Z", () => "s2");
 	assert.equal(first.added.length, 1);
 	assert.equal(duplicate.merged, 1);
+	const otherKind = mergeFamiliaritySuggestions(first.suggestions, [{ ...candidate, reason: { kind: "conversation" as const, chatId: "chat", messageId: "message", quote: "I know this" } }], "2026-01-02T00:00:00.000Z", () => "s3");
+	assert.equal(otherKind.added.length, 1);
+	const newRevision = mergeFamiliaritySuggestions(first.suggestions, [{ ...candidate, skillRevision: 2 }], "2026-01-02T00:00:00.000Z", () => "s4");
+	assert.equal(newRevision.added.length, 1);
 	const confirmed = decideFamiliaritySuggestions(first.suggestions, ["s1"], "confirmed", "2026-01-03T00:00:00.000Z");
 	assert.equal(confirmed[0]?.status, "confirmed");
 	const revoked = decideFamiliaritySuggestions(confirmed, ["s1"], "rejected", "2026-01-04T00:00:00.000Z");
 	assert.equal(revoked[0]?.status, "rejected");
 	assert.throws(() => decideFamiliaritySuggestions(revoked, ["missing"], "confirmed", "2026-01-04T00:00:00.000Z"), /Unknown familiarity suggestion id/);
+});
+
+test("confirmed suggestions become historical after objective revision changes", async () => {
+	const { suggestionStanding, likelyKnownSkills } = await import("../src/core/familiarity.ts");
+	const suggestion: FamiliaritySuggestion = {
+		id: "s", mapId: map.id, skillId: "skill_a", skillRevision: 1, status: "confirmed",
+		createdAt: "2026-01-01T00:00:00.000Z", reason: { kind: "import", sourceName: "notes.txt", quote: "I know this" },
+	};
+	const revised = { ...map, skills: map.skills.map((skill) => skill.id === "skill_a" ? { ...skill, revision: 2 } : skill) };
+	assert.equal(suggestionStanding(suggestion, revised), "historical");
+	assert.equal(likelyKnownSkills([suggestion], revised).has("skill_a"), false);
 });
 
 test("suggestion cap is 2000", () => {

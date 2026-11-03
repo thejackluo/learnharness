@@ -25,6 +25,7 @@ export async function POST(req: Request) {
 	// Practice sessions (owner, 2026-10-04): kind "practice" marks the
 	// record — the practice agent + its tools from turn 1, no extraction.
 	const kind = body.kind === "practice" ? ("practice" as const) : undefined;
+	if (body.placement !== undefined && kind === "practice") return Response.json({ error: "placement cannot be combined with practice", code: "invalid_placement" }, { status: 400, headers: { "Cache-Control": "private, no-store" } });
 	// An explicitly chosen subject-map skill, validated at the revision the
 	// learner saw before anything is written.
 	const target = resolveNewSessionTarget(body.target);

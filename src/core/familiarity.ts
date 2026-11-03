@@ -52,7 +52,7 @@ export function placementSuggestionTargets(map: SubjectMapV1, statuses: Readonly
 
 type SuggestionCandidate = Omit<FamiliaritySuggestion, "id" | "status" | "createdAt" | "decidedAt">;
 function sameReasonKind(a: FamiliaritySuggestion, b: SuggestionCandidate): boolean {
-	return a.mapId === b.mapId && a.skillId === b.skillId && a.reason.kind === b.reason.kind;
+	return a.mapId === b.mapId && a.skillId === b.skillId && a.skillRevision === b.skillRevision && a.reason.kind === b.reason.kind;
 }
 
 export function mergeFamiliaritySuggestions(

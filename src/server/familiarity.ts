@@ -1,6 +1,6 @@
 import type { FamiliaritySuggestion, PlacementProbe, PlacementRun, SubjectMapV1 } from "../core/contracts.ts";
 import { PLACEMENT_MAX_PROBES, deriveChatObservations } from "../core";
-import { decideFamiliaritySuggestions, mergeFamiliaritySuggestions, nextPlacementProbe, placementSuggestionTargets, quoteInText, normalizeQuoteText, projectPlacementContext } from "../core/familiarity.ts";
+import { decideFamiliaritySuggestions, mergeFamiliaritySuggestions, nextPlacementProbe, placementSuggestionTargets, quoteInText, normalizeQuoteText, projectPlacementContext, suggestionStanding, likelyKnownSkills } from "../core/familiarity.ts";
 import { evidencePolarity, subjectSkillTargetStatus } from "../core/subject-map.ts";
 import { LearnerProfileConflictError, LearnerProfileUnavailableError } from "../store/learner.ts";
 import { runFamiliarityInferrer } from "../agent/subagents/familiarity-inferrer.ts";
@@ -108,10 +108,14 @@ export function suggestFamiliarityFromChat(chatId: string, input: { skillId: str
 	const mapRead = stores.subjectMapStore.read(mapId);
 	if (mapRead.state !== "ok") return invalidInputResult("suggest_familiarity", ["The subject map is unavailable."]);
 	const skill = mapRead.map.skills.find((item) => item.id === input.skillId);
-	if (!skill || !quoteInText(input.quote, input.quote)) return invalidInputResult("suggest_familiarity", ["skillId must be current and quote must be non-empty."]);
-	const matches = record.messages.filter((message) => message.role === "user" && typeof message.content !== "string" && message.content.some((part) => part.type === "text" && quoteInText(input.quote, part.text)));
-	if (matches.length !== 1) return invalidInputResult("suggest_familiarity", ["quote must occur in exactly one learner message."]);
-	const message = matches[0]!;
+	if (!skill) return invalidInputResult("suggest_familiarity", ["skillId must be a current skill of this session's map"]);
+	if (!quoteInText(input.quote, input.quote)) return invalidInputResult("suggest_familiarity", ["quote must appear verbatim in one of the learner's own messages"]);
+	const message = [...record.messages].reverse().find((candidate) => candidate.role === "user" && (
+		typeof candidate.content === "string"
+			? quoteInText(input.quote, candidate.content)
+			: candidate.content.some((part) => part.type === "text" && quoteInText(input.quote, part.text))
+	));
+	if (!message) return invalidInputResult("suggest_familiarity", ["quote must appear verbatim in one of the learner's own messages"]);
 	appendSuggestions([{
 		mapId, skillId: skill.id, skillRevision: skill.revision,
 		reason: { kind: "conversation", chatId, messageId: message.id, quote: normalizeQuoteText(input.quote) },
@@ -132,13 +136,33 @@ export function decideSuggestions(ids: string[], status: "confirmed" | "rejected
 export function listFamiliaritySuggestions(mapId?: string) {
 	const read = stores.learnerProfileStore.read();
 	if (read.state !== "ok" && read.state !== "absent") throw new LearnerProfileUnavailableError(read);
+	const maps = new Map<string, SubjectMapV1 | null>();
+	const readMap = (id: string) => {
+		if (!maps.has(id)) {
+			const result = stores.subjectMapStore.read(id);
+			maps.set(id, result.state === "ok" ? result.map : null);
+		}
+		return maps.get(id) ?? null;
+	};
 	const suggestions = (read.profile.suggestions ?? []).filter((item) => !mapId || item.mapId === mapId).map((item) => {
-		const mapRead = stores.subjectMapStore.read(item.mapId);
-		const map = mapRead.state === "ok" ? mapRead.map : null;
+		const map = readMap(item.mapId);
 		const skill = map?.skills.find((s) => s.id === item.skillId);
-		return { ...item, mapTitle: map?.title ?? item.mapId, skillTitle: skill?.title ?? item.skillId, standing: subjectSkillTargetStatus(map, { kind: "subject-skill", mapId: item.mapId, skillId: item.skillId, skillRevision: item.skillRevision }) };
+		const viaSkillId = item.reason.kind === "placement" ? item.reason.viaSkillId : undefined;
+		const viaSkillTitle = viaSkillId ? map?.skills.find((s) => s.id === viaSkillId)?.title ?? viaSkillId : undefined;
+		return {
+			...item,
+			mapTitle: map?.title ?? item.mapId,
+			skillTitle: skill?.title ?? item.skillId,
+			standing: suggestionStanding(item, map),
+			...(viaSkillTitle ? { viaSkillTitle } : {}),
+		};
 	});
-	return { profileRevision: read.profile.revision, suggestions };
+	const mapRead = mapId ? readMap(mapId) : null;
+	return {
+		profileRevision: read.profile.revision,
+		suggestions,
+		...(mapRead ? { likelyKnownSkillIds: [...likelyKnownSkills(read.profile.suggestions ?? [], mapRead)] } : {}),
+	};
 }
 
 export function advancePlacement(chatId: string): void {
@@ -157,8 +181,13 @@ export function advancePlacement(chatId: string): void {
 	const skill = map.skills.find((item) => item.id === current.skillId);
 	const stale = !skill || skill.revision !== current.revision;
 	if (stale && !(current.callIds?.length)) run.probes = run.probes.filter((probe) => probe !== current);
-	else if (!stale) {
-		const observations = deriveChatObservations({ ...record, placement: run }).filter((item) => current.callIds?.includes(item.sourceCallId));
+	else if (stale) current.result = "inconclusive";
+	else {
+		const observations = deriveChatObservations({ ...record, placement: run }).filter((item) =>
+			item.attributedTarget?.mapId === run.mapId &&
+			item.attributedTarget.skillId === current.skillId &&
+			item.attributedTarget.skillRevision === current.revision,
+		);
 		const calls = [...new Set(observations.map((item) => item.sourceCallId))].sort((a, b) => {
 			const aa = observations.filter((o) => o.sourceCallId === a).map((o) => o.observedAt).sort()[0] ?? "";
 			const bb = observations.filter((o) => o.sourceCallId === b).map((o) => o.observedAt).sort()[0] ?? "";

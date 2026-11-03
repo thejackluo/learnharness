@@ -14,6 +14,7 @@ process.env.LH_AUTH_FILE = path.join(dir, "auth.json");
 process.env.LH_RUNTIME = "local";
 const { draftSubjectMap, refineSubjectMap, MapDraftValidationError } = await import("../src/server/map-drafts.ts");
 const { handleMapDraftRequest } = await import("../src/server/map-draft-http.ts");
+const { readSyllabusUpload } = await import("../src/server/syllabus-upload.ts");
 const createRoute = await import("../app/api/subject-maps/drafts/route.ts");
 const refineRoute = await import("../app/api/subject-maps/[id]/drafts/route.ts");
 test.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -165,7 +166,22 @@ test("local PDF upload extracts all pages through pdf-ops", async () => {
 	const form = new FormData(); form.set("files", new File([pdf], "course.pdf"));
 	const response = await handleMapDraftRequest(new Request("http://localhost/api/subject-maps/drafts", { method: "POST", body: form }), undefined, engine(valid));
 	assert.equal(response.status, 200);
-	assert.equal((await response.json()).draft.skills[0].source.kind, "syllabus");
+	assert.deepEqual((await response.json()).draft.skills[0].source, { kind: "syllabus", sourceName: "course.pdf", quote: "Compute force" });
+});
+
+test("shared syllabus reader keeps hosted uploads capped and refuses hosted PDFs", async () => {
+	const oversized = new Request("http://localhost/upload", {
+		method: "POST",
+		headers: { "content-type": "multipart/form-data; boundary=x", "content-length": String(2 * 1024 * 1024) },
+		body: "--x--",
+	});
+	const capped = await readSyllabusUpload(oversized, true);
+	assert.equal(capped.ok, false);
+	if (!capped.ok) assert.equal(capped.status, 413);
+	const form = new FormData();
+	form.set("files", new File(["%PDF"], "course.pdf"));
+	const hostedPdf = await readSyllabusUpload(new Request("http://localhost/upload", { method: "POST", body: form }), true);
+	assert.equal(hostedPdf.ok, false);
 });
 
 test("refinement without a syllabus keeps previously recorded syllabus provenance but downgrades new or altered quotes", async () => {

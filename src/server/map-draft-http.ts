@@ -1,11 +1,7 @@
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { pdfInfo, pdfExtract } from "../agent/subagents/pdf-ops.ts";
 import { ModelsNotConfiguredError, ProviderKeyMissingError } from "../core/settings.ts";
 import { draftSubjectMap, refineSubjectMap, MapDraftNotFoundError, MapDraftValidationError, type MapDraftDeps, type MapDraftInput, type MapRefineInput } from "./map-drafts.ts";
-import { readHostedImportRequest } from "./hosted-import.ts";
 import { runtimeMode } from "./runtime.ts";
+import { readSyllabusUpload } from "./syllabus-upload.ts";
 import { subjectMapJson } from "./subject-maps.ts";
 
 class InputError extends Error {
@@ -32,38 +28,11 @@ async function parseRequest(request: Request, refine: boolean): Promise<MapDraft
 	let value: unknown;
 	if (request.headers.get("content-type")?.includes("multipart/form-data")) {
 		const replay = () => new Request(request.url, { method: "POST", headers: request.headers, body: bytes });
-		let uploaded: { name: string; text: string } | undefined;
-		if (runtimeMode() === "hosted") {
-			const result = await readHostedImportRequest(replay());
-			if (!result.ok) throw new InputError(result.error, result.status);
-			if (result.files.length > 1) throw new InputError("Upload one syllabus file.");
-			uploaded = result.files[0];
-		}
-		let form: FormData;
-		try { form = await replay().formData(); } catch { throw new InputError("Invalid multipart body."); }
-		const files = form.getAll("files").filter((part): part is File => part instanceof File);
-		if (files.length > 1) throw new InputError("Upload one syllabus file.");
-		if (runtimeMode() !== "hosted" && files[0]) {
-			const file = files[0];
-			if (file.size > 1024 * 1024) throw new InputError("Syllabus file too large.", 413);
-			if (/\.pdf$/i.test(file.name)) {
-				const dir = await mkdtemp(path.join(tmpdir(), "lh-map-syllabus-"));
-				try {
-					const filename = path.join(dir, "syllabus.pdf");
-					await writeFile(filename, new Uint8Array(await file.arrayBuffer()));
-					await pdfInfo(filename);
-					uploaded = { name: file.name, text: await pdfExtract(filename, "all") };
-				} catch { throw new InputError("Unable to read syllabus PDF."); }
-				finally { await rm(dir, { recursive: true, force: true }); }
-			} else {
-				const result = await readHostedImportRequest(replay());
-				if (!result.ok) throw new InputError(result.error, result.status);
-				uploaded = result.files[0];
-			}
-		}
-		const pasted = form.get("syllabusText");
-		value = { goal: form.get("goal") ?? undefined, framework: form.get("framework") ?? undefined, instruction: form.get("instruction") ?? undefined,
-			syllabus: uploaded ?? (typeof pasted === "string" && pasted.trim() ? { name: form.get("syllabusName") || "Pasted syllabus", text: pasted } : undefined) };
+		const uploaded = await readSyllabusUpload(replay(), runtimeMode() === "hosted");
+		if (!uploaded.ok) throw new InputError(uploaded.error, uploaded.status);
+		const pasted = uploaded.form.get("syllabusText");
+		value = { goal: uploaded.form.get("goal") ?? undefined, framework: uploaded.form.get("framework") ?? undefined, instruction: uploaded.form.get("instruction") ?? undefined,
+			syllabus: uploaded.file ?? (typeof pasted === "string" && pasted.trim() ? { name: uploaded.form.get("syllabusName") || "Pasted syllabus", text: pasted } : undefined) };
 	} else {
 		try { value = JSON.parse(bytes.toString("utf8")); } catch { throw new InputError("Invalid JSON body."); }
 	}

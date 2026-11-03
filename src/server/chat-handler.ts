@@ -436,9 +436,9 @@ export async function handleChatInput(
 	} catch (error) {
 		console.error(`[chat ${chatId}] placement advancement failed:`, error);
 	}
-	record = stores.chatStore.getChat(chatId) ?? record;
-	const sessionTarget = sessionTargetState(record);
-	const suggestFamiliarity = record.target || record.placement
+	const targeting = stores.chatStore.getChat(chatId) ?? record;
+	const sessionTarget = sessionTargetState(targeting);
+	const suggestFamiliarity = targeting.target || targeting.placement
 		? (input: { skillId: string; quote: string }) => suggestFamiliarityFromChat(chatId, input)
 		: undefined;
 	const agentOpts: AgentBuildOptions = {
@@ -446,7 +446,7 @@ export async function handleChatInput(
 		callPurpose,
 		requestCycle,
 		messages: asAgentMessages(agentMessages),
-		learnerContext: [learnerContextFor(chatId), targetContextFor(record), placementContextFor(record)].filter((part): part is string => !!part).join("\n\n") || undefined,
+		learnerContext: [learnerContextFor(chatId), targetContextFor(targeting), placementContextFor(targeting)].filter((part): part is string => !!part).join("\n\n") || undefined,
 		onUsage: collectUsage,
 		toolToggles: effective.agent.tools,
 		assessmentMode: effective.agent.assessmentMode,

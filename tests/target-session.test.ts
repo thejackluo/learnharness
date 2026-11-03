@@ -9,7 +9,7 @@ const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "lh-target-session-"));
 process.env.LH_DATA_DIR = DATA_DIR;
 process.env.OPENROUTER_API_KEY ??= "test-target-key-presence-gate";
 
-const [{ stores }, chatsRoute, targetRoute, { handleChatRequest }, { createTeacherAgent, composeInstructions }, turnRuns, targets, maps, tools, attribution, segments] = await Promise.all([
+const [{ stores }, chatsRoute, targetRoute, { handleChatRequest }, { createTeacherAgent, composeInstructions }, turnRuns, targets, maps, tools, attribution, segments, familiarity] = await Promise.all([
 	import("../src/server/stores.ts"),
 	import("../app/api/chats/route.ts"),
 	import("../app/api/chats/[id]/target/route.ts"),
@@ -21,6 +21,7 @@ const [{ stores }, chatsRoute, targetRoute, { handleChatRequest }, { createTeach
 	import("../src/agent/tools.ts"),
 	import("../src/agent/tools/target-attribution.ts"),
 	import("../src/agent/prompt-segments.ts"),
+	import("../src/server/familiarity.ts"),
 ]);
 const { ADAPTIVE_DOCTRINE_SEGMENTS } = await import("../src/core/prompt-segments.ts");
 
@@ -95,6 +96,99 @@ test("session creation validates the target at the revision the learner saw", as
 	const view = await targetRoute.GET(new Request("http://localhost"), { params: Promise.resolve({ id: plain }) });
 	assert.equal(view.headers.get("Cache-Control"), "private, no-store");
 	assert.deepEqual(await view.json(), { view: null });
+	const practicePlacement = await createSession({ title: "Practice placement", kind: "practice", placement: { mapId: map.id } });
+	assert.equal(practicePlacement.status, 400);
+	assert.equal((await practicePlacement.json() as { code: string }).code, "invalid_placement");
+	const validPlacement = await createSession({ title: "Placement", placement: { mapId: map.id } });
+	assert.equal(validPlacement.status, 200);
+	const placementChat = await validPlacement.json() as { id: string; placement: { mapId: string } };
+	assert.equal(stores.chatStore.getChat(placementChat.id)?.placement?.mapId, map.id);
+	const targetAndPlacement = await createSession({ title: "Both", target: threads, placement: { mapId: map.id } });
+	assert.equal(targetAndPlacement.status, 400);
+	assert.equal((await targetAndPlacement.json() as { code: string }).code, "invalid_placement");
+	const malformedPlacement = await createSession({ title: "Bad map id", placement: { mapId: "bad" } });
+	assert.equal(malformedPlacement.status, 400);
+	const missingPlacementMap = await createSession({ title: "Missing map", placement: { mapId: "map_00000000-0000-4000-8000-00000000dead" } });
+	assert.equal(missingPlacementMap.status, 404);
+	const fullyKnownMap = stores.subjectMapStore.create({
+		title: "Known map", description: "Synthetic",
+		skills: [{ id: "known", title: "Known", objective: "Known skill", revision: 1 }],
+		edges: [], goals: ["known"], retired: [],
+	});
+	const profileRead = stores.learnerProfileStore.read();
+	assert.ok(profileRead.state === "ok" || profileRead.state === "absent");
+	const profile = profileRead.profile;
+	stores.learnerProfileStore.replace({
+		background: profile.background,
+		coursework: profile.coursework,
+		topics: profile.topics,
+		excerpts: profile.excerpts,
+		associations: profile.associations,
+		suggestions: [...(profile.suggestions ?? []), {
+			id: "confirmed-known",
+			mapId: fullyKnownMap.id,
+			skillId: "known",
+			skillRevision: 1,
+			reason: { kind: "import", sourceName: "synthetic.txt", quote: "Known skill" },
+			status: "confirmed",
+			createdAt: new Date().toISOString(),
+			decidedAt: new Date().toISOString(),
+		}],
+	}, profile.revision);
+	const nothingToProbe = await createSession({ title: "Nothing", placement: { mapId: fullyKnownMap.id } });
+	assert.equal(nothingToProbe.status, 409);
+	assert.equal((await nothingToProbe.json() as { code: string }).code, "placement_nothing_to_probe");
+});
+
+test("conversation familiarity accepts the latest plain-string learner quote and rejects tutor text", async () => {
+	const chat = await sessionWith({ title: "Conversation quote", target: threads }, []);
+	stores.chatStore.saveMessages(chat, [
+		{ id: "learner-earlier", role: "user", content: "I remember how threads work." },
+		{ id: "tutor", role: "assistant", content: "You said you remember how threads work." },
+		{ id: "learner-latest", role: "user", content: "I remember\n how threads work." },
+	] as never);
+	const result = await familiarity.suggestFamiliarityFromChat(chat, { skillId: "threads", quote: "I remember how threads work." });
+	assert.equal((result.details as { suggested?: boolean }).suggested, true);
+	const profile = stores.learnerProfileStore.read();
+	assert.equal(profile.state, "ok");
+	if (profile.state === "ok") {
+		const suggestion = profile.profile.suggestions?.at(-1);
+		assert.equal(suggestion?.reason.kind, "conversation");
+		if (suggestion?.reason.kind === "conversation") assert.equal(suggestion.reason.messageId, "learner-latest");
+	}
+	stores.chatStore.saveMessages(chat, [{ id: "tutor-only", role: "assistant", content: "The tutor mentioned this phrase." }] as never);
+	const rejected = await familiarity.suggestFamiliarityFromChat(chat, { skillId: "threads", quote: "mentioned this phrase" });
+	assert.equal("isError" in rejected && rejected.isError === true, true);
+	stores.chatStore.saveMessages(chat, [{ id: "invalid-skill", role: "user", content: [{ type: "text", text: "I remember algebra." }] }] as never);
+	const invalidSkill = await familiarity.suggestFamiliarityFromChat(chat, { skillId: "not-in-map", quote: "algebra" });
+	assert.equal((invalidSkill.details as { problems: string[] }).problems[0], "skillId must be a current skill of this session's map");
+	const badQuote = await familiarity.suggestFamiliarityFromChat(chat, { skillId: "threads", quote: "not verbatim" });
+	assert.equal((badQuote.details as { problems: string[] }).problems[0], "quote must appear verbatim in one of the learner's own messages");
+});
+
+test("familiarity tool is gated to teacher/prober callbacks and absent from practice", async () => {
+	const chatId = await sessionWith({ title: "Tool registry" }, []);
+	const callback = () => ({ content: [{ type: "text" as const, text: "accepted" }], details: {} });
+	const ctx = {
+		chatId,
+		chatStore: stores.chatStore,
+		jobStore: {} as never,
+		spawn: () => {},
+		deliver: () => {},
+		suggestFamiliarity: callback,
+	};
+	assert.ok(tools.createTeacherTools(ctx).suggest_familiarity);
+	assert.ok(tools.createProberTools(ctx).suggest_familiarity);
+	assert.equal(tools.createTeacherTools({ ...ctx, suggestFamiliarity: undefined }).suggest_familiarity, undefined);
+	assert.equal(tools.createProberTools({ ...ctx, suggestFamiliarity: undefined }).suggest_familiarity, undefined);
+	const { practiceTools } = await import("../src/agent/tools/practice.ts");
+	assert.equal(practiceTools({ chatId, chatStore: stores.chatStore }).suggest_familiarity, undefined);
+	const invalid = await tools.createTeacherTools(ctx).suggest_familiarity!.execute("invalid", { skillId: "threads", quote: "" });
+	assert.equal(invalid.isError, true);
+	assert.deepEqual((invalid.details as { tool: string; problems: string[] }), {
+		tool: "suggest_familiarity",
+		problems: ["skillId and a quote of at most 500 characters are required."],
+	});
 });
 
 test("two sessions for one target: hinted versus unaided success change the advice, isolated from other targets", async () => {

@@ -194,6 +194,7 @@ describe("the source-derived segment list", () => {
 				"shared/20-question-tools.md",
 				"shared/25-confidence.md",
 				"shared/26-target-evidence.md",
+				"shared/27-familiarity.md",
 				"shared/30-learner-files.md",
 				"shared/40-formatting.md",
 			],
@@ -210,6 +211,8 @@ describe("the source-derived segment list", () => {
 		// the shared fragments compose for BOTH agents, same path key.
 		assert.equal(teacher.some((s) => s.path === "shared/30-learner-files.md" && s.shared), true);
 		assert.equal(prober.some((s) => s.path === "shared/30-learner-files.md" && s.shared), true);
+		assert.equal(teacher.some((s) => s.path === "shared/27-familiarity.md" && s.shared), true);
+		assert.equal(prober.some((s) => s.path === "shared/27-familiarity.md" && s.shared), true);
 		// Voice + accuracy moved BACK to shared/ fragments (owner round 13,
 		// 2026-10-05): one law across every agent — including practice, whose
 		// near-copy had drifted stale ("You have no research tool here").
