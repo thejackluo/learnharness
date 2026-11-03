@@ -14,6 +14,9 @@ export const SUBJECT_MAP_LIMITS = {
 	maps: 100,
 	skills: 500,
 	regions: 50,
+	alternatives: 500,
+	alternativeOptionsMin: 2,
+	alternativeOptionsMax: 8,
 	quoteChars: 500,
 	reasonChars: 500,
 	edges: 2000,
@@ -49,12 +52,18 @@ export interface SubjectSkill {
 	revision: number;
 	regionId?: string;
 	source?: SkillSource;
+	keystone?: true;
 }
 
 /** `prerequisite` must be learned before `dependent`. */
 export interface SubjectEdge {
 	prerequisite: string;
 	dependent: string;
+}
+
+export interface SubjectAlternative {
+	dependent: string;
+	options: string[];
 }
 
 /** Tombstone for a removed skill id: blocks reuse and keeps old links resolvable as retired. */
@@ -89,6 +98,7 @@ export interface SubjectMapDefinition {
 	description: string;
 	skills: SubjectSkill[];
 	edges: SubjectEdge[];
+	alternatives?: SubjectAlternative[];
 	goals: string[];
 	retired: RetiredSubjectSkill[];
 }
@@ -129,6 +139,7 @@ export interface PortableSubjectMapV1 {
 	description: string;
 	skills: SubjectSkill[];
 	edges: SubjectEdge[];
+	alternatives?: SubjectAlternative[];
 	goals: string[];
 	retired: { id: string; revision: number; title: string }[];
 }

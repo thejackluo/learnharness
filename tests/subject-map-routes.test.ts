@@ -372,10 +372,11 @@ test("explicit evidence links resolve the current skill revision, survive object
 	assert.equal(stores.graphStore.readNodes().length, graphBefore, "no graph mutation");
 });
 
-test("skill links preserve regions and remain readable after linking and unlinking", async () => {
+test("skill links preserve regions, keystones and alternative routes after linking and unlinking", async () => {
 	const regions = [{ id: "os", title: "OS", description: "Operating systems" }];
-	const definition = curriculum({ regions });
-	definition.skills = definition.skills.map((skill) => ({ ...skill, regionId: "os" }));
+	const alternatives = [{ dependent: "scheduling", options: ["processes", "unrelated"] }];
+	const definition = curriculum({ regions, alternatives });
+	definition.skills = definition.skills.map((skill) => ({ ...skill, regionId: "os", ...(skill.id === "processes" ? { keystone: true } : {}) }));
 	const imported = await importRoute.POST(request("POST", definition));
 	assert.equal(imported.status, 201);
 	const { map } = await json(imported);
@@ -391,6 +392,8 @@ test("skill links preserve regions and remain readable after linking and unlinki
 		assert.ok(read.state === "ok");
 		assert.deepEqual(read.map.regions, regions);
 		assert.equal(read.map.skills[0]!.regionId, "os");
+		assert.equal(read.map.skills[0]!.keystone, true);
+		assert.deepEqual(read.map.alternatives, alternatives);
 		assert.equal(read.map.links.propositions.length, method === "POST" ? 1 : 0);
 	}
 });

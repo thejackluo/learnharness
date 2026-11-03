@@ -18,8 +18,9 @@ export const mapDraftSchema = Type.Object({
 	format: Type.Literal("learnharness.subject-map"), version: Type.Literal(1),
 	title: text, description: text,
 	regions: Type.Optional(Type.Array(Type.Object({ id: text, title: text, description: text }))),
-	skills: Type.Array(Type.Object({ id: text, title: text, objective: text, revision: Type.Integer({ minimum: 1 }), regionId: Type.Optional(text), source: Type.Optional(source) })),
+	skills: Type.Array(Type.Object({ id: text, title: text, objective: text, revision: Type.Integer({ minimum: 1 }), regionId: Type.Optional(text), source: Type.Optional(source), keystone: Type.Optional(Type.Literal(true)) })),
 	edges: Type.Array(Type.Object({ prerequisite: text, dependent: text })),
+	alternatives: Type.Optional(Type.Array(Type.Object({ dependent: text, options: Type.Array(text) }))),
 	goals: Type.Array(text),
 	retired: Type.Array(Type.Object({ id: text, title: text, revision: Type.Integer({ minimum: 1 }) })),
 });

@@ -119,6 +119,7 @@ function skillProblems(skills: unknown, issues: string[], requireRevision: boole
 		if (!nonEmptyText(skill.title, SUBJECT_MAP_LIMITS.titleChars)) issues.push(`${label} title must be non-empty and at most ${SUBJECT_MAP_LIMITS.titleChars} characters`);
 		if (!nonEmptyText(skill.objective, SUBJECT_MAP_LIMITS.objectiveChars)) issues.push(`${label} objective must be non-empty and at most ${SUBJECT_MAP_LIMITS.objectiveChars} characters`);
 		if (skill.source !== undefined && !validSkillSource(skill.source)) issues.push(`${label} source is invalid`);
+		if (skill.keystone !== undefined && skill.keystone !== true) issues.push(`${label} keystone must be true when present`);
 		if (requireRevision || skill.revision !== undefined) {
 			if (!Number.isInteger(skill.revision) || (skill.revision as number) < 1) issues.push(`${label} revision must be a positive integer`);
 		}
@@ -181,6 +182,39 @@ function edgeProblems(edges: unknown, skillIds: Set<string>, issues: string[]): 
 	});
 }
 
+function alternativeProblems(alternatives: unknown, skillIds: Set<string>, issues: string[]): void {
+	if (!Array.isArray(alternatives) || alternatives.length > SUBJECT_MAP_LIMITS.alternatives) {
+		issues.push(`alternatives must be an array of at most ${SUBJECT_MAP_LIMITS.alternatives} items`);
+		return;
+	}
+	const seen = new Set<string>();
+	alternatives.forEach((alternative, index) => {
+		const label = `alternative group ${index + 1}`;
+		if (!isRecord(alternative) || typeof alternative.dependent !== "string" || !Array.isArray(alternative.options)) {
+			issues.push(`${label} must have a string dependent and an options array`);
+			return;
+		}
+		if (!skillIds.has(alternative.dependent)) issues.push(`${label} references unknown dependent ${alternative.dependent}`);
+		if (alternative.options.length < SUBJECT_MAP_LIMITS.alternativeOptionsMin || alternative.options.length > SUBJECT_MAP_LIMITS.alternativeOptionsMax) {
+			issues.push(`${label} options must contain ${SUBJECT_MAP_LIMITS.alternativeOptionsMin}–${SUBJECT_MAP_LIMITS.alternativeOptionsMax} skill ids`);
+		}
+		const options = new Set<string>();
+		for (const option of alternative.options) {
+			if (typeof option !== "string") {
+				issues.push(`${label} options must be string skill ids`);
+				continue;
+			}
+			if (!skillIds.has(option)) issues.push(`${label} references unknown option ${option}`);
+			if (options.has(option)) issues.push(`${label} has duplicate option ${option}`);
+			options.add(option);
+			if (option === alternative.dependent) issues.push(`${label} dependent cannot be one of its options`);
+		}
+		const key = JSON.stringify([alternative.dependent, [...options].sort()]);
+		if (seen.has(key)) issues.push(`duplicate alternative group for ${alternative.dependent}`);
+		seen.add(key);
+	});
+}
+
 function goalProblems(goals: unknown, skillIds: Set<string>, issues: string[]): void {
 	if (!Array.isArray(goals) || goals.length > SUBJECT_MAP_LIMITS.skills) {
 		issues.push(`goals must be an array of at most ${SUBJECT_MAP_LIMITS.skills} skill ids`);
@@ -232,10 +266,15 @@ export function subjectMapDefinitionProblems(
 	regionProblems(input, issues);
 	const idSet = new Set(ids);
 	edgeProblems(input.edges, idSet, issues);
+	if (input.alternatives !== undefined) alternativeProblems(input.alternatives, idSet, issues);
 	goalProblems(input.goals, idSet, issues);
 	retiredProblems(input.retired, idSet, issues, opts.requireRetiredDates ?? false);
 	if (!issues.length) {
-		const cycle = findPrerequisiteCycle(ids, input.edges as SubjectEdge[]);
+		const alternatives = (input.alternatives ?? []) as { dependent: string; options: string[] }[];
+		const cycle = findPrerequisiteCycle(ids, [
+			...(input.edges as SubjectEdge[]),
+			...alternatives.flatMap((group) => group.options.map((option) => ({ prerequisite: option, dependent: group.dependent }))),
+		]);
 		if (cycle) issues.push(`prerequisite cycle: ${cycle.join(" → ")}`);
 	}
 	return [...new Set(issues)];
@@ -289,6 +328,7 @@ function pickSkill(value: Record<string, unknown>, revision: number): SubjectSki
 		revision,
 		...(value.regionId === undefined ? {} : { regionId: value.regionId as string }),
 		...(value.source === undefined ? {} : { source: { ...(value.source as SkillSource) } }),
+		...(value.keystone === true ? { keystone: true } : {}),
 	};
 }
 
@@ -297,6 +337,12 @@ function pickEdges(edges: unknown[]): SubjectEdge[] {
 		const record = edge as Record<string, unknown>;
 		return { prerequisite: record.prerequisite as string, dependent: record.dependent as string };
 	});
+}
+
+function pickAlternatives(input: Record<string, unknown>): { alternatives?: { dependent: string; options: string[] }[] } {
+	return input.alternatives === undefined
+		? {}
+		: { alternatives: (input.alternatives as { dependent: string; options: string[] }[]).map(({ dependent, options }) => ({ dependent, options: [...options] })) };
 }
 
 export type SubjectMapDefinitionResult =
@@ -318,6 +364,7 @@ export function reviseSubjectMapDefinition(
 	const priorRetired = previous?.retired ?? [];
 	const candidate = {
 		...(input.regions === undefined ? {} : { regions: input.regions }),
+		...(input.alternatives === undefined ? {} : { alternatives: input.alternatives }),
 		title: input.title,
 		description: input.description ?? "",
 		skills: input.skills,
@@ -352,6 +399,7 @@ export function reviseSubjectMapDefinition(
 			description: candidate.description as string,
 			skills,
 			edges: pickEdges(candidate.edges as unknown[]),
+			...pickAlternatives(candidate),
 			goals: [...(candidate.goals as string[])],
 			retired,
 		},
@@ -377,6 +425,7 @@ export function portableSubjectMap(map: SubjectMapDefinition): PortableSubjectMa
 		description: map.description,
 		skills: map.skills.map((skill) => pickSkill(skill as unknown as Record<string, unknown>, skill.revision)),
 		edges: map.edges.map(({ prerequisite, dependent }) => ({ prerequisite, dependent })),
+		...pickAlternatives(map as unknown as Record<string, unknown>),
 		goals: [...map.goals],
 		retired: map.retired.map(({ id, revision, title }) => ({ id, revision, title })),
 	};
@@ -397,6 +446,7 @@ export function parsePortableSubjectMap(value: unknown, now: string): SubjectMap
 	if (jsonDepthExceeds(value, SUBJECT_MAP_LIMITS.jsonDepth)) return { ok: false, issues: ["curriculum is nested too deeply"] };
 	const candidate = {
 		...(value.regions === undefined ? {} : { regions: value.regions }),
+		...(value.alternatives === undefined ? {} : { alternatives: value.alternatives }),
 		title: value.title,
 		description: value.description ?? "",
 		skills: value.skills,
@@ -414,6 +464,7 @@ export function parsePortableSubjectMap(value: unknown, now: string): SubjectMap
 			description: candidate.description as string,
 			skills: (candidate.skills as Record<string, unknown>[]).map((raw) => pickSkill(raw, raw.revision as number)),
 			edges: pickEdges(candidate.edges as unknown[]),
+			...pickAlternatives(candidate),
 			goals: [...(candidate.goals as string[])],
 			retired: (candidate.retired as Record<string, unknown>[]).map((raw) => ({
 				id: raw.id as string,

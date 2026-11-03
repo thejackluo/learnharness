@@ -68,6 +68,37 @@ test("one repair call lists invalid references, accumulates usage, and returns v
 	assert.match(fake.prompts[1]!, /goal missing is not a skill/);
 });
 
+test("draft responses preserve keystones and alternative routes and repair alternative cycles", async () => {
+	const pathwaysDraft: PortableSubjectMapV1 = {
+		...valid,
+		skills: [
+			{ id: "a", title: "A", objective: "Explain A", revision: 1, keystone: true },
+			{ id: "b", title: "B", objective: "Explain B", revision: 1 },
+			{ id: "c", title: "C", objective: "Explain C", revision: 1 },
+		],
+		edges: [],
+		alternatives: [{ dependent: "b", options: ["a", "c"] }],
+		goals: ["b"],
+	};
+	const response = await handleMapDraftRequest(request({ goal: "Physics" }), undefined, engine(pathwaysDraft));
+	assert.equal(response.status, 200);
+	const body = await response.json() as { draft: PortableSubjectMapV1 };
+	assert.equal(body.draft.skills[0]?.keystone, true);
+	assert.deepEqual(body.draft.alternatives, pathwaysDraft.alternatives);
+
+	const cycle: PortableSubjectMapV1 = {
+		...pathwaysDraft,
+		edges: [{ prerequisite: "a", dependent: "b" }],
+		alternatives: [{ dependent: "a", options: ["b", "c"] }],
+		goals: ["a"],
+	};
+	const fake = engine(cycle, pathwaysDraft);
+	const repaired = await draftSubjectMap({ goal: "Physics" }, fake);
+	assert.equal(fake.calls(), 2);
+	assert.match(fake.prompts[1]!, /prerequisite cycle/);
+	assert.deepEqual(repaired.draft.alternatives, pathwaysDraft.alternatives);
+});
+
 test("two invalid drafts produce a typed failure and HTTP 422 with issues", async () => {
 	const invalid = { ...valid, goals: ["missing"] };
 	await assert.rejects(draftSubjectMap({ goal: "Physics" }, engine(invalid, invalid)), MapDraftValidationError);

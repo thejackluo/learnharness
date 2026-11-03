@@ -205,6 +205,7 @@ function definitionOf(map: SubjectMapV1) {
 		...(map.regions === undefined ? {} : { regions: map.regions }),
 		skills: map.skills,
 		edges: map.edges,
+		...(map.alternatives === undefined ? {} : { alternatives: map.alternatives }),
 		goals: map.goals,
 		retired: map.retired,
 	};

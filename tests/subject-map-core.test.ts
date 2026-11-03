@@ -147,6 +147,58 @@ test("portable export round-trips and never carries learner links", () => {
 	assert.equal(parsePortableSubjectMap({ ...exported, format: "other" }, NOW).ok, false);
 });
 
+test("keystone and alternative routes validate, participate in cycles, round-trip, and do not bump objectives", () => {
+	const base = definition(["a", "b", "c"], []);
+	const group = { dependent: "b", options: ["a", "c"] };
+	assert.ok(subjectMapDefinitionProblems({ ...base, skills: [{ ...skill("a"), keystone: false }, skill("b"), skill("c")] }, { requireRevisions: false }).some((issue) => /skill 1 keystone must be true when present/.test(issue)));
+	for (const alternatives of [
+		[{ dependent: "missing", options: ["a", "c"] }],
+		[{ dependent: "b", options: ["a", "missing"] }],
+		[{ dependent: "b", options: ["a"] }],
+		[{ dependent: "b", options: Array.from({ length: 9 }, (_, index) => `a${index}`) }],
+		[{ dependent: "b", options: ["a", "a"] }],
+		[{ dependent: "b", options: ["a", "b"] }],
+		[{ dependent: "b", options: ["a", "c"] }, { dependent: "b", options: ["c", "a"] }],
+		Array.from({ length: 501 }, () => group),
+	]) {
+		assert.ok(subjectMapDefinitionProblems({ ...base, alternatives }, { requireRevisions: false }).length > 0);
+	}
+	const cycle = subjectMapDefinitionProblems({
+		...base,
+		edges: [{ prerequisite: "a", dependent: "b" }],
+		alternatives: [{ dependent: "a", options: ["b", "c"] }],
+	}, { requireRevisions: false });
+	assert.ok(cycle.some((issue) => /prerequisite cycle/.test(issue)));
+
+	const withPathways = {
+		...base,
+		skills: [{ ...skill("a"), keystone: true as const }, skill("b"), skill("c")],
+		alternatives: [group],
+	};
+	const first = reviseSubjectMapDefinition(null, withPathways, NOW);
+	assert.ok(first.ok);
+	const exported = portableSubjectMap(first.definition);
+	assert.equal(exported.skills[0]?.keystone, true);
+	assert.deepEqual(exported.alternatives, [group]);
+	const imported = parsePortableSubjectMap(exported, NOW);
+	assert.ok(imported.ok);
+	assert.deepEqual(portableSubjectMap(imported.definition), exported);
+
+	const edited = reviseSubjectMapDefinition(first.definition, {
+		...withPathways,
+		skills: [{ ...skill("a"), keystone: undefined }, skill("b"), skill("c")],
+		alternatives: [{ dependent: "b", options: ["c", "a"] }],
+	}, NOW);
+	assert.ok(edited.ok);
+	assert.deepEqual(edited.definition.skills.map((item) => item.revision), [1, 1, 1]);
+	assert.equal(Object.hasOwn(edited.definition.skills[0]!, "keystone"), false);
+	assert.equal(Object.hasOwn(edited.definition, "alternatives"), true);
+	const withoutFields = parsePortableSubjectMap({ format: "learnharness.subject-map", version: 1, ...base }, NOW);
+	assert.ok(withoutFields.ok);
+	assert.equal(Object.hasOwn(withoutFields.definition, "alternatives"), false);
+	assert.equal(Object.hasOwn(portableSubjectMap(withoutFields.definition), "alternatives"), false);
+});
+
 test("evidence polarity keeps deterministic, model-judged, practice and legacy work distinct", () => {
 	assert.equal(evidencePolarity(observation("1", {})), "supports");
 	assert.equal(evidencePolarity(observation("2", { outcome: "dontKnow" })), "against");
