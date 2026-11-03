@@ -54,6 +54,7 @@ import { settledTurnResponse } from "./turn-runs.ts";
 import { asAgentMessages } from "../core/native-messages.ts";
 import { learnerContextFor } from "./learner.ts";
 import { sessionTargetState, targetContextFor } from "./target-adaptation.ts";
+import { advancePlacement, placementContextFor, suggestFamiliarityFromChat } from "./familiarity.ts";
 import {
 	ChatInputError,
 	inputAppends,
@@ -308,8 +309,8 @@ export async function handleChatInput(
 	try {
 		appends =
 			input.type === "steers"
-				? input.steers.filter((s) => !steerDelivered(record.messages, s.id))
-				: inputAppends(record, input);
+				? input.steers.filter((s) => !steerDelivered(compactedRecord.messages, s.id))
+				: inputAppends(compactedRecord, input);
 	} catch (err) {
 		if (err instanceof ChatInputError) {
 			return Response.json({ error: err.message }, { status: 400 });
@@ -430,13 +431,22 @@ export async function handleChatInput(
 		restoreAutomatic: (automaticIds, retainedIds) => restoreUncommittedAutomatic(chatId, constructed, automaticIds, retainedIds),
 	});
 	// The chosen target's standing gates `onTarget` claims for this turn.
+	try {
+		advancePlacement(chatId);
+	} catch (error) {
+		console.error(`[chat ${chatId}] placement advancement failed:`, error);
+	}
+	record = stores.chatStore.getChat(chatId) ?? record;
 	const sessionTarget = sessionTargetState(record);
+	const suggestFamiliarity = record.target || record.placement
+		? (input: { skillId: string; quote: string }) => suggestFamiliarityFromChat(chatId, input)
+		: undefined;
 	const agentOpts: AgentBuildOptions = {
 		engine,
 		callPurpose,
 		requestCycle,
 		messages: asAgentMessages(agentMessages),
-		learnerContext: [learnerContextFor(chatId), targetContextFor(record)].filter((part): part is string => !!part).join("\n\n") || undefined,
+		learnerContext: [learnerContextFor(chatId), targetContextFor(record), placementContextFor(record)].filter((part): part is string => !!part).join("\n\n") || undefined,
 		onUsage: collectUsage,
 		toolToggles: effective.agent.tools,
 		assessmentMode: effective.agent.assessmentMode,
@@ -491,6 +501,7 @@ export async function handleChatInput(
 						// = no research tool in the teacher's registry.
 						searchAvailable,
 						sessionTarget,
+						...(suggestFamiliarity ? { suggestFamiliarity } : {}),
 					},
 					agentOpts,
 				)
@@ -510,6 +521,7 @@ export async function handleChatInput(
 						// graph master switch AND the agent.graphTools toggle.
 						...(graphToolsEnabled(effective) ? { graphStore: stores.graphStore } : {}),
 						sessionTarget,
+						...(suggestFamiliarity ? { suggestFamiliarity } : {}),
 					},
 					agentOpts,
 				);
@@ -579,6 +591,11 @@ export async function handleChatInput(
 				// Wave B: append only messages past the temporary agent prefix.
 				// Retry's saved record still includes its earlier failed attempts.
 				const stamped = persistTurn(stores.chatStore, chatId, persistBaseCount, turnMessages, isAborted);
+				try {
+					advancePlacement(chatId);
+				} catch (error) {
+					console.error(`[chat ${chatId}] placement advancement failed:`, error);
+				}
 				noteSteersDurable(chatId, stores.chatStore.getChat(chatId)?.messages ?? stamped);
 				// usage log append (idempotent per turn id) — the stats bar
 				// refolds this on the client after the turn settles. The

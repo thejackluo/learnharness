@@ -349,11 +349,13 @@ describe("sectionedSegments — the prompts overhaul (2026-09-26)", () => {
 		assert.deepEqual(ids, ["teacher", "prober", "shared"]);
 	});
 
-	it("map drafter fragments have their own section before shared", () => {
+	it("map drafter and familiarity fragments have their own sections before shared", () => {
 		const segment = { path: "map-drafter/00-draft.md", sourceText: "Draft", overrideText: null, enabled: false, shared: false };
-		const sections = sectionedSegments({ ...view, mapDrafter: [segment] });
-		assert.deepEqual(sections.map((section) => section.id), ["teacher", "prober", "mapDrafter", "shared"]);
+		const familiarity = { ...segment, path: "familiarity-inferrer/00-infer.md", sourceText: "Infer" };
+		const sections = sectionedSegments({ ...view, mapDrafter: [segment], familiarityInferrer: [familiarity] });
+		assert.deepEqual(sections.map((section) => section.id), ["teacher", "prober", "mapDrafter", "familiarityInferrer", "shared"]);
 		assert.deepEqual(sections[2]!.segments, [segment]);
+		assert.deepEqual(sections[3]!.segments, [familiarity]);
 	});
 
 	it("shared chunks appear exactly ONCE across all sections (no duplication)", () => {

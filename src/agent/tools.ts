@@ -29,6 +29,8 @@ import { findTool } from "./tools/find.ts";
 import { grepTool } from "./tools/grep.ts";
 import { healToolRecord } from "./tools/heal.ts";
 import { withTargetAttribution, type SessionTargetState } from "./tools/target-attribution.ts";
+import { suggestFamiliarityTool } from "./tools/suggest-familiarity.ts";
+import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { GraphStore } from "../core/ports.ts";
 
 export { jobTools };
@@ -287,6 +289,7 @@ export interface ProberToolContext extends ProbeDoneContext {
 	graphStore?: GraphStore;
 	/** The session target's standing this turn; gates `onTarget` claims. Absent = none. */
 	sessionTarget?: SessionTargetState;
+	suggestFamiliarity?: (input: { skillId: string; quote: string }) => AgentToolResult | Promise<AgentToolResult>;
 }
 
 /** The prober's tool set: probe quiz (no nodeId) + ask + the learner-fs
@@ -352,6 +355,7 @@ export function createProberTools(
 				...(ctx.graphStore
 					? proberGraphTools({ chatStore: ctx.chatStore, graphStore: ctx.graphStore })
 					: {}),
+				...(ctx.suggestFamiliarity ? { suggest_familiarity: suggestFamiliarityTool(ctx.suggestFamiliarity) } : {}),
 				...done,
 			},
 				withoutMechanics(enabled),
@@ -415,6 +419,7 @@ export interface TeacherToolContext extends PlanToolContext {
 	searchAvailable?: () => boolean;
 	/** The session target's standing this turn; gates `onTarget` claims. Absent = none. */
 	sessionTarget?: SessionTargetState;
+	suggestFamiliarity?: (input: { skillId: string; quote: string }) => AgentToolResult | Promise<AgentToolResult>;
 }
 
 /**
@@ -482,6 +487,7 @@ export function createTeacherTools(
 			grep: grepTool,
 			...planTools(ctx),
 			...jobTools({ chatId: ctx.chatId, jobStore: ctx.jobStore, spawn: ctx.spawn, searchAvailable: ctx.searchAvailable }),
+			...(ctx.suggestFamiliarity ? { suggest_familiarity: suggestFamiliarityTool(ctx.suggestFamiliarity) } : {}),
 		},
 		withoutMechanics(enabled),
 		),

@@ -87,6 +87,7 @@ export * from "./coverage.ts";
 export * from "./session-markdown.ts";
 export * from "./subject-map.ts";
 export * from "./pathways.ts";
+export * from "./familiarity.ts";
 export * from "./map-draft-review.ts";
 export * from "./activity.ts";
 export * from "./adaptation.ts";

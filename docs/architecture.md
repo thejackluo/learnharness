@@ -42,6 +42,8 @@ Subject maps can also be AI-drafted for explicit owner review. `POST /api/subjec
 
 Subject skills may be marked as keystones for skip-ahead checks, and alternative prerequisite groups mean any one of 2–8 options is sufficient (up to 500 groups; each option counts as a prerequisite edge for cycle validation). Pure `src/core/pathways.ts` derives cleared/open/reachable/locked states from supporting evidence, plans a deterministic unsatisfied route and eligible keystone checks, and lays skills out by longest-path depth in region bands. The map editor defaults to this World view, with a list/editor toggle, a text route mirror, and session launch through the existing target-session flow.
 
+Placement runs probe a deterministic next skill and attribute tutor-marked checks to that probe; successful checks create separate, pending familiarity suggestions for prerequisite closure skills. Imports and learner quotations can also create suggestions, but only an owner decision makes a current suggestion count as likely-known for route planning. Suggestions never create observations, demonstrated evidence, or adaptation advice; placement state is stored on the chat, while suggestion decisions live in the learner profile.
+
 **The unifying law** (generates everything else): **imports point inward; canonical evidence is append-only where applicable; everything recomputable is derived.** The revisioned learner profile is explicit user-authored context, while its transcript observations are derived from canonical chats.
 
 ---

@@ -26,5 +26,6 @@ export async function GET() {
 		prober: effectivePromptSegments("prober", switches),
 		teacher: effectivePromptSegments("teacher", switches),
 		mapDrafter: effectivePromptSegments("map-drafter", switches),
+		familiarityInferrer: effectivePromptSegments("familiarity-inferrer", switches),
 	});
 }

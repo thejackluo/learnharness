@@ -243,6 +243,7 @@ export function attachEvidenceTarget(input: {
 			...profile.associations,
 			{ evidenceId: input.evidenceId, target: input.target, attachedAt: new Date().toISOString() },
 		],
+		suggestions: profile.suggestions,
 	}, input.expectedRevision);
 }
 
@@ -264,6 +265,7 @@ export function detachEvidenceTarget(input: {
 		topics: profile.topics,
 		excerpts: profile.excerpts,
 		associations,
+		suggestions: profile.suggestions,
 	}, input.expectedRevision);
 }
 

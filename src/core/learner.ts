@@ -4,12 +4,14 @@ import type { ChatRecord } from "./contracts/chat.ts";
 import {
 	FAMILIARITY_LEVELS,
 	LEARNER_LIMITS,
+	type FamiliaritySuggestion,
 	type LearnerObservation,
 	type LearnerProfileV1,
 	type ObservationProvenance,
 } from "./contracts/learner.ts";
 import type { LearningTargetRef } from "./contracts/learning-target.ts";
 import type { LhMessage } from "./native-messages.ts";
+import { isSubjectMapId, isSubjectSkillId } from "./subject-map.ts";
 
 export function learnerObservationId(parts: {
 	chatId: string;
@@ -66,7 +68,7 @@ function resultByCall(messages: readonly LhMessage[]): Map<string, ResultMessage
 /** Tool calls the tutor explicitly marked `onTarget` in a session started from a target. */
 function onTargetCalls(record: ChatRecord): Set<string> {
 	const calls = new Set<string>();
-	if (!record.target) return calls;
+	if (!record.target && !record.placement) return calls;
 	for (const message of record.messages) {
 		if (message.role !== "assistant") continue;
 		for (const block of message.content) {
@@ -77,7 +79,12 @@ function onTargetCalls(record: ChatRecord): Set<string> {
 }
 
 function attribution(record: ChatRecord, onTarget: ReadonlySet<string>, callId: string | undefined): { attributedTarget?: LearningTargetRef } {
-	if (!record.target || !callId || !onTarget.has(callId)) return {};
+	if (!callId || !onTarget.has(callId)) return {};
+	const probe = record.placement?.probes.find((item) => item.callIds?.includes(callId));
+	if (probe && record.placement) {
+		return { attributedTarget: { kind: "subject-skill", mapId: record.placement.mapId, skillId: probe.skillId, skillRevision: probe.revision } };
+	}
+	if (!record.target) return {};
 	const { kind, mapId, skillId, skillRevision } = record.target;
 	return { attributedTarget: { kind, mapId, skillId, skillRevision } };
 }
@@ -463,7 +470,47 @@ export function learnerProfileProblems(input: unknown): string[] {
 			}
 		}
 	}
+	if (input.suggestions !== undefined) {
+		if (!Array.isArray(input.suggestions) || input.suggestions.length > LEARNER_LIMITS.suggestions) {
+			issues.push(`suggestions must be an array of at most ${LEARNER_LIMITS.suggestions} items`);
+		} else {
+			const ids = new Set<string>();
+			for (const suggestion of input.suggestions) {
+				if (!isRecord(suggestion)) {
+					issues.push("each suggestion must be an object");
+					continue;
+				}
+				if (!bounded(suggestion.id, 128) || !suggestion.id.trim()) issues.push("suggestion ids must be non-empty bounded strings");
+				else if (ids.has(suggestion.id)) issues.push(`duplicate suggestion id ${suggestion.id}`);
+				else ids.add(suggestion.id);
+				if (!isSubjectMapId(suggestion.mapId)) issues.push("suggestion mapId is invalid");
+				if (!isSubjectSkillId(suggestion.skillId)) issues.push("suggestion skillId is invalid");
+				if (!Number.isInteger(suggestion.skillRevision) || (suggestion.skillRevision as number) < 1) issues.push("suggestion skillRevision must be a positive integer");
+				if (!["pending", "confirmed", "rejected"].includes(String(suggestion.status))) issues.push("suggestion status is invalid");
+				if (!validIsoString(suggestion.createdAt)) issues.push("suggestion createdAt must be an ISO date");
+				if (suggestion.decidedAt !== undefined && !validIsoString(suggestion.decidedAt)) issues.push("suggestion decidedAt must be an ISO date");
+				const reason = suggestion.reason;
+				if (!isRecord(reason)) {
+					issues.push("suggestion reason is invalid");
+				} else if (reason.kind === "placement") {
+					if (!bounded(reason.observationId, 1024) || !reason.observationId) issues.push("placement suggestion observationId is invalid");
+					if (!isSubjectSkillId(reason.viaSkillId)) issues.push("placement suggestion viaSkillId is invalid");
+				} else if (reason.kind === "import") {
+					if (!bounded(reason.sourceName, LEARNER_LIMITS.sourceNameChars) || !reason.sourceName.trim()) issues.push("import suggestion sourceName is invalid");
+					if (!bounded(reason.quote, LEARNER_LIMITS.suggestionQuoteChars) || !reason.quote.trim()) issues.push("import suggestion quote is invalid");
+				} else if (reason.kind === "conversation") {
+					if (!bounded(reason.chatId, 255) || !reason.chatId) issues.push("conversation suggestion chatId is invalid");
+					if (!bounded(reason.messageId, 255) || !reason.messageId) issues.push("conversation suggestion messageId is invalid");
+					if (!bounded(reason.quote, LEARNER_LIMITS.suggestionQuoteChars) || !reason.quote.trim()) issues.push("conversation suggestion quote is invalid");
+				} else issues.push("suggestion reason kind is invalid");
+			}
+		}
+	}
 	return issues;
+}
+
+function validIsoString(value: unknown): value is string {
+	return typeof value === "string" && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString() === value;
 }
 
 export function emptyLearnerProfile(now: string): LearnerProfileV1 {

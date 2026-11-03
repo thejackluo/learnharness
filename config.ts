@@ -53,6 +53,7 @@ export type ModelRole =
 	| "pdfReader"
 	| "extractor"
 	| "mapDrafter"
+	| "familiarityInferrer"
 	| "auditor";
 
 /**

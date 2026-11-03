@@ -26,6 +26,7 @@ function alternativeGroupsOf(map: PathwayMap): Map<string, string[][]> {
 export function skillPathStates(
 	map: PathwayMap,
 	statuses: ReadonlyMap<string, SkillEvidenceStatus>,
+	likelyKnown: ReadonlySet<string> = new Set(),
 ): Map<string, SkillPathState> {
 	const prerequisites = prerequisitesOf(map);
 	const groups = alternativeGroupsOf(map);
@@ -35,19 +36,20 @@ export function skillPathStates(
 	}
 	for (const skill of map.skills) {
 		if (states.has(skill.id)) continue;
-		const requiredReady = (prerequisites.get(skill.id) ?? []).every((id) => isSatisfied(statuses.get(id)));
-		const alternativesReady = (groups.get(skill.id) ?? []).every((options) => options.some((id) => isSatisfied(statuses.get(id))));
+		const ready = (id: string) => isSatisfied(statuses.get(id)) || likelyKnown.has(id);
+		const requiredReady = (prerequisites.get(skill.id) ?? []).every(ready);
+		const alternativesReady = (groups.get(skill.id) ?? []).every((options) => options.some(ready));
 		if (requiredReady && alternativesReady) states.set(skill.id, "open");
 	}
 	for (const skill of map.skills) {
 		if (states.has(skill.id)) continue;
 		const requiredReachable = (prerequisites.get(skill.id) ?? []).every((id) => {
-			if (isSatisfied(statuses.get(id))) return true;
+			if (isSatisfied(statuses.get(id)) || likelyKnown.has(id)) return true;
 			const state = states.get(id);
 			return state === "open" || state === "cleared";
 		});
 		const alternativesReachable = (groups.get(skill.id) ?? []).every((options) => {
-			if (options.some((id) => isSatisfied(statuses.get(id)))) return true;
+			if (options.some((id) => isSatisfied(statuses.get(id)) || likelyKnown.has(id))) return true;
 			return options.some((id) => {
 				const state = states.get(id);
 				return state === "open" || state === "cleared";
@@ -71,6 +73,58 @@ function dependencyEdges(map: PathwayMap): { prerequisite: string; dependent: st
 		...map.edges,
 		...(map.alternatives ?? []).flatMap((group) => group.options.map((option) => ({ prerequisite: option, dependent: group.dependent }))),
 	];
+}
+
+export function prerequisiteClosureOf(map: PathwayMap, id: string): Set<string> {
+	const prerequisites = new Map(map.skills.map((skill) => [skill.id, [] as string[]]));
+	for (const edge of dependencyEdges(map)) prerequisites.get(edge.dependent)?.push(edge.prerequisite);
+	const closure = new Set<string>();
+	const pending = [...(prerequisites.get(id) ?? [])];
+	while (pending.length) {
+		const current = pending.pop()!;
+		if (current === id || closure.has(current)) continue;
+		closure.add(current);
+		pending.push(...(prerequisites.get(current) ?? []));
+	}
+	return closure;
+}
+
+export function dependentClosureOf(map: PathwayMap, id: string): Set<string> {
+	const dependents = new Map(map.skills.map((skill) => [skill.id, [] as string[]]));
+	for (const edge of dependencyEdges(map)) dependents.get(edge.prerequisite)?.push(edge.dependent);
+	const closure = new Set<string>();
+	const pending = [...(dependents.get(id) ?? [])];
+	while (pending.length) {
+		const current = pending.pop()!;
+		if (current === id || closure.has(current)) continue;
+		closure.add(current);
+		pending.push(...(dependents.get(current) ?? []));
+	}
+	return closure;
+}
+
+export function skillDepths(map: PathwayMap): Map<string, number> {
+	const edges = dependencyEdges(map);
+	const indegree = new Map(map.skills.map((skill) => [skill.id, 0]));
+	const dependents = new Map(map.skills.map((skill) => [skill.id, new Set<string>()]));
+	for (const edge of edges) {
+		if (!indegree.has(edge.prerequisite) || !indegree.has(edge.dependent) || edge.prerequisite === edge.dependent) continue;
+		const children = dependents.get(edge.prerequisite)!;
+		if (children.has(edge.dependent)) continue;
+		children.add(edge.dependent);
+		indegree.set(edge.dependent, indegree.get(edge.dependent)! + 1);
+	}
+	const ready = map.skills.filter((skill) => indegree.get(skill.id) === 0).map((skill) => skill.id);
+	const depth = new Map(map.skills.map((skill) => [skill.id, 0]));
+	while (ready.length) {
+		const id = ready.shift()!;
+		for (const dependent of dependents.get(id) ?? []) {
+			depth.set(dependent, Math.max(depth.get(dependent)!, depth.get(id)! + 1));
+			indegree.set(dependent, indegree.get(dependent)! - 1);
+			if (indegree.get(dependent) === 0) ready.push(dependent);
+		}
+	}
+	return depth;
 }
 
 function stableTopologicalOrder(ids: Set<string>, edges: readonly { prerequisite: string; dependent: string }[]): string[] {
@@ -103,6 +157,7 @@ export function routeToGoal(
 	map: PathwayMap & Pick<SubjectMapDefinition, "skills">,
 	statuses: ReadonlyMap<string, SkillEvidenceStatus>,
 	goalId: string,
+	likelyKnown: ReadonlySet<string> = new Set(),
 ): SkillRoute | null {
 	const skills = new Map(map.skills.map((skill) => [skill.id, skill]));
 	if (!skills.has(goalId)) return null;
@@ -114,7 +169,7 @@ export function routeToGoal(
 	const closure = (id: string): Set<string> => {
 		const cached = memo.get(id);
 		if (cached) return cached;
-		if (isSatisfied(statuses.get(id))) return new Set();
+		if (isSatisfied(statuses.get(id)) || likelyKnown.has(id)) return new Set();
 		if (visiting.has(id)) return new Set([id]);
 		visiting.add(id);
 		const result = new Set([id]);
@@ -123,7 +178,7 @@ export function routeToGoal(
 			for (const required of closure(prerequisite)) result.add(required);
 		}
 		for (const options of groups.get(id) ?? []) {
-			if (options.some((option) => isSatisfied(statuses.get(option)))) continue;
+			if (options.some((option) => isSatisfied(statuses.get(option)) || likelyKnown.has(option))) continue;
 			const chosen = options
 				.map((option) => ({ option, closure: closure(option) }))
 				.sort((a, b) => a.closure.size - b.closure.size || (a.option < b.option ? -1 : a.option > b.option ? 1 : 0))[0];
@@ -142,7 +197,7 @@ export function routeToGoal(
 	const choices = route.flatMap((dependent) =>
 		(chosenOptionsByDependent.get(dependent) ?? []).map((option) => ({ dependent, option })),
 	);
-	const states = skillPathStates(map, statuses);
+	const states = skillPathStates(map, statuses, likelyKnown);
 	const skipAhead = route
 		.filter((id) => skills.get(id)?.keystone === true && (states.get(id) === "open" || states.get(id) === "reachable"))
 		.map((skillId) => ({
@@ -170,25 +225,7 @@ export const WORLD_BAND_GAP = 24;
 
 export function worldLayout(map: Pick<SubjectMapDefinition, "skills" | "edges" | "alternatives" | "regions">): WorldLayout {
 	const edges = dependencyEdges(map);
-	const indegree = new Map(map.skills.map((skill) => [skill.id, 0]));
-	const dependents = new Map(map.skills.map((skill) => [skill.id, new Set<string>()]));
-	for (const edge of edges) {
-		if (!indegree.has(edge.prerequisite) || !indegree.has(edge.dependent) || edge.prerequisite === edge.dependent) continue;
-		const children = dependents.get(edge.prerequisite)!;
-		if (children.has(edge.dependent)) continue;
-		children.add(edge.dependent);
-		indegree.set(edge.dependent, indegree.get(edge.dependent)! + 1);
-	}
-	const ready = map.skills.filter((skill) => indegree.get(skill.id) === 0).map((skill) => skill.id);
-	const depth = new Map(map.skills.map((skill) => [skill.id, 0]));
-	while (ready.length) {
-		const id = ready.shift()!;
-		for (const dependent of dependents.get(id) ?? []) {
-			depth.set(dependent, Math.max(depth.get(dependent)!, depth.get(id)! + 1));
-			indegree.set(dependent, indegree.get(dependent)! - 1);
-			if (indegree.get(dependent) === 0) ready.push(dependent);
-		}
-	}
+	const depth = skillDepths(map);
 	const bands = [
 		...(map.regions ?? []).map((region) => ({ id: region.id as string | null, title: region.title, skills: map.skills.filter((skill) => skill.regionId === region.id) })),
 		...(map.skills.some((skill) => !skill.regionId) ? [{ id: null, title: "Ungrouped", skills: map.skills.filter((skill) => !skill.regionId) }] : []),

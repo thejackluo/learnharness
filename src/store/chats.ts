@@ -16,6 +16,7 @@ import type { ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, PlanTre
 import { CURRENT_CHAT_VERSION } from "../core/contracts.ts";
 import type { LhMessage } from "../core/native-messages.ts";
 import type { LearningTargetRef } from "../core/contracts/learning-target.ts";
+import type { PlacementRun } from "../core/contracts/familiarity.ts";
 import { activeProblemOf, danglingQuestionOf } from "../core/native-messages.ts";
 import { phaseAt3Lh } from "../core/phases.ts";
 
@@ -33,7 +34,7 @@ function chatFile(id: string): string {
  *  phase, busy, pendingQuestion) is already announced by turn-started /
  *  turn-settled, which the sidebar refetches on. Silence here is law,
  *  not oversight. */
-function createChat(title: string, kind?: "practice", target?: LearningTargetRef): ChatRecord {
+function createChat(title: string, kind?: "practice", target?: LearningTargetRef, placement?: PlacementRun): ChatRecord {
 	const now = new Date().toISOString();
 	const record: ChatRecord = {
 		id: `chat_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`,
@@ -45,6 +46,7 @@ function createChat(title: string, kind?: "practice", target?: LearningTargetRef
 		// reads as teach — pre-practice records never migrate).
 		...(kind === "practice" ? { kind: "practice" as const } : {}),
 		...(target ? { target: { kind: target.kind, mapId: target.mapId, skillId: target.skillId, skillRevision: target.skillRevision } } : {}),
+		...(placement ? { placement: structuredClone(placement) } : {}),
 	};
 	fs.mkdirSync(PATHS.chats, { recursive: true });
 	writeChat(record);
@@ -195,6 +197,15 @@ function saveSettings(id: string, settings: ChatSettings): void {
 	writeChat(record);
 }
 
+function saveTargeting(id: string, targeting: { target?: LearningTargetRef; placement: PlacementRun }): void {
+	const record = getChat(id);
+	if (!record) throw new Error(`Chat not found: ${id}`);
+	if (targeting.target) record.target = targeting.target;
+	else delete record.target;
+	record.placement = structuredClone(targeting.placement);
+	writeChat(record);
+}
+
 /** Rename a session (the header's click-to-edit title, 2026-09-17). Like
  * saveSettings, a rename is NOT conversation activity: updatedAt stays put
  * so sidebar order never churns. Same fallback as createChat — the empty
@@ -242,6 +253,7 @@ export const chatStore: ChatStore = {
 	saveMessages,
 	saveTree,
 	saveSettings,
+	saveTargeting,
 	renameChat,
 	deleteChat,
 	appendTurnUsage,

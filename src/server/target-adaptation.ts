@@ -80,7 +80,7 @@ function gatherEvidence(mapId: string, excludeChatId: string): TargetEvidenceInp
 			unreadableChats++;
 			continue;
 		}
-		if (record.target?.mapId !== mapId) continue;
+		if ((record.target?.mapId ?? record.placement?.mapId) !== mapId) continue;
 		let derived: LearnerObservation[];
 		try {
 			derived = deriveChatObservations(record);

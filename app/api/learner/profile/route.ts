@@ -90,6 +90,7 @@ export async function PUT(request: Request) {
 			topics,
 			excerpts,
 			associations: current.profile.associations,
+			suggestions: current.profile.suggestions,
 		};
 		issues.push(...learnerProfileProblems(candidate));
 		if (issues.length) return badRequest([...new Set(issues)]);

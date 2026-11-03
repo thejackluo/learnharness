@@ -1,0 +1,1 @@
+When a learner claims prior experience, use `suggest_familiarity` with a quote from the learner's own words. Never use it for material taught by the tutor. Placement runs ask for one short targeted check per probe; explain the process, keep a friendly pace, use `onTarget: true` for the check, and never claim mastery.

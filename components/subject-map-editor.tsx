@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SessionStarter } from "@/components/start-session";
 import { SubjectMapDraft } from "@/components/subject-map-draft";
+import { FamiliaritySuggestions } from "@/components/familiarity-suggestions";
 import { SubjectMapWorld } from "@/components/subject-map-world";
 import { savedSlotsConfigured, selectedModelUnavailable } from "@/components/setup-cta";
 import type { ModelCatalogResponse } from "@/src/core";
@@ -429,6 +430,21 @@ export function SubjectMapEditor({ mapId }: { mapId: string }) {
 					<p className="text-xs text-muted-foreground">Revision {map.revision} · updated {day(map.updatedAt)}</p>
 				</div>
 				<div className="flex gap-2">
+					<button type="button" disabled={startBusy} onClick={async () => {
+						if (!map || starting.current) return;
+						starting.current = true;
+						setStartBusy(true);
+						setStartError(null);
+						try {
+							const path = await starter.current.start({ title: `Find my level: ${map.title}`, placement: { mapId: map.id } }, fetch);
+							window.location.assign(path);
+						} catch (cause) {
+							setStartError(cause instanceof Error ? cause.message : "Unable to start placement.");
+						} finally {
+							starting.current = false;
+							setStartBusy(false);
+						}
+					}} className={BUTTON}>Find my level</button>
 					<a href={`/api/maps/${encodeURIComponent(map.id)}/export`} download={`${map.id}.json`} className={BUTTON}>Export curriculum JSON</a>
 					{confirmDelete ? (
 						<>
@@ -440,6 +456,8 @@ export function SubjectMapEditor({ mapId }: { mapId: string }) {
 					)}
 				</div>
 			</header>
+			{startError && <p role="alert" className="text-xs text-destructive">{startError}</p>}
+			<FamiliaritySuggestions mapId={map.id} />
 
 			{notice && <p role="status" className="text-xs text-muted-foreground">{notice}</p>}
 			{dirty ? <div>

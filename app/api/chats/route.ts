@@ -1,6 +1,6 @@
 import { chainsForSelection, formatChainLine } from "@/src/core";
 import { newGraphContextMessage, type GraphContextPick } from "@/src/core";
-import { compactionInFlight, createChat, isTurnRunning, listChats, readSettingsRecord, resolveNewSessionTarget, stores, titleFromPrompt } from "@/src/server";
+import { compactionInFlight, createChat, isTurnRunning, listChats, readSettingsRecord, resolveNewSessionTarget, resolveNewPlacement, stores, titleFromPrompt } from "@/src/server";
 import type { ChatListItem } from "@/src/core";
 
 /** The session picker's list: record-derived summaries (phase, pending
@@ -20,7 +20,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-	const body = (await req.json().catch(() => ({}))) as { title?: unknown; kind?: unknown; graphContext?: unknown; target?: unknown };
+	const body = (await req.json().catch(() => ({}))) as { title?: unknown; kind?: unknown; graphContext?: unknown; target?: unknown; placement?: unknown };
 	const title = typeof body.title === "string" ? body.title : "";
 	// Practice sessions (owner, 2026-10-04): kind "practice" marks the
 	// record — the practice agent + its tools from turn 1, no extraction.
@@ -29,7 +29,10 @@ export async function POST(req: Request) {
 	// learner saw before anything is written.
 	const target = resolveNewSessionTarget(body.target);
 	if (!target.ok) return Response.json({ error: target.error, code: target.code }, { status: target.status, headers: { "Cache-Control": "private, no-store" } });
-	const chat = createChat(titleFromPrompt(title || "Untitled session"), kind, target.target);
+	if (body.placement !== undefined && target.target) return Response.json({ error: "placement cannot be combined with target", code: "invalid_placement" }, { status: 400, headers: { "Cache-Control": "private, no-store" } });
+	const placement = body.placement === undefined ? { ok: true as const, placement: undefined, target: undefined } : resolveNewPlacement(body.placement);
+	if (!placement.ok) return Response.json({ error: placement.error, code: placement.code }, { status: placement.status, headers: { "Cache-Control": "private, no-store" } });
+	const chat = createChat(titleFromPrompt(title || "Untitled session"), kind, placement.target ?? target.target, placement.placement);
 	// PER-SESSION MODELS (owner, 2026-09-28): a session owns its model +
 	// thinking level from birth — stamped verbatim from the STRONG slot,
 	// the new-session default. From here the strong slot never reaches

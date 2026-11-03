@@ -11,6 +11,7 @@ import type { Phase3 } from "../phases.ts";
 import type { PlanNodeStatus, PlanTree } from "./plan.ts";
 import type { EmissionStats } from "./graph.ts";
 import type { LearningTargetRef } from "./learning-target.ts";
+import type { PlacementRun } from "./familiarity.ts";
 
 // ─── Chat records (the session store's on-disk format) ───────────────────────
 
@@ -57,6 +58,8 @@ export interface ChatRecord {
 	 *  session from, at the objective revision current at creation. Absent
 	 *  on ordinary sessions. Never inferred from titles or content. */
 	target?: LearningTargetRef;
+	/** A suggest-only automatic familiarity placement run. */
+	placement?: PlacementRun;
 	/** SCHEMA STAMP (schema-versioning wave, owner 2026-10-10): LAZY v1 —
 	 *  existing records stay unstamped (absence reads as v1); every write
 	 *  stamps the current version. A record stamped NEWER than this build

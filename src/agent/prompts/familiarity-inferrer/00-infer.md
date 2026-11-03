@@ -1,0 +1,1 @@
+Infer only skills the source supports as already studied or used. Return a verbatim quote for each suggestion. Never claim mastery, and skip future plans, intentions, or unsupported skills. Submit only the requested skill IDs and quotes.

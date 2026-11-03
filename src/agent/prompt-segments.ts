@@ -71,7 +71,7 @@ export function listSourceSegments(agent: PromptAgent): Array<{ path: string; sh
 	// plays the base role), but the FORMATTING guide composes for every
 	// agent (owner, 2026-10-04 late): LaTeX delimiters and markdown apply
 	// in all settings — practice shares the $...$/$$...$$ authoring contract.
-	const segments: Array<{ path: string; shared: boolean; file: string }> = agent === "practice" || agent === "map-drafter" ? [] : [
+	const segments: Array<{ path: string; shared: boolean; file: string }> = agent === "practice" || agent === "map-drafter" || agent === "familiarity-inferrer" ? [] : [
 		{ path: "system-prompt.md", shared: true, file: PATHS.teacherPrompt },
 	];
 	const dir = path.join(PROMPTS_DIR, agent);
@@ -82,7 +82,7 @@ export function listSourceSegments(agent: PromptAgent): Array<{ path: string; sh
 		}
 	}
 	const sharedDir = path.join(PROMPTS_DIR, "shared");
-	if (agent !== "map-drafter" && fs.existsSync(sharedDir)) {
+	if (agent !== "map-drafter" && agent !== "familiarity-inferrer" && fs.existsSync(sharedDir)) {
 		// The practice allowlist (owner, 2026-10-04 late): formatting only.
 		const allow = agent === "practice" ? PRACTICE_SHARED_FRAGMENTS : null;
 		const sharedFragments = fs
@@ -127,7 +127,7 @@ export function effectivePromptSegments(
 /** Every known segment path across both agents (route validation). */
 export function allSegmentPaths(): string[] {
 	const paths = new Set<string>();
-	for (const agent of ["prober", "teacher", "practice", "map-drafter"] as const) {
+	for (const agent of ["prober", "teacher", "practice", "map-drafter", "familiarity-inferrer"] as const) {
 		for (const segment of listSourceSegments(agent)) paths.add(segment.path);
 	}
 	return [...paths].sort();

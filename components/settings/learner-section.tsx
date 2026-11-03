@@ -10,6 +10,7 @@ import {
 	type LearnerProfileV1,
 	type LearnerTopicClaim,
 } from "@/src/core";
+import { FamiliaritySuggestions } from "@/components/familiarity-suggestions";
 
 type EditableTopic = Omit<LearnerTopicClaim, "id" | "note" | "updatedAt"> & { id?: string; note: string };
 type EditableExcerpt = LearnerProfileExcerpt;
@@ -170,6 +171,7 @@ export function LearnerSectionBody({
 					The saved learner profile cannot be edited ({profileState}). Existing data was left unchanged.
 				</p>
 			) : null}
+			<FamiliaritySuggestions />
 
 			<fieldset disabled={!editable || loading || saving} className="flex flex-col gap-5 disabled:opacity-70">
 				<legend className="sr-only">Learner profile</legend>
@@ -199,7 +201,9 @@ export function LearnerSectionBody({
 					<p className="text-right text-xs text-muted-foreground">{coursework.length}/{LEARNER_LIMITS.courseworkChars} characters</p>
 				</div>
 
-				<section aria-labelledby="learner-topics-heading" className="flex flex-col gap-3 border-t border-border/60 pt-4">
+				<details className="border-t border-border/60 pt-4">
+				<summary className="cursor-pointer text-xs uppercase tracking-widest text-muted-foreground">Override</summary>
+				<section aria-labelledby="learner-topics-heading" className="mt-3 flex flex-col gap-3">
 					<div className="flex items-center justify-between gap-3">
 						<h3 id="learner-topics-heading" className="text-xs uppercase tracking-widest text-muted-foreground">Topic familiarity</h3>
 						<span className="text-xs text-muted-foreground">{topics.length}/{LEARNER_LIMITS.topics}</span>
@@ -254,6 +258,7 @@ export function LearnerSectionBody({
 						Add topic
 					</button>
 				</section>
+				</details>
 
 				<section aria-labelledby="learner-excerpts-heading" className="flex flex-col gap-3 border-t border-border/60 pt-4">
 					<div className="flex items-center justify-between gap-3">

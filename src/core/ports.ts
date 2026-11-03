@@ -10,6 +10,7 @@
  */
 
 import type { LearningTargetRef } from "./contracts/learning-target.ts";
+import type { PlacementRun } from "./contracts/familiarity.ts";
 import type { LhMessage } from "./native-messages.ts";
 import type {
 	ChatRecord,
@@ -42,7 +43,7 @@ export interface ChatStore {
 	/** Create a session record (persisted immediately). */
 	/** Create a session record; kind "practice" marks a practice session
 	 *  (absent = teach, the default). */
-	createChat(title: string, kind?: "practice", target?: LearningTargetRef): ChatRecord;
+	createChat(title: string, kind?: "practice", target?: LearningTargetRef, placement?: PlacementRun): ChatRecord;
 	/** The full record, or null if unknown id / corrupt file. */
 	getChat(id: string): ChatRecord | null;
 	/** All sessions, newest activity first (the sidebar's list view). */
@@ -66,6 +67,7 @@ export interface ChatStore {
 	/** Persist the per-chat model/thinking settings (the model control).
 	 *  Replace-whole: the picker sends the complete settings object. */
 	saveSettings(id: string, settings: ChatSettings): void;
+	saveTargeting(id: string, targeting: { target?: LearningTargetRef; placement: PlacementRun }): void;
 	/** Rename a session (the header's click-to-edit title, 2026-09-17).
 	 * Like saveSettings: a rename is NOT conversation activity — updatedAt
 	 * stays put, so sidebar order never churns on a rename. */

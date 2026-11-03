@@ -15,6 +15,8 @@ export const LEARNER_LIMITS = {
 	excerptBytes: 64 * 1024,
 	sourceNameChars: 255,
 	associations: 2000,
+	suggestions: 2000,
+	suggestionQuoteChars: 500,
 } as const;
 
 export interface LearnerTopicClaim {
@@ -38,6 +40,22 @@ export interface LearnerEvidenceAssociation {
 	attachedAt: string;
 }
 
+export type FamiliaritySuggestionReason =
+	| { kind: "placement"; observationId: string; viaSkillId: string }
+	| { kind: "import"; sourceName: string; quote: string }
+	| { kind: "conversation"; chatId: string; messageId: string; quote: string };
+
+export interface FamiliaritySuggestion {
+	id: string;
+	mapId: string;
+	skillId: string;
+	skillRevision: number;
+	status: "pending" | "confirmed" | "rejected";
+	createdAt: string;
+	decidedAt?: string;
+	reason: FamiliaritySuggestionReason;
+}
+
 export interface LearnerProfileV1 {
 	version: 1;
 	revision: number;
@@ -47,6 +65,7 @@ export interface LearnerProfileV1 {
 	topics: LearnerTopicClaim[];
 	excerpts: LearnerProfileExcerpt[];
 	associations: LearnerEvidenceAssociation[];
+	suggestions?: FamiliaritySuggestion[];
 }
 
 export type LearnerProfileRead =
