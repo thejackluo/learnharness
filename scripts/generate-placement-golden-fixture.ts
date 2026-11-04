@@ -188,7 +188,10 @@ export async function generatePlacementGoldenArtifact(dataDir: string): Promise<
 				message.role === "assistant" &&
 				message.content.some((part) => part.type === "toolCall" && part.id === "placement-quiz-2"),
 		);
-		assert.ok(nudgeIndex >= 0, "the handler persisted a placement-next marker");
+		assert.ok(
+			nudgeIndex >= 0,
+			`the handler persisted a placement-next marker; placement=${JSON.stringify(saved.placement)} messages=${JSON.stringify(saved.messages)}`,
+		);
 		assert.ok(nextQuizIndex > nudgeIndex, "the pump's fresh wake asked the next placement quiz");
 		assert.ok(
 			wakes.some(
