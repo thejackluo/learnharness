@@ -66,10 +66,8 @@ export async function generatePlacementGoldenArtifact(dataDir: string): Promise<
 		const faux = createFauxCore({ tokenSize: { min: 64, max: 64 } });
 		faux.setResponses([
 			() => fauxAssistantMessage([fauxToolCall("quiz", quizOne, { id: "placement-quiz-1" })], { stopReason: "toolUse" }),
-			() => fauxAssistantMessage([fauxText("Choose the correct answer.")]),
 			() => fauxAssistantMessage([fauxText("Correct.")]),
 			() => fauxAssistantMessage([fauxToolCall("quiz", quizTwo, { id: "placement-quiz-2" })], { stopReason: "toolUse" }),
-			() => fauxAssistantMessage([fauxText("Choose the next answer.")]),
 		]);
 		const engine = { model: faux.getModel(), streamFn: faux.streamSimple };
 		const buildAgent: ChatBuilder = (opts) =>
@@ -161,10 +159,6 @@ export async function generatePlacementGoldenArtifact(dataDir: string): Promise<
 				!saved.messages.some((message) =>
 					message.role === "assistant" &&
 					message.content.some((part) => part.type === "toolCall" && part.id === "placement-quiz-2"),
-				) ||
-				!saved.messages.some((message) =>
-					message.role === "assistant" &&
-					message.content.some((part) => part.type === "text" && part.text === "Choose the next answer."),
 				) ||
 				!!turnRuns.runningTurn(chat.id))
 		) {
