@@ -57,6 +57,7 @@ import { sessionTargetState, targetContextFor } from "./target-adaptation.ts";
 import { advancePlacement, placementContextFor, placementNudgeFor, suggestFamiliarityFromChat } from "./familiarity.ts";
 import {
 	ChatInputError,
+	failedResponseAtEnd,
 	inputAppends,
 	parseChatInput,
 	retryDrops,
@@ -596,7 +597,7 @@ export async function handleChatInput(
 				} catch (error) {
 					console.error(`[chat ${chatId}] placement advancement failed:`, error);
 				}
-				if (!isAborted) {
+				if (!isAborted && !failedResponseAtEnd(stamped)) {
 					try {
 						const nudge = placementNudgeFor(chatId);
 						if (nudge) void deliverJobResult(nudge);

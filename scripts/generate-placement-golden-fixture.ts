@@ -20,9 +20,13 @@ export interface PlacementGoldenArtifact {
 	mapId: string;
 	chatPath: string;
 	mapPath: string;
+	queuedPlacementNudges: string[];
 }
 
-export async function generatePlacementGoldenArtifact(dataDir: string): Promise<PlacementGoldenArtifact> {
+export async function generatePlacementGoldenArtifact(
+	dataDir: string,
+	fixtureOptions: { failAfterFirstAnswer?: boolean } = {},
+): Promise<PlacementGoldenArtifact> {
 	const previousDataDir = process.env.LH_DATA_DIR;
 	const previousAuthFile = process.env.LH_AUTH_FILE;
 	const previousOpenRouterKey = process.env.OPENROUTER_API_KEY;
@@ -64,7 +68,10 @@ export async function generatePlacementGoldenArtifact(dataDir: string): Promise<
 			onTarget: true,
 		};
 		const faux = createFauxCore({ tokenSize: { min: 64, max: 64 } });
-		faux.setResponses([
+		faux.setResponses(fixtureOptions.failAfterFirstAnswer ? [
+			() => fauxAssistantMessage([fauxToolCall("quiz", quizOne, { id: "placement-quiz-1" })], { stopReason: "toolUse" }),
+			() => fauxAssistantMessage([fauxText("The model request failed.")], { stopReason: "error", errorMessage: "fixture failure" }),
+		] : [
 			() => fauxAssistantMessage([fauxToolCall("quiz", quizOne, { id: "placement-quiz-1" })], { stopReason: "toolUse" }),
 			() => fauxAssistantMessage([fauxText("Correct.")]),
 			() => fauxAssistantMessage([fauxToolCall("quiz", quizTwo, { id: "placement-quiz-2" })], { stopReason: "toolUse" }),
@@ -119,7 +126,19 @@ export async function generatePlacementGoldenArtifact(dataDir: string): Promise<
 		};
 
 		const wakes: Array<{ chatId: string; input: TurnInput }> = [];
+		const queuedPlacementNudges: string[] = [];
 		jobs.setTurnRunner(async (chatId, input) => {
+			if (input.type === "steers") {
+				const placementNudges = input.steers.filter((steer) =>
+					"customType" in steer && steer.customType === "placement-next",
+				);
+				queuedPlacementNudges.push(...placementNudges.map((steer) => steer.id));
+				if (fixtureOptions.failAfterFirstAnswer) {
+					const record = stores.chatStore.getChat(chatId);
+					if (record) stores.chatStore.saveMessages(chatId, [...record.messages, ...input.steers]);
+					return 200;
+				}
+			}
 			wakes.push({ chatId, input });
 			return drainTurn(chatId, input);
 		});
@@ -150,6 +169,17 @@ export async function generatePlacementGoldenArtifact(dataDir: string): Promise<
 		);
 		assert.equal(answer.correct, true);
 		assert.equal(await drainTurn(chat.id, { type: "answer", toolCallId: "placement-quiz-1", answer }), 200);
+
+		if (fixtureOptions.failAfterFirstAnswer) {
+			await new Promise((resolve) => setTimeout(resolve, 2_000));
+			return {
+				chatId: chat.id,
+				mapId: map.id,
+				chatPath: path.join(dataDir, "chats", `${chat.id}.json`),
+				mapPath: path.join(dataDir, "maps", `${map.id}.json`),
+				queuedPlacementNudges,
+			};
+		}
 
 		const deadline = Date.now() + 30_000;
 		let saved = stores.chatStore.getChat(chat.id);
@@ -198,6 +228,7 @@ export async function generatePlacementGoldenArtifact(dataDir: string): Promise<
 			mapId: map.id,
 			chatPath: path.join(dataDir, "chats", `${chat.id}.json`),
 			mapPath: path.join(dataDir, "maps", `${map.id}.json`),
+			queuedPlacementNudges,
 		};
 	} finally {
 		restoreTurnRunner?.();

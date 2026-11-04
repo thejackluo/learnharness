@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { PLACEMENT_NUDGE_TEXT } from "../src/core/contracts/chat.ts";
+import { retryDrops } from "../src/core/input-events.ts";
 import { newPlacementNudgeMessage, nativeInputCause, toLlmMessages } from "../src/core/native-messages.ts";
 import { projectView } from "../src/core/view.ts";
 import { generatePlacementGoldenArtifact } from "../scripts/generate-placement-golden-fixture.ts";
@@ -63,4 +64,21 @@ test("the production handler and pump nudge an ended placement turn into the nex
 		"the graded probe turn ended without asking a question",
 	);
 	assert.ok(fs.existsSync(artifact.mapPath), "the fixture's synthetic map was written through the map store");
+});
+
+test("an errored placement turn queues no nudge and remains retryable", async () => {
+	const artifact = await generatePlacementGoldenArtifact(dataDir, { failAfterFirstAnswer: true });
+	assert.deepEqual(artifact.queuedPlacementNudges, []);
+	const { stores } = await import("../src/server/stores.ts");
+	const record = stores.chatStore.getChat(artifact.chatId);
+	assert.ok(record);
+	assert.equal(
+		record.messages.some((message) => message.role === "custom" && message.customType === "placement-next"),
+		false,
+		"the failed turn has no automatic follow-up marker",
+	);
+	const failure = record.messages.at(-1);
+	assert.ok(failure?.role === "assistant");
+	assert.equal(failure.stopReason, "error");
+	assert.deepEqual([...retryDrops(record.messages)], [failure.id]);
 });
