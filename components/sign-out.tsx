@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRuntime } from "@/components/runtime";
+import { cancelSpeech } from "@/components/read-aloud";
 
 export function SignOut() {
 	const runtime = useRuntime();
@@ -13,6 +14,7 @@ export function SignOut() {
 			"Signing out closes this browser's live streams. Lessons, imports, and background jobs already running will keep running and may still bill your provider. Stop them first from the activity dock. Sign out?",
 		);
 		if (!confirmed) return;
+		cancelSpeech();
 		setBusy(true);
 		try {
 			await fetch("/api/auth/logout", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", cache: "no-store" });

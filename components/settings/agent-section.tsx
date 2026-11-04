@@ -7,7 +7,7 @@
  *
  * Model slots (model-slots wave, 2026-09-20, owner ruling: SLOTS ONLY —
  * the six per-role rows disappeared; per-role overrides remain in the
- * schema for a future advanced surface): Strong = Prober + Teacher, Cheap
+ * schema for a future advanced surface): Strong = Prober + Teacher + Map drafter, Cheap
  * = the five workhorse roles, Vision = Visual maker + PDF reader. Each
  * slot row carries the shared dropdown (fuzzy search, arrow-walk, Enter
  * pick — ModelMenuList/ThinkingMenuList from ./model-menu.tsx) over the
@@ -60,6 +60,8 @@ import { Hint } from "@/components/ui/hint";
 import type React from "react";
 import {
 	COMPACTION_THRESHOLD_FLOOR,
+	ADAPTIVE_DOCTRINE_OVERRIDE_HINT,
+	ADAPTIVE_DOCTRINE_SEGMENTS,
 	MODEL_SLOTS,
 	resolveSettings,
 	type AgentSettings,
@@ -79,7 +81,7 @@ import { NativeSubscriptionBackgroundAccess } from "./subscription-connections";
 /** One slot's display identity — the tier's roster as the row hint rides
  *  with the resolved default (owner: the hint ALWAYS names the default). */
 const SLOT_META: Record<ModelSlotName, { label: string; roster: string }> = {
-	strong: { label: "Strong", roster: "The main model for your sessions" },
+	strong: { label: "Strong", roster: "The main model for your sessions, map drafts and familiarity suggestions" },
 	cheap: { label: "Cheap", roster: "The assistants that research, build demos, and grade your work" },
 	vision: { label: "Vision", roster: "The assistants that draw and read PDFs" },
 };
@@ -172,7 +174,7 @@ export const PROMPT_IN_USE_HINT = "Your version is in use";
 /** One section of the prompt view — the owner's ruled order: Teacher,
  *  Prober, then Shared last. */
 export interface PromptSection {
-	id: "teacher" | "prober" | "shared";
+	id: "teacher" | "prober" | "shared" | "mapDrafter" | "familiarityInferrer";
 	label: string;
 	/** The one header that earns a hint: "Shared" alone is not
 	 *  self-evident. Teacher/Prober are. */
@@ -188,11 +190,13 @@ export interface PromptSection {
  *  agents' own chunks keep their lists' order — which IS the prompt
  *  assembly order (numeric-prefix filename sort). Pure — exported for
  *  tests. */
-export function sectionedSegments(view: { prober: SegmentInfo[]; teacher: SegmentInfo[] }): PromptSection[] {
+export function sectionedSegments(view: { prober: SegmentInfo[]; teacher: SegmentInfo[]; mapDrafter?: SegmentInfo[]; familiarityInferrer?: SegmentInfo[] }): PromptSection[] {
 	const own = (who: "prober" | "teacher") => view[who].filter((s) => !s.shared);
 	return [
 		{ id: "teacher", label: "Teacher", segments: own("teacher") },
 		{ id: "prober", label: "Prober", segments: own("prober") },
+		...(view.mapDrafter ? [{ id: "mapDrafter" as const, label: "Map drafter", segments: view.mapDrafter }] : []),
+		...(view.familiarityInferrer ? [{ id: "familiarityInferrer" as const, label: "Familiarity inferrer", segments: view.familiarityInferrer }] : []),
 		{
 			id: "shared",
 			label: "Shared",
@@ -297,7 +301,7 @@ export function AgentSection({
 	/** Which search engines have a key (/api/keys) — the no-keys-anywhere
 	 *  state grays the row; per-engine marks ride the menu rows. */
 	const [engineKeys, setEngineKeys] = useState<Partial<Record<(typeof SEARCH_ENGINES)[number], boolean>>>({});
-	const [prompts, setPrompts] = useState<{ prober: SegmentInfo[]; teacher: SegmentInfo[] } | null>(null);
+	const [prompts, setPrompts] = useState<{ prober: SegmentInfo[]; teacher: SegmentInfo[]; mapDrafter?: SegmentInfo[]; familiarityInferrer?: SegmentInfo[] } | null>(null);
 	const [openSegment, setOpenSegment] = useState<string | null>(null);
 	const [segmentDraft, setSegmentDraft] = useState<Record<string, string>>({});
 	const [segmentStatus, setSegmentStatus] = useState<string | null>(null);
@@ -322,7 +326,7 @@ export function AgentSection({
 	const readPrompts = useCallback(() => {
 		fetch("/api/settings/prompts")
 			.then((r) => r.json())
-			.then((body: { prober: SegmentInfo[]; teacher: SegmentInfo[] }) => setPrompts(body))
+			.then((body: { prober: SegmentInfo[]; teacher: SegmentInfo[]; mapDrafter?: SegmentInfo[]; familiarityInferrer?: SegmentInfo[] }) => setPrompts(body))
 			.catch(() => {});
 	}, []);
 
@@ -339,7 +343,7 @@ export function AgentSection({
 	useEffect(() => {
 		fetch("/api/settings/prompts")
 			.then((r) => r.json())
-			.then((body: { prober: SegmentInfo[]; teacher: SegmentInfo[] }) => setPrompts(body))
+			.then((body: { prober: SegmentInfo[]; teacher: SegmentInfo[]; mapDrafter?: SegmentInfo[]; familiarityInferrer?: SegmentInfo[] }) => setPrompts(body))
 			.catch(() => setPrompts(null));
 		fetch("/api/keys")
 			.then((r) => r.json())
@@ -480,7 +484,7 @@ export function AgentSection({
 					// on disk unused), "Your version is in use" when the
 					// switch is on. The switch's meaning becomes legible
 					// through this line.
-					hint={info.enabled ? PROMPT_IN_USE_HINT : undefined}
+					hint={info.enabled ? (ADAPTIVE_DOCTRINE_SEGMENTS.includes(info.path) ? ADAPTIVE_DOCTRINE_OVERRIDE_HINT : PROMPT_IN_USE_HINT) : undefined}
 					testid={`prompt-row-${info.path}`}
 				>
 					{/* Graying ruling: ONLY the toggle dims without an

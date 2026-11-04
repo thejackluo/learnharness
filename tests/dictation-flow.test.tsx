@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { parseHTML } from "linkedom";
 import { useDictation, type Dictation } from "../components/dictation.tsx";
+import { readSpeech, useReadAloud } from "../components/read-aloud.ts";
 import { notifySettingsSaved } from "../components/settings-signal.ts";
 import { useDictationLanguage } from "../components/dictation-preference.ts";
 import { isDictationActive, useDictationActive } from "../components/dictation-state.ts";
@@ -10,8 +11,9 @@ import type { UserSettings } from "../src/core/index.ts";
 
 function deferred<T>() {
 	let resolve!: (value: T) => void;
-	const promise = new Promise<T>((done) => { resolve = done; });
-	return { promise, resolve };
+	let reject!: (reason?: unknown) => void;
+	const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+	return { promise, resolve, reject };
 }
 
 class Socket extends EventTarget {
@@ -58,13 +60,29 @@ async function fixture(language: "pl" | "en" = "pl", delayedRead?: Promise<Respo
 		captures: 0,
 		stops: 0,
 		appends: [] as string[],
+		events: [] as string[],
 	};
 	Socket.all = [];
+	const speechSynthesis = {
+		getVoices: () => [{ voiceURI: "local", name: "Local", lang: "en-US", localService: true, default: true }],
+		speak: () => {},
+		cancel: () => state.events.push("speech-cancel"),
+		addEventListener: () => {},
+		removeEventListener: () => {},
+	};
+	Object.defineProperty(dom.window, "speechSynthesis", { configurable: true, value: speechSynthesis });
 	const previous = new Map<string, PropertyDescriptor | undefined>();
 	for (const [key, value] of Object.entries({
 		React, window: dom.window, document: dom.document, CustomEvent: dom.window.CustomEvent,
+		SpeechSynthesisUtterance: class {
+			voice: unknown = null;
+			onend: (() => void) | null = null;
+			onerror: (() => void) | null = null;
+			constructor(readonly text: string) {}
+		},
 		navigator: { userAgent: "", platform: "", mediaDevices: { getUserMedia: async () => {
 			state.captures++;
+			state.events.push("mic-request");
 			if (state.nextMic) return state.nextMic;
 			return { getTracks: () => [{ stop() { state.stops++; } }] };
 		} } },
@@ -101,6 +119,7 @@ async function fixture(language: "pl" | "en" = "pl", delayedRead?: Promise<Respo
 	let latest!: Dictation;
 	let setting!: ReturnType<typeof useDictationLanguage>;
 	function Harness() {
+		useReadAloud();
 		latest = useDictation({ append: (text) => state.appends.push(text) });
 		setting = useDictationLanguage();
 		state.active = useDictationActive();
@@ -133,6 +152,18 @@ async function fixture(language: "pl" | "en" = "pl", delayedRead?: Promise<Respo
 }
 
 afterEach(async () => { await dispose?.(); restore?.(); dispose = undefined; restore = undefined; });
+
+test("dictation synchronously cancels browser speech before microphone acquisition", async () => {
+	const f = await fixture();
+	await f.mount();
+	await act(async () => { readSpeech("reply:fixture", "An active read-aloud sentence."); });
+	assert.equal(f.dictation.active, false);
+	f.state.events.length = 0;
+	await act(async () => { f.dictation.toggle(); });
+	assert.equal(f.state.events[0], "speech-cancel");
+	assert.ok(f.state.events.indexOf("mic-request") > 0);
+	await act(async () => { f.dictation.stop(); });
+});
 
 test("waits for the saved language; reconnect preserves it and finals still flush exactly once", async () => {
 	const read = deferred<Response>();
@@ -323,4 +354,18 @@ test("microphone permission resolving after unmount immediately stops the late s
 	assert.equal(f.state.stops, 1);
 	assert.equal(Socket.all.length, 0);
 	assert.equal(isDictationActive(), false);
+});
+
+test("microphone permission denial reports the error without opening a socket or submitting text", async () => {
+	const f = await fixture();
+	await f.mount();
+	const mic = deferred<{ getTracks: () => { stop: () => void }[] }>();
+	f.state.nextMic = mic.promise;
+	await act(async () => { f.dictation.toggle(); });
+	assert.equal(f.state.captures, 1);
+	await act(async () => { mic.reject(new DOMException("Permission denied", "NotAllowedError")); });
+	assert.equal(f.dictation.error, "Microphone permission denied");
+	assert.equal(f.dictation.phase, "idle");
+	assert.equal(Socket.all.length, 0);
+	assert.deepEqual(f.state.appends, []);
 });

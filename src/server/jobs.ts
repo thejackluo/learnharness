@@ -262,7 +262,13 @@ function handOffEligible(chatId: string, agent: Agent): void {
 	// remain deliverable, including the first poll of an answer run.
 	if (automaticFollowUpAllowed(chatId, agent) && queue && queue.length > 0) {
 		for (const entry of queue) {
-			if (!entry.waking && !entry.deferred && entry.handedTo !== agent && entry.steer.customType !== "probe-handoff") {
+			if (
+				!entry.waking &&
+				!entry.deferred &&
+				entry.handedTo !== agent &&
+				entry.steer.customType !== "probe-handoff" &&
+				entry.steer.customType !== "placement-next"
+			) {
 				agent.steer(entry.steer);
 				entry.handedTo = agent;
 			}
@@ -449,9 +455,8 @@ export function abortJob(jobId: string): AbortOutcome {
 }
 
 function chatIdOf(steer: SteerMessage): string {
-	// The probe handoff carries its chat directly in the marker details (the
-	// job record would say it too, but the details are the cheap path).
-	if (steer.customType === "probe-handoff") {
+	// These automatic follow-ups carry their chat directly in marker details.
+	if (steer.customType === "probe-handoff" || steer.customType === "placement-next") {
 		return (steer.details as { chatId: string }).chatId;
 	}
 	// The chat is resolvable from the job record; the steer's details
@@ -513,11 +518,9 @@ async function pump(chatId: string): Promise<void> {
 			if (live && isTurnRunning(chatId)) {
 				handOffEligible(chatId, live);
 				const handable = stillPending.filter((e) => e.handedTo === live);
-				// probe-handoffs never ride a live run (owner ruling: the
-				// handoff must START the teacher's run) — if any remain
-				// pending, wait the run out and loop to the wake below.
+				// Probe handoffs and placement nudges must start a fresh run.
 				const handoffWaits = stillPending.some(
-					(e) => e.steer.customType === "probe-handoff",
+					(e) => e.steer.customType === "probe-handoff" || e.steer.customType === "placement-next",
 				);
 				if (handable.length > 0 && !handoffWaits) {
 					return; // the run delivers; settleSteers re-pumps the rest

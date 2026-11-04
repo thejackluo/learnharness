@@ -23,18 +23,28 @@ Hold the architecture along two orthogonal axes:
 
 **Static structure — the hexagon.** One pure core (`src/core`); everything else is an *adapter* (implements a core port or drives the core) or a *composition root* (the only code that wires adapters to core). Dependency arrows point **inward only** — toward purity, toward stability. Two barrels are the entire public API: `@/src/core` (browser-safe) and `@/src/server` (the server-side surface).
 
-**Runtime ownership — six systems.** Each persistent store has exactly one owning writer-system; systems talk only through named, idempotent protocols:
+**Runtime ownership — seven systems.** Each persistent store has exactly one owning writer-system; systems talk only through named, idempotent protocols:
 
 | System | Owns (sole writer) | Role |
 |---|---|---|
 | **Classroom** — session engine | `data/chats/*.json` | the turn pipeline, prober→teacher, plan tree, questions, phases |
+| **Learner** — profile | `data/learner/profile.json` | editable learner context and import confirmations; evidence remains derived from chats |
+| **Maps** — subject reference maps | `data/maps/*.json` | learner-authored prerequisite DAGs, goals and explicit proposition/topic links; never mastery, never a second evidence ledger |
+
+A session may start from one subject-map skill (`ChatRecord.target`, validated at creation against the current objective revision). The tutor marks checks that directly assess it with `onTarget`, accepted only while that target is current. `src/core/adaptation.ts` turns the target's dated observations (learner links plus tutor-marked results from canonical chats) into an advisory probe / repair / advance move; `src/server/target-adaptation.ts` gathers them, injects the bounded block into the per-turn learner context and serves it at `GET /api/chats/[id]/target`. It is recomputed on read and never stored.
 | **Workbench** — background labor | `data/jobs/*.json` | job runner, researcher/demo-builder/visual-maker, steer delivery |
 | **Library** — world model | `data/graph/*` ledgers | extraction pipeline (sole graph writer), derivation, birth-session clusters |
 | **Practice** — problem sets | `data/practice/*.json` | partitioner→generator→grader pipeline, self-contained sets (§7) |
 | **Stage** — presentation shell | nothing server-side | components/, graph canvas, docks — pure consumer via `/api/*` |
 | **Machine room** — host | process + config | Electron main, standalone Next server, `config.ts`, data-dir seam, BYOK keys |
 
-**The unifying law** (generates everything else): **imports point inward, writes point to append-only evidence, and everything else is derived.** Dependency flows toward purity; data flows toward evidence; no state is stored where it can be recomputed.
+Subject maps can also be AI-drafted for explicit owner review. `POST /api/subject-maps/drafts` accepts a goal, framework and/or syllabus; `POST /api/subject-maps/:id/drafts` refines a full map from an instruction. The background `mapDrafter` role resolves through the strong slot (with a per-role override), uses the shared submit-agent and concurrency pool, and returns draft + validation issues + usage without persisting anything. One validation repair is allowed; a second failure returns 422. Syllabus quotes are checked as whitespace-normalized verbatim substrings, otherwise labelled AI-added. Framework sources are general AI knowledge, not official-document verification. Optional regions and source metadata round-trip in portable maps without changing objective revision semantics. Hosted syllabus uploads use the text-only import gate; local PDFs use pdf-ops text extraction in a temporary file that is deleted. Acceptance uses the existing map create/replace routes and If-Match concurrency, never a new write path.
+
+Subject skills may be marked as keystones for skip-ahead checks, and alternative prerequisite groups mean any one of 2–8 options is sufficient (up to 500 groups; each option counts as a prerequisite edge for cycle validation). Pure `src/core/pathways.ts` derives cleared/open/reachable/locked states from supporting evidence, plans a deterministic unsatisfied route and eligible keystone checks, and lays skills out by longest-path depth in region bands. The map editor defaults to this World view, with a list/editor toggle, a text route mirror, and session launch through the existing target-session flow.
+
+Placement runs probe a deterministic next skill and attribute tutor-marked checks to that probe; successful checks create separate, pending familiarity suggestions for prerequisite closure skills. Imports and learner quotations can also create suggestions, but only an owner decision makes a current suggestion count as likely-known for route planning. Suggestions never create observations, demonstrated evidence, or adaptation advice; placement state is stored on the chat, while suggestion decisions live in the learner profile.
+
+**The unifying law** (generates everything else): **imports point inward; canonical evidence is append-only where applicable; everything recomputable is derived.** The revisioned learner profile is explicit user-authored context, while its transcript observations are derived from canonical chats.
 
 ---
 
@@ -56,14 +66,14 @@ Dependency arrows point **down only**. Each layer may import the core barrel; no
 │            extraction pipeline. Deps arrive via factories —  │
 │            never imported from below                          │
 ├──────────────────────────────────────────────────────────────┤
-│ CORE       src/core        pure domain: contracts (6 domains),│
-│            ports, merger + derivation, coverage, question-   │
+│ CORE       src/core        pure domain: contracts (8 domains),│
+│            ports, merger + learner derivation, coverage,     │
 │            core, plan-tree, phases, layout, prices. No IO     │
 │            (two files use node:crypto — pure                  │
 │            but node-bound, hence kept out of the barrel)      │
 ├──────────────────────────────────────────────────────────────┤
-│ STORE      src/store       fs adapters: chats · graph        │
-│            ledgers · jobs (implement core ports) + two       │
+│ STORE      src/store       fs adapters: chats · learner ·    │
+│            graph ledgers · jobs (implement core ports) + two │
 │            portless settings adapters. The ONLY modules     │
 │            that touch data/                                   │
 └──────────────────────────────────────────────────────────────┘
@@ -146,7 +156,7 @@ flowchart TB
 
 ### 2.2 Contracts — one file per domain
 
-`src/core/contracts.ts` is a barrel over seven domain files, each owned outright by its stream (schema changes in a domain you don't own go through the master session):
+`src/core/contracts.ts` is a barrel over eight domain files, each owned outright by its stream (schema changes in a domain you don't own go through the master session):
 
 - `contracts/plan.ts` — plan tree types + derived statuses (`derivePlanStatuses`)
 - `contracts/graph.ts` — graph domain: ledgers, findings/audit shapes, snapshot, birth-session clusters
@@ -155,12 +165,14 @@ flowchart TB
 - `contracts/probe.ts` — probe assessment + the shared zod schema
 - `contracts/models.ts` — client-safe model-catalog shapes
 - `contracts/practice.ts` — problem sets, reasoning chains, params, grade scores
+- `contracts/learner.ts` — revisioned learner profile, evidence observations, and familiarity claims
+- `contracts/subject-map.ts` — subject reference maps (skills with objective revisions, prerequisite edges, goals, retired-id tombstones, learner links) and the portable curriculum format
 
 ---
 
 ## 3. Ports, adapters, and the composition roots
 
-Storage is **per-entity semantic ports**, never one generic interface: `ChatStore`, `GraphStore`, `JobStore`, `PracticeStore` (`src/core/ports.ts` — types only). The fs adapters (`src/store/{chats,graph,jobs,practice}.ts`) implement them and contain persistence and nothing else. One more adapter (`src/store/render-settings.ts`) is a portless free function re-exported through the server barrel — a deliberate pragmatic bypass, documented here so nobody mistakes it for the pattern.
+Storage is **per-entity semantic ports**, never one generic interface: `ChatStore`, `GraphStore`, `JobStore`, `PracticeStore`, `LearnerProfileStore`, `SubjectMapStore` (`src/core/ports.ts` — types only). The fs adapters (`src/store/{chats,graph,jobs,practice,learner,subject-maps}.ts`) implement them and contain persistence and nothing else. One more adapter (`src/store/render-settings.ts`) is a portless free function re-exported through the server barrel — a deliberate pragmatic bypass, documented here so nobody mistakes it for the pattern.
 
 **Idioms.** Graph evidence lives in **append-only JSONL ledgers** (corrupt-line-tolerant reads; strict shape guards drop invalid lines, never guess). Chats, jobs, positions, sources, and the settings blobs are whole-file read-modify-write JSON. All writes are synchronous, single-process (atomicity rides the Node event loop). Merge/dedup/derivation semantics are **reader-side, in core** — the store never decides.
 
@@ -211,7 +223,7 @@ flowchart LR
 
 ---
 
-## 4. The six systems (runtime ownership and protocols)
+## 4. The seven systems (runtime ownership and protocols)
 
 The systems view: each box owns its store; edges are the protocols, each with the adapter/seam that implements it.
 
@@ -227,6 +239,11 @@ flowchart TB
         TURN["turn pipeline — handleChatRequest"]
         AGENTS["prober → teacher (stateless per-turn, from the record)"]
         CHATDATA["chat records — data/chats/*.json"]
+    end
+
+    subgraph LEARNER_PROFILE["LEARNER — learner profile"]
+        LEARNER_API["profile, import, evidence, and bounded context service"]
+        LEARNER_DATA["data/learner/profile.json"]
     end
 
     subgraph WORKBENCH["WORKBENCH — background labor (owns data/jobs)"]
@@ -254,6 +271,7 @@ flowchart TB
     UI -->|"POST /api/chat [question answers ride addToolOutput]"| TURN
     TURN -->|"quiz / ask_user_question stream to browser [client-question tools, no execute]"| UI
     TURN -->|"saveMessages · persistTurn [ChatStore port]"| CHATDATA
+    TURN -->|"bounded context read, excluding current chat"| LEARNER_API
     TURN -->|"spawn(job) — fire-and-forget ack [job tools + JobStore port]"| JOBRUN
     JOBRUN --> SUBAGENTS
     SUBAGENTS -->|"result → steer message [steer builders in core/jobs.ts]"| WAKE
@@ -263,13 +281,16 @@ flowchart TB
     EXTRACT -->|"append-only ledger writes [GraphStore port — sole writer]"| GRAPHDATA
     DERIVE -->|"pure read: snapshot for home [graphSnapshot]"| GRAPHDATA
     UI -->|"POST /api/practice/sets · answers [HTTP transport]"| PPART
+    UI -->|"GET/PUT profile · import preview/confirm · evidence [HTTP transport]"| LEARNER_API
+    LEARNER_API -->|"profile read/write [LearnerProfileStore port]"| LEARNER_DATA
+    LEARNER_API -->|"derive observations from canonical messages [ChatStore port]"| CHATDATA
     PPART -->|"reads the graph ONCE at creation — propositions+chains frozen into the set [GraphStore port, pure read]"| GRAPHDATA
     PPART --> PDATA
     UI -->|"GET /api/graph (read) · PUT positions (sanctioned exception) · POST import"| DERIVE
     HOST -.->|"hosts every server-side system"| TURN
 ```
 
-Four server-side systems, each the sole writer of its own store, connected by named protocols: the **turn request** (Stage→Classroom), the **ack-and-steer** loop (Classroom→Workbench→Classroom), the **extraction trigger + transcript read** (Classroom→Library), and the **practice request** (Stage→Practice over HTTP, plus Practice's one-time graph snapshot read at creation). The Stage touches systems only through the thin HTTP transport; the teacher reaches the Library directly through the gated prober tools (`list_sessions` / `list_propositions`) rather than any injected context.
+Five server-side systems, each the sole writer of its own store, connected by named protocols: the **turn request** (Stage→Classroom), the **learner profile/evidence requests** (Stage→Learner), the **bounded context read** (Classroom→Learner, excluding the current chat), the **ack-and-steer** loop (Classroom→Workbench→Classroom), the **extraction trigger + transcript read** (Classroom→Library), and the **practice request** (Stage→Practice over HTTP, plus Practice's one-time graph snapshot read at creation). The Stage touches systems only through the thin HTTP transport; the teacher reaches Library through gated prober tools (`list_sessions` / `list_propositions`), while learner context is separately bounded and labeled as untrusted data.
 
 ---
 
@@ -306,6 +327,8 @@ sequenceDiagram
 ```
 
 - **Client-side question tools** (`quiz`, `ask_user_question`) have no server execute: the call streams to the browser, the learner answers in the dock, the client grades via `question-core` and returns the verdict with `addToolOutput`, which fires the continuation. A pending quiz persisted in the record is exactly what makes **resume mid-question free**. Deterministic seeded shuffling (keyed by toolCallId) keeps server and client renders identical.
+- **Learner profile and evidence**: `/api/learner/profile` stores editable background, coursework, topic familiarity, confirmed excerpts, and evidence associations in one revision-checked profile. Import preview writes nothing; confirmation validates and appends reviewed excerpts. `/api/learner/evidence` derives source-linked observations from canonical chat results; it is not a second grade ledger. Per-turn context is bounded, labeled untrusted, excludes the current chat, and is injected only at model-message conversion—not into the system prompt or persisted history. Unreadable chat records keep evidence coverage partial.
+- **Subject maps**: `/api/maps` and `/api/maps/[id]` store learner-authored prerequisite DAGs separately from the proposition graph and plan trees. Writes use ETag/If-Match (missing → 428, stale → 412 with the current map); corrupt or future files are listed but never rewritten. `core/subject-map.ts` validates bounds/ids/edges/cycles, bumps a skill's `revision` only when its objective changes, tombstones removed ids, and derives goal closure with shortest prerequisite paths. Each skill shows three independent axes: encounter (explicitly linked graph propositions), dated self-report (explicitly linked profile topics) and criterion evidence (profile associations via `POST/DELETE /api/learner/evidence/[id]/targets`, which resolves the skill's current revision before calling the learner association service). Evidence at an older revision is historical (review needed); deleted sources and unreadable profiles read as unavailable, not empty. Curriculum preview writes nothing; export (`/api/maps/[id]/export`) omits every learner link. No model calls, no default curriculum, no graph writes.
 - **The prober→teacher handoff**: the first turn(s) run the prober (floor/ceiling via quiz, goal via ask); `probe_done` (server-executed) files the assessment and queues a handoff steer; from the first `tool-probe_done` part in the transcript, the handler builds the teacher agent for every later turn. Phases (`core/phases.ts`) fold strictly: probe → plan → teach.
 - **The formal plan tree is author-once**: the teacher authors the session's dependency map with a single schema-validated `plan_init` tool (a mermaid-subset graph, parsed deterministically with line-numbered errors, validated as a DAG). Progress is never mutated — statuses (`current`/`visited`/upcoming) are **derived** from tagged quiz calls in the transcript; the tree panel and the plan blocks render that derivation.
 - **Job tools are server-executed, ack-and-steer**: `research`/`demo`/`visual` resolve immediately mid-turn with a fire-and-forget ack (the teacher keeps teaching); `spawn(job, input)` fires the background runner.
@@ -466,7 +489,7 @@ For ordinary Next web/dev, `src/server/web-subscriptions.ts` composes these same
 | **One composition root per concern** — `stores.ts` (storage), `chat-handler.ts` (a turn) |
 | **One writer per ledger** — the merger is the sole graph writer; chat records written only by the turn pipeline; job records only by the runner; positions PUT is the only sanctioned graph-adjacent exception |
 | **The store never decides** — adapters persist and shape-guard; merge/dedup/derivation semantics are reader-side, in core |
-| **Derived, never dual-tracked** — append-only evidence; every state recomputed at read (snapshot, plan statuses, phases, costs, coverage) |
+| **Derived state, never dual-tracked** — transcript observations, snapshots, plan statuses, phases, costs, and coverage are recomputed at read; the learner profile is explicitly authored and revisioned |
 | **Idempotency via deterministic keys** — steer ids, ledger refs, coverage fingerprints, source content fingerprints, cluster content hashes; re-running anything converges |
 | **LLMs judge; code mechanizes** — grading, merging, fingerprints, layout are deterministic; a failed LLM stage checkpoints nothing |
 | **The persisted record is the only source of truth** — agents are stateless per-turn rebuilds; no unanswered tool call reaches a provider |
@@ -530,9 +553,19 @@ The bus itself is a `globalThis`-backed listener set (the Next per-entry-module 
 
 ### Mixed assessment
 
-`agent.assessmentMode` optionally selects `choice`, `free`, or `mixed`; absence retains the legacy `agent.tools.explain` fallback. Mixed registers both existing graded instruments without changing question pacing. Free-response and practice authoring may commit an `AssessmentSpecV1` rubric (stable part/criterion ids, maxima and expected evidence); multipart prompts use one shared response field. Optional learning-target and teaching-stimulus references are reserved by the contract, not authored yet.
+`agent.assessmentMode` optionally selects `choice`, `free`, or `mixed`; absence retains the legacy `agent.tools.explain` fallback. Mixed registers both existing graded instruments without changing question pacing. Explain/recall authoring can commit free, numeric, exact, or structured parts in an `AssessmentSpecV1`; free parts share a response field, numeric/exact parts are graded deterministically on the server answer seam, and structured fields are evaluated against model-judged criteria. The practice `problem` tool remains free-only. Optional learning-target references are reserved by the contract; teaching-stimulus references are authored by explore → explain activities (below).
 
-Answer events reconstruct their question and grade from the persisted pending call, using only learner input from the client. MC results are deterministic; client verdicts, labels, commitments and timestamps are not authoritative. The normal tutor's `evaluate` tool references a persisted rubric and a submitted response id and records one `AssessmentEvaluationV1` per response. It validates identities, coverage and bounded finite awards, not the truth of AI judgment. Pure scoring derives criterion outcomes and assessed coverage; null awards remain incomplete. Legacy calls without parts gain neither rubrics nor verified grades. Evaluation is not a question tool and does not gate the composer.
+Answer events reconstruct their question and grade from the persisted pending call, using only learner input from the client. MC and numeric/exact results are deterministic; client verdicts, labels, commitments, timestamps, and grading are not authoritative. Server-computed numeric/exact results carry deterministic provenance and an auto-evaluation; `evaluate` sees only model-judged free/structured criteria. It references a persisted rubric and submitted response id and records an `AssessmentEvaluationV1` per response, validating identities, coverage, and bounded finite awards, not the truth of AI judgment. Pure scoring derives criterion outcomes and assessed coverage; null awards remain incomplete. Legacy calls without parts gain neither rubrics nor verified grades. Evaluation is not a question tool and does not gate the composer.
+
+### Explore → explain activities
+
+The teacher's `activity` tool (registered whenever the teach `explain` is, i.e. `free`/`mixed` mechanics) posts a `CaseComparisonActivityV1` (`src/core/contracts/activity.ts`): objective, instructions, 2–8 cases, each with 1–4 series of ≤200 finite points, two labelled axes and a text alternative. `activityInputSchema` uses closed objects, so url/html/svg/script/formula keys are rejected rather than stripped; numbers are bounded and finite. The validated, normalized data is the tool result's `details`; `components/activity-card.tsx` renders it with app-owned SVG, a data table and the text alternative. Cases form a keyboard radiogroup (arrows, Home, End), the axes stay fixed across cases, series differ by dash pattern and marker, there is no animation, and all text renders as escaped plain text (never markdown). Nothing executes, fetches or opens a browser helper, so the tool is not capability-gated and works in hosted mode, unlike the generated `demo`/`visual` jobs.
+
+The teach `explain` may carry `stimulus: {kind: "teaching-stimulus", toolCallId}` naming one activity call. The pose is rejected unless that exact call succeeded in this chat (persisted, or earlier in the same turn). At answer time `inputAppends` re-resolves it from the record (`resolveTeachingStimulus`) and snapshots `{kind, messageId, toolCallId, guide, provenance: "appRenderedActivity"}` into the answer; a client-sent stimulus is ignored. `evaluate` re-resolves it and records `{kind, messageId, toolCallId}` as `AssessmentSpecV1.stimulus`. Regenerating an activity is a new call with a new id. Mid-turn the model sees raw provider ids, so `ToolCallIdUniquifier` rewrites a stimulus naming a this-turn activity to that activity's minted id; a legacy record that repeats an id is refused as ambiguous. Viewing or switching cases produces no observation; learner evidence still comes only from the explicit answer and evaluation.
+
+### Manual read-aloud
+
+Read-aloud is a client-only complement to dictation: pure core projections prepare visible reply/question/practice prose, and a browser speech-synthesis controller uses only local voices. Playback requires an explicit button press, is chunked and cancellable, and never records audio, calls a server speech API, or submits content. Starting dictation cancels playback before microphone acquisition; Escape stops playback after dictation and before the existing turn-abort chain.
 
 All deterministic, no network: engines are injected (pi-ai's **faux provider** — `createFauxCore`/`setResponses` — wrapped as the `PiEngine` production uses), `globalThis.fetch` is stubbed where transport matters, and pure logic gets in-memory port implementations. Suites either mirror production wiring with the real fs adapters (backup-and-clear of the ledgers they touch) or swap in-memory ports deliberately ("this suite never touches data/graph"). Four strata:
 

@@ -9,6 +9,8 @@
  * adapters may import core; core NEVER imports an adapter.
  */
 
+import type { LearningTargetRef } from "./contracts/learning-target.ts";
+import type { PlacementRun } from "./contracts/familiarity.ts";
 import type { LhMessage } from "./native-messages.ts";
 import type {
 	ChatRecord,
@@ -25,6 +27,13 @@ import type {
 	SessionCheckpoint,
 	TurnUsage,
 	NotesSource,
+	LearnerProfileRead,
+	LearnerProfileV1,
+	SubjectMapDefinition,
+	SubjectMapLinks,
+	SubjectMapRead,
+	SubjectMapSummary,
+	SubjectMapV1,
 } from "./contracts.ts";
 import type { UserSettings } from "./settings.ts";
 
@@ -34,11 +43,15 @@ export interface ChatStore {
 	/** Create a session record (persisted immediately). */
 	/** Create a session record; kind "practice" marks a practice session
 	 *  (absent = teach, the default). */
-	createChat(title: string, kind?: "practice"): ChatRecord;
+	createChat(title: string, kind?: "practice", target?: LearningTargetRef, placement?: PlacementRun): ChatRecord;
 	/** The full record, or null if unknown id / corrupt file. */
 	getChat(id: string): ChatRecord | null;
 	/** All sessions, newest activity first (the sidebar's list view). */
 	listChats(): ChatSummary[];
+	/** chat ids ordered by file mtime, newest first; does not read records */
+	listChatIdsByRecency(): string[];
+	/** Every chat filename in ascending id order, including unreadable records. */
+	listChatIds(): string[];
 	/** Persist the full native message list (the record IS the agent
 	 * state — Wave B, owner-approved 2026-09-26). */
 	saveMessages(id: string, messages: LhMessage[]): void;
@@ -54,6 +67,7 @@ export interface ChatStore {
 	/** Persist the per-chat model/thinking settings (the model control).
 	 *  Replace-whole: the picker sends the complete settings object. */
 	saveSettings(id: string, settings: ChatSettings): void;
+	saveTargeting(id: string, targeting: { target?: LearningTargetRef; placement: PlacementRun }): void;
 	/** Rename a session (the header's click-to-edit title, 2026-09-17).
 	 * Like saveSettings: a rename is NOT conversation activity — updatedAt
 	 * stays put, so sidebar order never churns on a rename. */
@@ -63,6 +77,30 @@ export interface ChatStore {
 	 *  job cleanup are the caller's choreography (core/graph-deletion.ts +
 	 *  the DELETE route), not the store's. */
 	deleteChat(id: string): boolean;
+}
+
+export interface LearnerProfileStore {
+	read(): LearnerProfileRead;
+	replace(
+		next: Omit<LearnerProfileV1, "version" | "revision" | "updatedAt">,
+		expectedRevision: number,
+	): LearnerProfileV1;
+}
+
+// ─── SubjectMapStore — learner-authored prerequisite maps (data/maps) ──────
+
+export type SubjectMapWrite = SubjectMapDefinition & { links: SubjectMapLinks };
+
+export interface SubjectMapStore {
+	/** Every map file, newest update first; unreadable files are listed by state. */
+	list(): SubjectMapSummary[];
+	read(id: string): SubjectMapRead;
+	/** Creates a map with a fresh id at revision 1 and no learner links. */
+	create(definition: SubjectMapDefinition): SubjectMapV1;
+	/** Compare-and-swap on the map revision; throws on conflict or an unwritable file. */
+	replace(id: string, next: SubjectMapWrite, expectedRevision: number): SubjectMapV1;
+	/** Compare-and-swap delete. */
+	remove(id: string, expectedRevision: number): void;
 }
 
 // ─── GraphStore — the append-only evidence ledgers (data/graph) ──────────────

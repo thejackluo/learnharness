@@ -3,6 +3,15 @@
 import { useCallback } from "react";
 import { joinDictation, useDictationTarget } from "@/components/dictation";
 
+export function handleReadingThinkingEscape(
+	event: { preventDefault: () => void; stopPropagation: () => void },
+	onEscape?: () => void,
+): void {
+	event.preventDefault();
+	event.stopPropagation();
+	onEscape?.();
+}
+
 /**
  * The reading-thinking field (owner design 2026-10-03, "two questions per
  * teaching unit"): a quiet textarea for thinking WHILE READING the
@@ -27,7 +36,7 @@ export function ReadingThinkingField({
 }: {
 	value: string;
 	onChange: (v: string) => void;
-	/** Esc in the field stops dictation (threaded from the page's hook). */
+	/** Esc stops dictation, or read-aloud when dictation is idle. */
 	onEscape?: () => void;
 	/** The check waits CLOSED — Enter opens it (owner, keyboard round
 	 *  2026-10-06). The caller finishes any live dictation FIRST (the
@@ -68,11 +77,8 @@ export function ReadingThinkingField({
 				   caret law, typography round 2). */
 				onKeyDown={(e) => {
 					if (e.key === "Escape") {
-						// Esc stops dictation (the strip's rule) — claimed so the
-						// window chain doesn't also read it as abort-turn.
-						e.preventDefault();
-						e.stopPropagation();
-						onEscape?.();
+						// Claim Esc so the global chain cannot also abort the turn.
+						handleReadingThinkingEscape(e, onEscape);
 						return;
 					}
 					// ENTER OPENS THE WAITING CHECK (owner, keyboard round

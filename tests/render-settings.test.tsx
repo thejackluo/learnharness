@@ -127,8 +127,11 @@ describe("AgentSection (thin SSR)", () => {
 		assert.equal((html.match(/>Default<\/span>/g) ?? []).length, 0, "no Default trigger");
 		assert.ok(!html.includes('data-testid="menu-default"'), "no Default row");
 		assert.equal((html.match(/>—<\/span>/g) ?? []).length, 6, "three slots × two — triggers");
-		// the per-role rows are GONE (slots-only)
-		for (const role of ["researcher", "demoBuilder", "visualMaker"]) {
+		assert.ok(html.includes("map drafts"), "Strong roster includes map drafting");
+		assert.ok(html.includes("familiarity suggestions"), "Strong roster includes familiarity inference");
+		// the per-role rows are GONE (slots-only), including the map drafter
+		assert.ok(!html.includes("model override"), "no per-role override rows");
+		for (const role of ["researcher", "demoBuilder", "visualMaker", "mapDrafter", "familiarityInferrer"]) {
 			assert.ok(!html.includes(`data-testid="role-row-${role}"`), `${role} retired`);
 		}
 		assert.ok(html.includes('data-testid="group-models"'), "Models sub-group");

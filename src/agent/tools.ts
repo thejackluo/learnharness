@@ -2,6 +2,8 @@ import { Type } from "typebox";
 import { evaluateTool } from "./tools/evaluate.ts";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { invalidInputResult, questionResult, serverExecute } from "./tool-execute.ts";
+import { activityTool, stimulusPoseProblem, type PostedActivities } from "./tools/activity.ts";
+import { teachingStimulusRefOf } from "../core/activity.ts";
 import {
 	askInputSchema,
 	askOptionProblems,
@@ -26,9 +28,13 @@ import { lsTool } from "./tools/ls.ts";
 import { findTool } from "./tools/find.ts";
 import { grepTool } from "./tools/grep.ts";
 import { healToolRecord } from "./tools/heal.ts";
+import { withTargetAttribution, type SessionTargetState } from "./tools/target-attribution.ts";
+import { suggestFamiliarityTool } from "./tools/suggest-familiarity.ts";
+import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { GraphStore } from "../core/ports.ts";
 
 export { jobTools };
+export type { SessionTargetState } from "./tools/target-attribution.ts";
 export type { ProbeDoneContext } from "./tools/probe.ts";
 
 /**
@@ -189,6 +195,7 @@ function explainDescription(name: "explain" | "recall", nodeId: boolean): string
 		"correctAnswer is the FULL correct answer in your own words, reasoning included, COMMITTED before he ever " +
 		"sees the question. When his answer returns, grade it strictly against the commitment — never revise it " +
 		"after seeing his words. He sees the committed answer on submit. " +
+		"Typed numeric and exact parts are graded automatically by the app; free and structured criteria are evaluated with `evaluate`. " +
 		(nodeId
 			? "Set `nodeId` (required) to the plan node this question is about — validated at call time against the session's plan map. "
 			: "") +
@@ -222,6 +229,7 @@ export const probeQuizTool: AgentTool<typeof probeQuizInputSchema> = {
  *  teach quiz — phases/plan recognize BOTH tool names). */
 export function teachExplainToolFor(
 	ctx: Pick<PlanToolContext, "chatId" | "chatStore">,
+	posted: PostedActivities = new Map(),
 ): AgentTool<typeof explainInputObject> {
 	return {
 		name: "explain",
@@ -234,6 +242,8 @@ export function teachExplainToolFor(
 			const problems = [...explainInputProblems(input)];
 			const nodeIdProblemText = nodeIdProblem(ctx, input.nodeId);
 			if (nodeIdProblemText) problems.push(nodeIdProblemText);
+			const stimulusProblem = stimulusPoseProblem(ctx, posted, teachingStimulusRefOf(input));
+			if (stimulusProblem) problems.push(stimulusProblem);
 			if (problems.length > 0) return invalidInputResult("explain", problems);
 			return questionResult();
 		},
@@ -278,6 +288,9 @@ export interface ProberToolContext extends ProbeDoneContext {
 	 *  master switch AND the agent.graphTools toggle (settings-resolution).
 	 *  Absent = the gate is closed, no map tools (tests drive this seam). */
 	graphStore?: GraphStore;
+	/** The session target's standing this turn; gates `onTarget` claims. Absent = none. */
+	sessionTarget?: SessionTargetState;
+	suggestFamiliarity?: (input: { skillId: string; quote: string }) => AgentToolResult | Promise<AgentToolResult>;
 }
 
 /** The prober's tool set: probe quiz (no nodeId) + ask + the learner-fs
@@ -313,7 +326,7 @@ export function createProberTools(
 	// differently-typed literals makes the whole object's type a union —
 	// unusable as Record<string, AgentTool<any>> downstream).
 	const quizzing: Record<string, AgentTool<any>> =
-		{ ...(mechanics !== "choice" ? { recall: probeExplainTool } : {}), ...(mechanics !== "free" ? { probe: probeQuizTool } : {}) };
+		{ ...(mechanics !== "choice" ? { recall: withTargetAttribution(probeExplainTool, ctx.sessionTarget) } : {}), ...(mechanics !== "free" ? { probe: withTargetAttribution(probeQuizTool, ctx.sessionTarget) } : {}) };
 	// healToolRecord (owner, 2026-10-09 — the whitehead generalization):
 	// the standard argument heal over the WHOLE registry — every tool,
 	// not just the one the latest wobble incident landed on.
@@ -343,6 +356,7 @@ export function createProberTools(
 				...(ctx.graphStore
 					? proberGraphTools({ chatStore: ctx.chatStore, graphStore: ctx.graphStore })
 					: {}),
+				...(ctx.suggestFamiliarity ? { suggest_familiarity: suggestFamiliarityTool(ctx.suggestFamiliarity) } : {}),
 				...done,
 			},
 				withoutMechanics(enabled),
@@ -404,6 +418,9 @@ export interface TeacherToolContext extends PlanToolContext {
 	spawn: (job: JobRecord, input: ResearchInput | DemoInput | VisualInput | PdfInput) => void;
 	/** Retained search-status seam; research dispatch is available keylessly. */
 	searchAvailable?: () => boolean;
+	/** The session target's standing this turn; gates `onTarget` claims. Absent = none. */
+	sessionTarget?: SessionTargetState;
+	suggestFamiliarity?: (input: { skillId: string; quote: string }) => AgentToolResult | Promise<AgentToolResult>;
 }
 
 /**
@@ -445,10 +462,15 @@ export function createTeacherTools(
 	// quiz for the teach explain — one quizzing tool at a time, whichever
 	// the settings arm. ask stays always-on.
 	const mechanics = quizMechanics(enabled, mode);
+	// One turn-scoped map: an explain may link an activity posted earlier in
+	// the same turn, before persistence. `activity` (app-rendered declarative
+	// data, not a generated job: hosted-safe) rides with `explain`, the only
+	// way its exploration is assessed.
+	const posted: PostedActivities = new Map();
 	// Same widening as the prober's (see above) — the conditional spread of
 	// two differently-typed literals collapses into an unusable union type.
 	const quizzing: Record<string, AgentTool<any>> =
-		{ ...(mechanics !== "choice" ? { explain: teachExplainToolFor(ctx) } : {}), ...(mechanics !== "free" ? { quiz: teachQuizToolFor(ctx) } : {}) };
+		{ ...(mechanics !== "choice" ? { explain: withTargetAttribution(teachExplainToolFor(ctx, posted), ctx.sessionTarget), activity: activityTool(posted) } : {}), ...(mechanics !== "free" ? { quiz: withTargetAttribution(teachQuizToolFor(ctx), ctx.sessionTarget) } : {}) };
 	// healToolRecord — same standard as the prober's registry (above).
 	return capabilityFilter(healToolRecord(
 		filterEnabledTools(
@@ -466,6 +488,7 @@ export function createTeacherTools(
 			grep: grepTool,
 			...planTools(ctx),
 			...jobTools({ chatId: ctx.chatId, jobStore: ctx.jobStore, spawn: ctx.spawn, searchAvailable: ctx.searchAvailable }),
+			...(ctx.suggestFamiliarity ? { suggest_familiarity: suggestFamiliarityTool(ctx.suggestFamiliarity) } : {}),
 		},
 		withoutMechanics(enabled),
 		),

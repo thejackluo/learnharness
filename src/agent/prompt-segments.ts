@@ -40,7 +40,7 @@ const PROMPTS_DIR = path.join(PATHS.root, "src", "agent", "prompts");
  *  truth contract, and the thinking-fields doctrine are ONE law across
  *  every agent. The question/confidence/file mechanics stay out
  *  (practice has no such tools). */
-const PRACTICE_SHARED_FRAGMENTS = ["10-voice.md", "15-accuracy.md", "16-mental-model.md", "40-formatting.md"];
+const PRACTICE_SHARED_FRAGMENTS = ["10-voice.md", "15-accuracy.md", "16-mental-model.md", "26-target-evidence.md", "40-formatting.md"];
 
 /** Absolute path for an override file (unchecked — validate first). */
 function overrideFileFor(segmentPath: string): string {
@@ -71,7 +71,7 @@ export function listSourceSegments(agent: PromptAgent): Array<{ path: string; sh
 	// plays the base role), but the FORMATTING guide composes for every
 	// agent (owner, 2026-10-04 late): LaTeX delimiters and markdown apply
 	// in all settings — practice shares the $...$/$$...$$ authoring contract.
-	const segments: Array<{ path: string; shared: boolean; file: string }> = agent === "practice" ? [] : [
+	const segments: Array<{ path: string; shared: boolean; file: string }> = agent === "practice" || agent === "map-drafter" || agent === "familiarity-inferrer" ? [] : [
 		{ path: "system-prompt.md", shared: true, file: PATHS.teacherPrompt },
 	];
 	const dir = path.join(PROMPTS_DIR, agent);
@@ -82,7 +82,7 @@ export function listSourceSegments(agent: PromptAgent): Array<{ path: string; sh
 		}
 	}
 	const sharedDir = path.join(PROMPTS_DIR, "shared");
-	if (fs.existsSync(sharedDir)) {
+	if (agent !== "map-drafter" && agent !== "familiarity-inferrer" && fs.existsSync(sharedDir)) {
 		// The practice allowlist (owner, 2026-10-04 late): formatting only.
 		const allow = agent === "practice" ? PRACTICE_SHARED_FRAGMENTS : null;
 		const sharedFragments = fs
@@ -127,7 +127,7 @@ export function effectivePromptSegments(
 /** Every known segment path across both agents (route validation). */
 export function allSegmentPaths(): string[] {
 	const paths = new Set<string>();
-	for (const agent of ["prober", "teacher", "practice"] as const) {
+	for (const agent of ["prober", "teacher", "practice", "map-drafter", "familiarity-inferrer"] as const) {
 		for (const segment of listSourceSegments(agent)) paths.add(segment.path);
 	}
 	return [...paths].sort();

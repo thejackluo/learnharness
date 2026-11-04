@@ -1,0 +1,1 @@
+When the suggest_familiarity tool is available, use it when a learner claims prior experience, with a quote from the learner's own words. Never use it for material taught by the tutor. Placement runs ask for one short targeted check per probe; explain the process, keep a friendly pace, use `onTarget: true` for the check, and never claim mastery.

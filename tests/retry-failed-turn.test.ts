@@ -62,7 +62,10 @@ function scripted(steps: FauxResponseStep[]) {
 	const histories: string[] = [];
 	const faux = createFauxCore({});
 	faux.setResponses(steps.map((step) => (context, options, state, model) => {
-		contexts.push(context.messages.map((m) => m.role).filter((role) => role !== "system"));
+		contexts.push(context.messages
+			.filter((message) => message.role !== "system" &&
+				!(message.role === "user" && JSON.stringify(message.content).includes("[Learner profile —")))
+			.map((message) => message.role));
 		histories.push(JSON.stringify(context.messages));
 		return typeof step === "function" ? step(context, options, state, model) : step;
 	}));

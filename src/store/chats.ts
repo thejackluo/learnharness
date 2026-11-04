@@ -15,6 +15,8 @@ import type { ChatStore } from "../core/ports.ts";
 import type { ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, PlanTree, TurnUsage } from "../core/contracts.ts";
 import { CURRENT_CHAT_VERSION } from "../core/contracts.ts";
 import type { LhMessage } from "../core/native-messages.ts";
+import type { LearningTargetRef } from "../core/contracts/learning-target.ts";
+import type { PlacementRun } from "../core/contracts/familiarity.ts";
 import { activeProblemOf, danglingQuestionOf } from "../core/native-messages.ts";
 import { phaseAt3Lh } from "../core/phases.ts";
 
@@ -32,7 +34,7 @@ function chatFile(id: string): string {
  *  phase, busy, pendingQuestion) is already announced by turn-started /
  *  turn-settled, which the sidebar refetches on. Silence here is law,
  *  not oversight. */
-function createChat(title: string, kind?: "practice"): ChatRecord {
+function createChat(title: string, kind?: "practice", target?: LearningTargetRef, placement?: PlacementRun): ChatRecord {
 	const now = new Date().toISOString();
 	const record: ChatRecord = {
 		id: `chat_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`,
@@ -43,6 +45,8 @@ function createChat(title: string, kind?: "practice"): ChatRecord {
 		// Practice sessions carry the marker; teach stays ABSENT (absence
 		// reads as teach — pre-practice records never migrate).
 		...(kind === "practice" ? { kind: "practice" as const } : {}),
+		...(target ? { target: { kind: target.kind, mapId: target.mapId, skillId: target.skillId, skillRevision: target.skillRevision } } : {}),
+		...(placement ? { placement: structuredClone(placement) } : {}),
 	};
 	fs.mkdirSync(PATHS.chats, { recursive: true });
 	writeChat(record);
@@ -120,6 +124,32 @@ function listChats(): ChatSummary[] {
 	}
 }
 
+function listChatIds(): string[] {
+	try {
+		return fs.readdirSync(PATHS.chats)
+			.filter((file) => file.endsWith(".json"))
+			.map((file) => file.slice(0, -5))
+			.sort();
+	} catch {
+		return [];
+	}
+}
+
+function listChatIdsByRecency(): string[] {
+	try {
+		return fs.readdirSync(PATHS.chats)
+			.filter((file) => file.endsWith(".json"))
+			.map((file) => ({
+				id: file.slice(0, -5),
+				mtimeMs: fs.statSync(path.join(PATHS.chats, file)).mtimeMs,
+			}))
+			.sort((a, b) => b.mtimeMs - a.mtimeMs || a.id.localeCompare(b.id))
+			.map(({ id }) => id);
+	} catch {
+		return [];
+	}
+}
+
 /** Persist the full native message list (the record IS the agent state —
  *  Wave B: replay is state.messages = record.messages). SILENT by the
  *  events law — see the SILENCE LAW comment at createChat. */
@@ -167,6 +197,15 @@ function saveSettings(id: string, settings: ChatSettings): void {
 	writeChat(record);
 }
 
+function saveTargeting(id: string, targeting: { target?: LearningTargetRef; placement: PlacementRun }): void {
+	const record = getChat(id);
+	if (!record) throw new Error(`Chat not found: ${id}`);
+	if (targeting.target) record.target = targeting.target;
+	else delete record.target;
+	record.placement = structuredClone(targeting.placement);
+	writeChat(record);
+}
+
 /** Rename a session (the header's click-to-edit title, 2026-09-17). Like
  * saveSettings, a rename is NOT conversation activity: updatedAt stays put
  * so sidebar order never churns. Same fallback as createChat — the empty
@@ -209,9 +248,12 @@ export const chatStore: ChatStore = {
 	createChat,
 	getChat,
 	listChats,
+	listChatIdsByRecency,
+	listChatIds,
 	saveMessages,
 	saveTree,
 	saveSettings,
+	saveTargeting,
 	renameChat,
 	deleteChat,
 	appendTurnUsage,

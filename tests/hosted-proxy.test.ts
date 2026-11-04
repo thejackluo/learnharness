@@ -48,6 +48,19 @@ test("hosted proxy redirects anonymous pages safely and returns no-store JSON fo
 	assert.equal(api.headers.get("cache-control"), "private, no-store");
 });
 
+test("hosted learner profile routes require a session and same-origin writes", () => {
+	const anonymous = proxy(new NextRequest("https://lh.invalid/api/learner/profile"));
+	assert.equal(anonymous.status, 401);
+	assert.equal(anonymous.headers.get("cache-control"), "private, no-store");
+
+	const crossOrigin = proxy(new NextRequest("https://lh.invalid/api/learner/profile", {
+		method: "PUT",
+		headers: { origin: "https://elsewhere.invalid" },
+	}));
+	assert.equal(crossOrigin.status, 403);
+	assert.equal(crossOrigin.headers.get("cache-control"), "private, no-store");
+});
+
 test("hosted public login and health routes allow HEAD without a session", () => {
 	for (const url of ["https://lh.invalid/login", "https://lh.invalid/api/health"]) {
 		const response = proxy(new NextRequest(url, { method: "HEAD" }));
@@ -135,4 +148,16 @@ test("hosted proxy matcher covers every app page and API route while excluding s
 	}
 	assert(!doesProxyMatch({ config, nextConfig: {}, url: "https://lh.invalid/_next/static/chunk.js" }));
 	assert(!doesProxyMatch({ config, nextConfig: {}, url: "https://lh.invalid/fonts/OFL.txt" }));
+});
+
+test("hosted subject map routes require a session and same-origin writes", () => {
+	for (const url of ["https://lh.invalid/api/maps", "https://lh.invalid/api/maps/map_x/export", "https://lh.invalid/api/learner/targets", "https://lh.invalid/maps"]) {
+		const anonymous = proxy(new NextRequest(url));
+		assert.ok(anonymous.status === 401 || anonymous.status === 303 || anonymous.status === 307, url);
+		assert.equal(anonymous.headers.get("cache-control"), "private, no-store");
+	}
+	for (const [method, url] of [["POST", "https://lh.invalid/api/maps"], ["PUT", "https://lh.invalid/api/maps/map_x"], ["DELETE", "https://lh.invalid/api/maps/map_x"], ["POST", "https://lh.invalid/api/learner/evidence/ev%3Aa/targets"]] as const) {
+		const crossOrigin = proxy(new NextRequest(url, { method, headers: { origin: "https://elsewhere.invalid" } }));
+		assert.equal(crossOrigin.status, 403, `${method} ${url}`);
+	}
 });

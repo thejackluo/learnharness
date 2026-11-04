@@ -3,7 +3,8 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { ReadingThinkingField } from "../components/reading-thinking.tsx";
+import { ReadingThinkingField, handleReadingThinkingEscape } from "../components/reading-thinking.tsx";
+import { cancelDictationOrSpeech } from "../components/read-aloud.ts";
 
 describe("the reading-thinking field (owner round, 2026-10-07)", () => {
 	it("carries vertical padding — the 1px-scrollbar absorption", () => {
@@ -19,5 +20,34 @@ describe("the reading-thinking field (owner round, 2026-10-07)", () => {
 		assert.ok(html.includes("py-0.5"), "the vertical padding is on the textarea");
 		// The cap survives: growth past max-h-40 still scrolls honestly.
 		assert.ok(html.includes("max-h-40"), "the 160px growth cap stays");
+	});
+
+	it("Escape in the reading-thinking field stops dictation first, otherwise speech, without aborting the turn", () => {
+		const calls: string[] = [];
+		let dictationActive = false;
+		const onEscape = () => cancelDictationOrSpeech(
+			() => dictationActive,
+			() => calls.push("dictation"),
+			() => calls.push("speech"),
+		);
+		let abortTurnEvents = 0;
+		const pressEscape = () => {
+			let prevented = false;
+			let stopped = false;
+			handleReadingThinkingEscape({
+				preventDefault: () => { prevented = true; },
+				stopPropagation: () => { stopped = true; },
+			}, onEscape);
+			if (!stopped) abortTurnEvents++;
+			assert.equal(prevented, true);
+			assert.equal(stopped, true, "the global Escape chain cannot dispatch turn abort");
+			return abortTurnEvents;
+		};
+
+		assert.equal(pressEscape(), 0);
+		assert.deepEqual(calls, ["speech"]);
+		dictationActive = true;
+		assert.equal(pressEscape(), 0);
+		assert.deepEqual(calls, ["speech", "dictation"]);
 	});
 });

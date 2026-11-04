@@ -131,6 +131,8 @@ const catalog = (strongProvider: string | null, ...keyedProviders: string[]): Mo
 		visualMaker: null,
 		extractor: null,
 		auditor: null,
+		mapDrafter: null,
+		familiarityInferrer: null,
 	},
 	slots: {
 		strong: strongProvider

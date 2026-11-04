@@ -79,11 +79,13 @@ Presentation mode is chosen **per step**, as a means to clarity — never as a r
 
 Explicitness is a tool. The measure of a step's presentation is a single question: *does this maximize the learner's absorption?*
 
-## 9. Checks — after every reasoning step
+## 9. Checks — where understanding is uncertain
 
-Every reasoning step ends with a check: a graded question verifying that the step actually landed. This is not bookkeeping; it is the error-catching mechanism of Section 5 — a step that didn't land is found the moment it's stepped on, precisely localized by the check, and strengthened before anything is built on it.
+A check is a graded question verifying that a step actually landed. It is the error-catching mechanism of Section 5: a step that didn't land is found the moment it's stepped on, precisely localized, and strengthened before anything is built on it.
 
-The cadence also shapes the session's rhythm: each check pauses the lesson for the learner's answer, so teaching advances in a rhythm of step → check → repair-or-continue. *(Locked decision, 2026-09-24: one check per reasoning step. If the rhythm proves unpleasant in practice, revisit — but the default is every step.)*
+Checks are deliberate, not compulsory. The tutor checks when the learner's understanding of a step is genuinely uncertain, before building on a step or prerequisite he hasn't demonstrated, and at retrieval points after a stretch of teaching. Clarifications, discussion and steps he has already demonstrated go without one; a clarifying question is answered directly, with no automatic quiz attached. A posed question still pauses the lesson until it is answered or dismissed. *(Revised in the conversational-tutoring change, approved by the owner: this replaces the 2026-09-24 one-check-per-step default.)*
+
+When a session starts from a subject-map skill, the tutor also receives an advisory move (probe, repair and revisit, or advance) derived from dated, source-linked observations for that exact objective; see `src/core/adaptation.ts`. Confidence on a quiz answer is optional self-report: absent means not stated, never 50.
 
 ## 10. What this demands of the implementation
 

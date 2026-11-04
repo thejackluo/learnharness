@@ -1,4 +1,5 @@
 export * from "./assessment.ts";
+export * from "./learner.ts";
 export * from "./canonical-question.ts";
 /**
  * THE CORE PUBLIC API — the only module the shell (app/, components/) may
@@ -84,3 +85,10 @@ export * from "./coverage.ts";
 // ONE session→markdown formatter — the extractor's view and the user-facing
 // export share it. Pure, browser-safe.
 export * from "./session-markdown.ts";
+export * from "./subject-map.ts";
+export * from "./pathways.ts";
+export * from "./familiarity.ts";
+export * from "./map-draft-review.ts";
+export * from "./activity.ts";
+export * from "./adaptation.ts";
+export * from "./speech.ts";

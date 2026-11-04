@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { ArrowDownIcon, ChevronRightIcon, PlayIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
@@ -13,9 +13,14 @@ import {
 	normalizeQuizType,
 	CONFIDENCE_STOPS,
 	DEFAULT_CONFIDENCE_INDEX,
+	stepConfidenceIndex,
 	emptyDockSelection,
 	questionDataOf,
+	questionSpeech,
 	assessmentSpecOf,
+	partResponsesFromDraft,
+	specNeedsSharedText,
+	teachingStimulusRefOf,
 	sumAssessmentPoints,
 	toolQuestionKind,
 	parseAskInput,
@@ -31,10 +36,13 @@ import {
 	type QuestionFormDraft,
 	type QuestionData,
 	type QuizToolInput,
+	type ActivityGuide,
 	type SelectMode,
 	type Phase3,
 } from "@/src/core";
 import { CONFIDENCE_COLORS, confidenceRailStyle } from "@/components/confidence-rail";
+import { ActivityStimulusNote } from "@/components/activity-card";
+import { ReadAloudButton } from "@/components/read-aloud-controls";
 
 /**
  * The question dock — a pending quiz/ask REPLACES the chat composer: the
@@ -93,6 +101,7 @@ export interface QuestionDockProps {
 	 *  and say so in the hint row. The server registry is the real gate;
 	 *  this is the affordance. */
 	compactionRunning?: boolean;
+	stimulusGuide?: ActivityGuide;
 }
 
 export function QuestionDock({
@@ -109,6 +118,7 @@ export function QuestionDock({
 	phase = "probe",
 	dictationClaim = true,
 	compactionRunning = false,
+	stimulusGuide,
 }: QuestionDockProps) {
 	// The probe-phase names (owner, 2026-10-09) canonicalize onto their
 	// teach twins for every dock concern — parse dispatch, labels, kinds:
@@ -165,6 +175,7 @@ export function QuestionDock({
 					onEscape={onEscape}
 					dictationClaim={dictationClaim}
 					compactionRunning={compactionRunning}
+					stimulusGuide={stimulusGuide}
 				/>
 			</div>
 		</>
@@ -262,8 +273,10 @@ function QuestionDockForm({
 	onEscape,
 	dictationClaim = true,
 	compactionRunning = false,
+	stimulusGuide,
 }: Omit<QuestionDockProps, "expanded" | "onExpand" | "reveal">) {
 	const kind = toolQuestionKind(toolName);
+	const stimulusRef = teachingStimulusRefOf(input);
 
 	// Canonical QuestionData, built once per question. Quiz options are
 	// deterministically shuffled (seeded by toolCallId) so position never leaks
@@ -272,6 +285,17 @@ function QuestionDockForm({
 	const qd = useMemo<QuestionData>(() => {
 		return questionDataOf(toolName, toolCallId, input)!;
 	}, [toolCallId, toolName, input]);
+	const assessmentSpec = useMemo(() => assessmentSpecOf(input), [input]);
+	const needsSharedAnswer = qd.mode === "text" && (!assessmentSpec || specNeedsSharedText(assessmentSpec));
+	const textFieldTargets = assessmentSpec?.parts.flatMap(part => part.kind === "exact"
+		? [{ partId: part.id, fieldId: "text", label: "Answer", kind: "line" as const }]
+		: part.kind === "structured"
+			? part.fields.map(field => ({ partId: part.id, fieldId: field.id, label: field.label, kind: field.kind }))
+			: []) ?? [];
+	const promptSpeech = useMemo(
+		() => questionSpeech(toolName, toolCallId, input),
+		[toolCallId, toolName, input],
+	);
 
 	// The selection state machine lives in question-core (pure, tested):
 	// single-select displaces, multi-select coexists — picking the ask
@@ -282,17 +306,28 @@ function QuestionDockForm({
 	const [thinking, setThinking] = useState(initialDraft?.thinking ?? "");
 	const [other, setOther] = useState(initialDraft?.other ?? "");
 	const [text, setText] = useState(initialDraft?.text ?? "");
+	const [partDrafts, setPartDrafts] = useState(initialDraft?.parts ?? {});
+	const partDraftsRef = useRef(initialDraft?.parts ?? {});
+	const setPartDraft = (partId: string, fieldId: string, value: string) => {
+		const next = {
+			...partDraftsRef.current,
+			[partId]: { ...(partDraftsRef.current[partId] ?? {}), [fieldId]: value },
+		};
+		partDraftsRef.current = next;
+		setPartDrafts(next);
+	};
+	const activeTextField = useRef(textFieldTargets[0]);
 	/* Refs MIRROR the two dictation-target fields ("nothing gets lost"
 	 * round, owner 2026-10-01): the run's flush lands via setState, which
 	 * a closure waiting through `await finishDictation()` cannot observe
 	 * in time — submit reads these, kept current at every write site. */
 	const thinkingTextRef = useRef(initialDraft?.thinking ?? "");
 	const answerTextRef = useRef(initialDraft?.text ?? "");
-	// Confidence (owner, 2026-10-01): an index into CONFIDENCE_STOPS,
-	// resting at 50 — a real coin flip by definition, untouched or
-	// deliberate (the same number, the same meaning). The dock unmounts
-	// between questions, so each question starts fresh at 50.
-	const [confIdx, setConfIdx] = useState<number>(initialDraft?.confidenceIndex ?? DEFAULT_CONFIDENCE_INDEX);
+	// Confidence (owner, 2026-10-01; unset by default since PR 5): an index into
+	// CONFIDENCE_STOPS, or null until the learner sets it — an untouched
+	// slider states nothing, while a deliberate 50 is a real coin flip. The
+	// dock unmounts between questions, so each question starts unset.
+	const [confIdx, setConfIdx] = useState<number | null>(initialDraft?.confidenceIndex ?? null);
 	const selectMode: SelectMode = qd.mode === "multi-select" ? "multi-select" : "single-select";
 
 	// The PRIMARY dictation input (owner, STT round 1): while a question
@@ -300,35 +335,44 @@ function QuestionDockForm({
 	// mode owns "Your answer", select modes own "Your thinking". The claim
 	// is effect-scoped, so the question unmounting releases it and
 	// dictation falls back to the composer automatically.
+	const dictationEnabled = dictationClaim && (
+		qd.mode !== "text" || needsSharedAnswer || textFieldTargets.length > 0
+	);
 	useDictationTarget(
 		useCallback(
 			(t: string) => {
 				// Ref-first (see the refs block above): the join is computed from
 				// the mirror, then both mirrors agree with state — a submit
 				// resuming post-finish reads the tail, never a stale closure.
-				if (qd.mode === "text") {
+				if (qd.mode === "text" && needsSharedAnswer) {
 					const v = joinDictation(answerTextRef.current, t);
 					answerTextRef.current = v;
 					setText(v);
+				} else if (qd.mode === "text") {
+					const target = activeTextField.current ?? textFieldTargets[0];
+					if (!target) return;
+					const previous = partDraftsRef.current[target.partId]?.[target.fieldId] ?? "";
+					setPartDraft(target.partId, target.fieldId, joinDictation(previous, t));
 				} else {
 					const v = joinDictation(thinkingTextRef.current, t);
 					thinkingTextRef.current = v;
 					setThinking(v);
 				}
 			},
-			[qd.mode],
+			[needsSharedAnswer, qd.mode, setPartDraft, textFieldTargets],
 		),
 		// Released while a teach check sits unrevealed (owner 2026-10-03):
 		// the reading-thinking field owns dictated speech during the reading.
-		dictationClaim,
+		dictationEnabled,
 	);
 
 	const toggle = (idx: number) => setSel(toggleOption(selectMode, sel, idx));
 
-	const canSubmit =
-		qd.mode === "text"
-			? text.trim().length > 0
-			: sel.dontKnow || (sel.otherSelected && other.trim().length > 0) || sel.selected.size > 0;
+	const partSubmission = assessmentSpec ? partResponsesFromDraft(assessmentSpec, partDrafts) : undefined;
+	const canSubmit = (qd.mode === "text"
+		? !needsSharedAnswer || text.trim().length > 0
+		: sel.dontKnow || (sel.otherSelected && other.trim().length > 0) || sel.selected.size > 0)
+		&& (!assessmentSpec || partSubmission?.complete === true);
 
 	const submit = () => {
 		if (!canSubmit || compactionRunning) return;
@@ -350,11 +394,12 @@ function QuestionDockForm({
 			dontKnow: sel.dontKnow,
 			values: [...sel.selected].map((i) => qd.options[i]!.value),
 			other: sel.otherSelected ? other : undefined,
-			text: qd.mode === "text" ? answerTextRef.current : undefined,
+			text: needsSharedAnswer ? answerTextRef.current : undefined,
 			thinking: qd.mode !== "text" ? thinkingTextRef.current.trim() || undefined : undefined,
-			// Always sent on quiz answers (owner: 50 must mean 50, never
-			// "untouched"); buildAnswer drops it on "I don't know".
-			confidence: kind === "quiz" ? CONFIDENCE_STOPS[confIdx] : undefined,
+			partResponses: assessmentSpec ? partResponsesFromDraft(assessmentSpec, partDraftsRef.current).responses : undefined,
+			// Sent only once the learner set it (50 means 50; untouched means
+			// nothing stated); buildAnswer drops it on "I don't know".
+			confidence: kind === "quiz" && confIdx !== null ? CONFIDENCE_STOPS[confIdx] : undefined,
 		};
 		// Snapshot before optimistic submission unmounts the form. Ref values
 		// include the dictation finals that just landed, unlike stale closures.
@@ -363,9 +408,20 @@ function QuestionDockForm({
 			thinking: thinkingTextRef.current,
 			other,
 			text: answerTextRef.current,
+			parts: partDraftsRef.current,
 			confidenceIndex: confIdx,
 		});
 		onSubmit(buildAnswer(qd, req, toolName));
+	};
+	const handleTypedKeyDown = (e: ReactKeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+		if (e.key === "Escape" && onEscape) {
+			e.preventDefault();
+			e.stopPropagation();
+			onEscape();
+		} else if (e.key === "Enter" && (!e.shiftKey || e.metaKey || e.ctrlKey)) {
+			e.preventDefault();
+			submit();
+		}
 	};
 
 	/* ENTER SUBMITS FROM ANYWHERE (owner round 6, 2026-10-05): the same
@@ -486,12 +542,7 @@ function QuestionDockForm({
 				// (the slider grays out and nothing is sent).
 				if (kind !== "quiz" || sel.dontKnow) return;
 				e.preventDefault();
-				setConfIdx((i) =>
-					Math.min(
-						CONFIDENCE_STOPS.length - 1,
-						Math.max(0, i + (e.key === "ArrowRight" ? 1 : -1)),
-					),
-				);
+				setConfIdx((i) => stepConfidenceIndex(i, e.key === "ArrowRight" ? 1 : -1));
 			} else if (e.key === " ") {
 				if (kbdIdx === null) return; // plain Space keeps scrolling the page
 				e.preventDefault();
@@ -542,6 +593,7 @@ function QuestionDockForm({
 						<ToolContentResponse>{qd.context}</ToolContentResponse>
 					</div>
 				)}
+				{active && <ReadAloudButton speech={promptSpeech} label="Read prompt" />}
 
 				{qd.mode !== "text" && (
 					<div className="flex flex-col gap-2 pb-2" role={qd.mode === "multi-select" ? "group" : "radiogroup"}>
@@ -737,18 +789,18 @@ function QuestionDockForm({
 								aria-hidden
 								data-testid="confidence-rail"
 								className="pointer-events-none absolute top-1/2 left-2 right-2 h-1.5 -translate-y-1/2 rounded-full border border-border"
-								style={confidenceRailStyle(CONFIDENCE_STOPS[confIdx]!)}
+								style={confIdx === null ? undefined : confidenceRailStyle(CONFIDENCE_STOPS[confIdx]!)}
 							/>
 							<input
 								type="range"
 								min={0}
 								max={100}
 								step={1}
-								value={CONFIDENCE_STOPS[confIdx]}
+								value={CONFIDENCE_STOPS[confIdx ?? DEFAULT_CONFIDENCE_INDEX]}
 								disabled={sel.dontKnow}
-								aria-label="Confidence — the probability your selected answer is correct"
-								aria-valuetext={`${CONFIDENCE_STOPS[confIdx]} percent`}
-								title="The probability your selected answer is correct — 50% is a coin flip. Adjust with ←/→."
+								aria-label="Confidence — the probability your selected answer is correct (unset states nothing)"
+								aria-valuetext={confIdx === null ? "not set" : `${CONFIDENCE_STOPS[confIdx]} percent`}
+								title="The probability your selected answer is correct — 50% is a coin flip. Set with ←/→ or by clicking; leave unset to state nothing."
 								data-testid="confidence-slider"
 								onChange={(e) => {
 									// Snap to the nearest stop; the rendered VALUE is the stop's own
@@ -763,7 +815,14 @@ function QuestionDockForm({
 									}
 									setConfIdx(best);
 								}}
-								style={{ color: CONFIDENCE_COLORS[confIdx] }}
+								// A click at the resting position fires no change event; it still
+								// states a confidence explicitly.
+								onClick={(e) => {
+									if (confIdx !== null) return;
+									const v = Number(e.currentTarget.value);
+									setConfIdx(CONFIDENCE_STOPS.indexOf(v) >= 0 ? CONFIDENCE_STOPS.indexOf(v) : DEFAULT_CONFIDENCE_INDEX);
+								}}
+								style={{ color: confIdx === null ? "transparent" : CONFIDENCE_COLORS[confIdx] }}
 								className={cn(
 									"absolute inset-0 h-4 w-full cursor-pointer appearance-none bg-transparent outline-none",
 									"[&::-webkit-slider-runnable-track]:h-4 [&::-webkit-slider-runnable-track]:bg-transparent",
@@ -780,8 +839,22 @@ function QuestionDockForm({
 								sel.dontKnow && "text-muted-foreground/50",
 							)}
 						>
-							{sel.dontKnow ? "—" : `${CONFIDENCE_STOPS[confIdx]}%`}
+							{sel.dontKnow || confIdx === null ? "—" : `${CONFIDENCE_STOPS[confIdx]}%`}
 						</span>
+						{confIdx !== null && !sel.dontKnow ? (
+							<button
+								type="button"
+								data-testid="confidence-clear"
+								onClick={() => setConfIdx(null)}
+								className="shrink-0 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+							>
+								Clear
+							</button>
+						) : (
+							<span className="shrink-0 text-xs text-muted-foreground" data-testid="confidence-unset">
+								{sel.dontKnow ? "" : "not set"}
+							</span>
+						)}
 					</div>
 				</div>
 			)}
@@ -791,10 +864,96 @@ function QuestionDockForm({
 			    send. Select modes get "Your thinking" (Enter makes a newline — it
 			    is for dumping, soon dictated; the button submits); text mode
 			    keeps "Your answer" with Enter-to-submit. */}
-			{assessmentSpecOf(input)?.parts.map(part => (
+			{stimulusRef && (
+				<div className="px-4 pt-2"><ActivityStimulusNote toolCallId={stimulusRef.toolCallId} title={stimulusGuide?.title} objective={stimulusGuide?.objective} /></div>
+			)}
+			{assessmentSpec?.parts.map(part => (
 				<div key={part.id} className="px-4 py-2 text-sm">
 					<strong>{part.label ?? part.id} · {sumAssessmentPoints(part.criteria.map(c => c.maxPoints))} pts</strong>
 					<ToolContentResponse>{part.prompt}</ToolContentResponse>
+					{part.kind === "numeric" && (
+						<div className="mt-2 grid gap-2 sm:grid-cols-2">
+							<div>
+								<label htmlFor={`question-${toolCallId}-${part.id}-value`} className="mb-1 block text-xs font-medium text-muted-foreground">Value</label>
+								<input
+									id={`question-${toolCallId}-${part.id}-value`}
+									type="text"
+									inputMode="decimal"
+									autoComplete="off"
+									value={partDrafts[part.id]?.value ?? ""}
+									onChange={e => setPartDraft(part.id, "value", e.target.value)}
+									onKeyDown={handleTypedKeyDown}
+									className="lh-input min-h-10 w-full rounded-md border border-border/70 bg-background/60 px-2.5 py-2 outline-none focus:border-primary/50"
+								/>
+							</div>
+							<div>
+								<label htmlFor={`question-${toolCallId}-${part.id}-unit`} className="mb-1 block text-xs font-medium text-muted-foreground">Unit</label>
+								<input
+									id={`question-${toolCallId}-${part.id}-unit`}
+									type="text"
+									list={`question-${toolCallId}-${part.id}-units`}
+									autoComplete="off"
+									maxLength={20}
+									value={partDrafts[part.id]?.unit ?? ""}
+									onChange={e => setPartDraft(part.id, "unit", e.target.value)}
+									onKeyDown={handleTypedKeyDown}
+									className="lh-input min-h-10 w-full rounded-md border border-border/70 bg-background/60 px-2.5 py-2 outline-none focus:border-primary/50"
+								/>
+								<datalist id={`question-${toolCallId}-${part.id}-units`}>
+									{part.units.map(unit => <option key={unit.symbol} value={unit.symbol} />)}
+								</datalist>
+							</div>
+						</div>
+					)}
+					{part.kind === "exact" && (
+						<div className="mt-2">
+							<label htmlFor={`question-${toolCallId}-${part.id}-text`} className="mb-1 block text-xs font-medium text-muted-foreground">Answer</label>
+							<input
+								id={`question-${toolCallId}-${part.id}-text`}
+								type="text"
+								maxLength={200}
+								value={partDrafts[part.id]?.text ?? ""}
+								onFocus={() => { activeTextField.current = { partId: part.id, fieldId: "text", label: "Answer", kind: "line" }; }}
+								onChange={e => setPartDraft(part.id, "text", e.target.value)}
+								onKeyDown={handleTypedKeyDown}
+								className="lh-input min-h-10 w-full rounded-md border border-border/70 bg-background/60 px-2.5 py-2 outline-none focus:border-primary/50"
+							/>
+						</div>
+					)}
+					{part.kind === "structured" && (
+						<div className="mt-2 space-y-2">
+							{part.fields.map(field => {
+								const controlId = `question-${toolCallId}-${part.id}-${field.id}`;
+								const target = { partId: part.id, fieldId: field.id, label: field.label, kind: field.kind };
+								return <div key={field.id}>
+									<label htmlFor={controlId} className="mb-1 block text-xs font-medium text-muted-foreground">{field.label}</label>
+									{field.kind === "paragraph" ? (
+										<textarea
+											id={controlId}
+											maxLength={4000}
+											rows={3}
+											value={partDrafts[part.id]?.[field.id] ?? ""}
+											onFocus={() => { activeTextField.current = target; }}
+											onChange={e => setPartDraft(part.id, field.id, e.target.value)}
+											onKeyDown={handleTypedKeyDown}
+											className="lh-input min-h-10 w-full resize-y rounded-md border border-border/70 bg-background/60 px-2.5 py-2 outline-none focus:border-primary/50"
+										/>
+									) : (
+										<input
+											id={controlId}
+											type="text"
+											maxLength={500}
+											value={partDrafts[part.id]?.[field.id] ?? ""}
+											onFocus={() => { activeTextField.current = target; }}
+											onChange={e => setPartDraft(part.id, field.id, e.target.value)}
+											onKeyDown={handleTypedKeyDown}
+											className="lh-input min-h-10 w-full rounded-md border border-border/70 bg-background/60 px-2.5 py-2 outline-none focus:border-primary/50"
+										/>
+									)}
+								</div>;
+							})}
+						</div>
+					)}
 				</div>
 			))}
 			<form
@@ -804,15 +963,17 @@ function QuestionDockForm({
 					submit();
 				}}
 			>
-				<div
-					data-testid={qd.mode === "text" ? "answer-field" : "thinking-field"}
-					className="rounded-[10px] border border-border/70 bg-background/60 transition-colors focus-within:border-primary/50"
-				>
-					<div className="px-2.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+				{needsSharedAnswer || qd.mode !== "text" ? (
+					<div
+						data-testid={qd.mode === "text" ? "answer-field" : "thinking-field"}
+						className="rounded-[10px] border border-border/70 bg-background/60 transition-colors focus-within:border-primary/50"
+					>
+					<label htmlFor={`question-${toolCallId}-${qd.mode === "text" ? "shared-answer" : "thinking"}`} className="block px-2.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 						{qd.mode === "text" ? "Your answer" : "YOUR THINKING"}
-					</div>
+					</label>
 					{qd.mode === "text" ? (
 						<textarea
+							id={`question-${toolCallId}-shared-answer`}
 							value={text}
 							onChange={(e) => {
 								answerTextRef.current = e.target.value;
@@ -841,6 +1002,7 @@ function QuestionDockForm({
 						/>
 					) : (
 						<textarea
+							id={`question-${toolCallId}-thinking`}
 							ref={thinkingRef}
 							value={thinking}
 							onChange={(e) => {
@@ -888,6 +1050,20 @@ function QuestionDockForm({
 						</Button>
 					</div>
 				</div>
+				) : (
+					<div className="flex items-center justify-between gap-2 p-1">
+						<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
+							{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}
+						</span>
+						<Button
+							type="submit"
+							disabled={!canSubmit || compactionRunning}
+							className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium"
+						>
+							Submit answer
+						</Button>
+					</div>
+				)}
 			</form>
 		</div>
 	);

@@ -29,7 +29,9 @@ import { dockStateKey } from "@/components/dock-state-key";
 import { clearOpeningPrompt, readOpeningPromptEntry, stashOpeningPrompt, OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { forwardDockWheel, useDockHeight } from "@/components/dock-height";
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
-import { DictationBar, finishDictation, joinDictation, useDictation } from "@/components/dictation";
+import { DictationBar, finishDictation, isDictationActive, joinDictation, useDictation } from "@/components/dictation";
+import { ReadAloudButton } from "@/components/read-aloud-controls";
+import { cancelDictationOrSpeech, cancelSpeech } from "@/components/read-aloud";
 import { useFieldCycle } from "@/components/field-cycle";
 import { JobsContext } from "@/components/jobs-context";
 import { StatsBar } from "@/components/stats-bar";
@@ -38,6 +40,8 @@ import {
 	isProviderKeyRefusal,
 	firstSourceTextParts,
 	messageAnchorId,
+	resolveTeachingStimulus,
+	teachingStimulusRefOf,
 	textPartMessageId,
 	kbdEventForAction as kbdEventForChat,
 	type ChatInput,
@@ -58,7 +62,8 @@ import { PracticeDock } from "@/components/practice-dock";
 import { ThinkingCard, type PracticeThinkingData } from "@/components/practice-cards";
 import { GraphContextCard, type GraphContextData } from "@/components/graph-context-card";
 import { TopBar } from "@/components/top-bar";
-import type { ArtifactPartProps, JobRecord, Phase3, QuestionAnswerData, QuestionFormDraft, TurnUsage, SessionPricing } from "@/src/core";
+import { SessionTargetPanel } from "@/components/target-adaptation";
+import type { ActivityGuide, ArtifactPartProps, JobRecord, Phase3, QuestionAnswerData, QuestionFormDraft, TurnUsage, SessionPricing } from "@/src/core";
 import type { LhViewMessage } from "@/src/core";
 import { PhaseChip, PhaseDivider } from "@/components/phase-divider";
 import {
@@ -78,6 +83,8 @@ import {
 	teachStepIndex,
 	toolQuestionKind,
 	questionNeedsReveal,
+	replySpeech,
+	replyReadable,
 } from "@/src/core";
 import { ReadingThinkingField } from "@/components/reading-thinking";
 import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/thinking-block";
@@ -394,6 +401,7 @@ export function Chat({
 	const confirmAbort = useCallback(
 		(mode: AbortMode) => {
 			setAbortAsk(null);
+			cancelSpeech();
 			if (mode === "turn") {
 				abortInFlightTurn();
 				return;
@@ -445,6 +453,12 @@ export function Chat({
 	}, []);
 
 	const pending = findPendingToolCall(messages);
+	const stimulusGuide = useMemo(() => {
+		const ref = pending ? teachingStimulusRefOf(pending.input) : undefined;
+		if (!ref || !nativeMessages.length) return undefined;
+		const result = resolveTeachingStimulus(nativeMessages, ref);
+		return result.ok ? result.snapshot.guide : undefined;
+	}, [pending?.toolCallId, pending?.input, nativeMessages]);
 	// The abort handler reads the pending question from a ref (the window
 	// listener is mount-scoped; the value it needs is render-scoped).
 	const pendingRef = useRef(pending);
@@ -494,6 +508,7 @@ export function Chat({
 		(text: string) => {
 			const problem = activeProblemRef.current;
 			if (!problem) return;
+			cancelSpeech();
 			void send({ type: "thinking", problemCallId: problem.toolCallId, text });
 		},
 		[send],
@@ -699,6 +714,10 @@ export function Chat({
 		// send resuming after `await finish()` reads the dictated tail.
 		append: (t) => applyText(joinDictation(textRef.current, t)),
 	});
+	const escapeVoice = useCallback(
+		() => cancelDictationOrSpeech(isDictationActive, dictation.cancel, cancelSpeech),
+		[dictation.cancel],
+	);
 	/* When a dictation run ends, the bare composer takes focus (owner
 	 * 2026-10-01) — the hands are already on the keyboard from the stop.
 	 * Falling edge of `active` only (idle→idle never focuses), and ONLY the
@@ -739,7 +758,17 @@ export function Chat({
 	// "error" too: a dropped stream leaves the model there, and send()
 	// recovers from it. Later compaction requires new input instead.
 	const retryable = (status === "ready" || status === "error") && !busy && !compacting && endsInFailedTurn(nativeMessages);
-	const retryFailedTurn = () => retryFailedResponse(send, draftRef);
+	const retryFailedTurn = () => {
+		cancelSpeech();
+		retryFailedResponse(send, draftRef);
+	};
+	const speechReply = replySpeech(nativeMessages);
+	const latestAssistantIndex = messages.reduce((last, message, index) => message.role === "assistant" ? index : last, -1);
+	const canReadReply = replyReadable({ status, busy, compacting, error, retryable });
+	useEffect(() => {
+		if (!canReadReply) cancelSpeech();
+	}, [canReadReply]);
+	useEffect(() => () => cancelSpeech(), [chatId]);
 	const canSend =
 		(text.trim().length > 0 || dictation.active) && !pending && !activeProblem && !compacting;
 
@@ -762,6 +791,7 @@ export function Chat({
 		);
 	const sendNext = useCallback(() => {
 		if (!nextReady) return;
+		cancelSpeech();
 		void send({ type: "next" });
 	}, [nextReady, send]);
 
@@ -1234,6 +1264,7 @@ export function Chat({
 		if (pending || compacting) return;
 		const t = textRef.current.trim();
 		if (!t) return;
+		cancelSpeech();
 		if (busy) {
 			applyText("");
 			void steer(t);
@@ -1385,6 +1416,7 @@ export function Chat({
 						<PhaseChip phase={phases.at(-1) ?? "probe"} />
 					)}
 				</TopBar>
+				<SessionTargetPanel chatId={chatId} refreshKey={busy} />
 
 				<SessionFind scopeRef={sessionFindScopeRef} scrollContextRef={scrollContextRef} />
 				<div ref={sessionFindScopeRef} className="relative flex min-h-0 flex-1">
@@ -1511,6 +1543,7 @@ export function Chat({
 												</div>
 											</div>
 									) : (
+										<Fragment>
 									<Message from="assistant" className="max-w-full">
 									<MessageContent className="w-full">
 											{m.parts.map((part, pi) => {
@@ -1609,6 +1642,12 @@ export function Chat({
 											})}
 										</MessageContent>
 									</Message>
+									{mi === latestAssistantIndex && canReadReply && speechReply && (
+										<div className="mt-2 flex justify-start">
+											<ReadAloudButton speech={speechReply} label="Read reply" />
+										</div>
+									)}
+										</Fragment>
 									)}
 								</Fragment>
 							))}
@@ -1678,6 +1717,7 @@ export function Chat({
 					initialQuestionDraft={pending ? questionDraft(pending.toolCallId)?.form : undefined}
 					onSaveQuestionDraft={(form) => { if (pending) saveQuestionDraft(pending.toolCallId, { form }); }}
 					practice={activeProblem}
+					stimulusGuide={stimulusGuide}
 					compactionRunning={compacting}
 					onSubmitThinking={submitThinking}
 					chatId={chatId}
@@ -1693,7 +1733,7 @@ export function Chat({
 					pricing={pricing}
 					onReserve={setDockReserve}
 					dictationSlot={<DictationBar dictation={dictation} />}
-					dictationCancel={dictation.cancel}
+					dictationCancel={escapeVoice}
 					queuedSteers={visibleQueuedSteers(steerQueue, nativeMessages)}
 					setupCta={
 						zeroKeys ? (
@@ -1737,6 +1777,7 @@ export function Chat({
 					}
 					onSubmitAnswer={(output) => {
 						if (!pending) return;
+						cancelSpeech();
 						// THE ANSWER IS THE QUESTION CALL'S TOOL RESULT (fork 1, owner
 						// 2026-09-26): one input event, one turn — the hook appends
 						// the optimistic graded result (the AnsweredCard shows at
@@ -1905,6 +1946,7 @@ export function shouldStampGeometryMute(nextH: number, prevH: number, pending: b
 
 function DockOverlay({
 	pending,
+	stimulusGuide,
 	initialQuestionDraft,
 	onSaveQuestionDraft,
 	practice,
@@ -1930,6 +1972,7 @@ function DockOverlay({
 	queuedSteers,
 }: {
 	pending: ReturnType<typeof findPendingToolCall>;
+	stimulusGuide?: ActivityGuide;
 	initialQuestionDraft?: QuestionFormDraft;
 	onSaveQuestionDraft: (draft: QuestionFormDraft) => void;
 	/** Compaction running for this chat (round 14) — the docks' submit
@@ -1969,8 +2012,7 @@ function DockOverlay({
 	/** The dictation strip (STT wave): rendered in the stats bar's middle
 	 *  slot — the mic button + live meter (components/dictation.tsx). */
 	dictationSlot?: React.ReactNode;
-	/** Esc in a pending question's field stops dictation (the strip is the
-	 *  stats bar's; the stop belongs to the page-owned hook, threaded down). */
+	/** Esc stops dictation, or read-aloud when dictation is idle. */
 	dictationCancel?: () => void;
 	/** The queued-steer indicator's lines (composer steering, 2026-10-03):
 	 *  already filtered by visibleQueuedSteers — only undrained steers. */
@@ -2370,6 +2412,7 @@ function DockOverlay({
 									toolName={pending.tool as "quiz" | "probe" | "ask_user_question" | "explain" | "recall"}
 									toolCallId={pending.toolCallId}
 									input={pending.input as never}
+									stimulusGuide={stimulusGuide}
 									expanded={expanded}
 									reveal={revealPending}
 									phase={phase}
@@ -2384,7 +2427,7 @@ function DockOverlay({
 							) : practice ? (
 								<PracticeDock
 									problemCallId={practice.toolCallId}
-									input={practice.input as { statement: string }}
+									input={practice.input as { statement: string; parts?: unknown }}
 									expanded={expanded}
 									onExpand={() => {
 										setExpanded(true);

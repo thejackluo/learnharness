@@ -31,6 +31,11 @@ import type { AgentEvent } from "@earendil-works/pi-agent-core";
  * objects of that message attach to it; mints claim once per message, so
  * the same id in a SECOND message of the turn (a retry step) gets its own
  * mint. Colliding ids become `${orig}~2`, `~3`, … skipping used ones.
+ *
+ * ARGUMENT REFERENCES: the model, mid-turn, sees the provider's raw ids, so
+ * an `explain` whose `stimulus.toolCallId` names an `activity` posted
+ * earlier this turn names the RAW id. That reference rewrites through the
+ * same turn's activity mints, so the record links the exact persisted call.
  */
 
 /** Structurally walk any message's content for tool-call blocks. */
@@ -70,6 +75,11 @@ export class ToolCallIdUniquifier {
 	 *  tool_execution events (which fire after its message_end but before
 	 *  the next message_start). */
 	private epoch: Map<string, string> | null = null;
+	/** This turn's SUCCESSFUL `activity` executions: provider id → minted id
+	 *  (latest wins, matching the in-turn source the teach explain validated
+	 *  against). Recorded at execution end, where the name and outcome are
+	 *  final; a failed activity never captures a reference. */
+	private readonly activityMints = new Map<string, string>();
 
 	constructor(usedIds: Iterable<string>) {
 		for (const id of usedIds) this.seen.add(id);
@@ -120,11 +130,22 @@ export class ToolCallIdUniquifier {
 				mapped = this.claim(orig);
 				table!.set(orig, mapped);
 			}
-			if (mapped === orig) return block;
+			const args = this.remapStimulus((block as { arguments?: unknown }).arguments);
+			if (mapped === orig && args === (block as { arguments?: unknown }).arguments) return block;
 			changed = true;
-			return { ...(block as object), id: mapped };
+			return { ...(block as object), id: mapped, arguments: args };
 		});
 		return changed ? { ...(message as object), content } : message;
+	}
+
+	/** A teaching-stimulus reference to a this-turn activity, rewritten to its
+	 *  minted id; anything else is returned as-is (same object). */
+	private remapStimulus(args: unknown): unknown {
+		const stimulus = (args as { stimulus?: { kind?: unknown; toolCallId?: unknown } } | null)?.stimulus;
+		if (stimulus?.kind !== "teaching-stimulus" || typeof stimulus.toolCallId !== "string") return args;
+		const mapped = this.activityMints.get(stimulus.toolCallId);
+		if (mapped === undefined || mapped === stimulus.toolCallId) return args;
+		return { ...(args as object), stimulus: { ...stimulus, toolCallId: mapped } };
 	}
 
 	/** Every AgentEvent, ids uniquified. Structural and total: unknown
@@ -145,8 +166,9 @@ export class ToolCallIdUniquifier {
 			case "tool_execution_start":
 			case "tool_execution_update":
 			case "tool_execution_end": {
-				const { toolCallId } = event as { toolCallId: string };
+				const { toolCallId, toolName, isError } = event as { toolCallId: string; toolName?: string; isError?: boolean };
 				const mapped = this.epoch?.get(toolCallId) ?? toolCallId;
+				if (event.type === "tool_execution_end" && toolName === "activity" && isError !== true) this.activityMints.set(toolCallId, mapped);
 				if (mapped === toolCallId) return event;
 				return { ...(event as object), toolCallId: mapped } as AgentEvent;
 			}

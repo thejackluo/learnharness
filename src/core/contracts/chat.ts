@@ -10,6 +10,8 @@ import type { LhMessage } from "../native-messages.ts";
 import type { Phase3 } from "../phases.ts";
 import type { PlanNodeStatus, PlanTree } from "./plan.ts";
 import type { EmissionStats } from "./graph.ts";
+import type { LearningTargetRef } from "./learning-target.ts";
+import type { PlacementRun } from "./familiarity.ts";
 
 // ─── Chat records (the session store's on-disk format) ───────────────────────
 
@@ -52,6 +54,12 @@ export interface ChatRecord {
 	extractions?: ExtractionRunUsage[];
 	/** Per-chat model/thinking overrides for the conversation agents. */
 	settings?: ChatSettings;
+	/** The subject-map skill the learner explicitly chose to start this
+	 *  session from, at the objective revision current at creation. Absent
+	 *  on ordinary sessions. Never inferred from titles or content. */
+	target?: LearningTargetRef;
+	/** A suggest-only automatic familiarity placement run. */
+	placement?: PlacementRun;
 	/** SCHEMA STAMP (schema-versioning wave, owner 2026-10-10): LAZY v1 —
 	 *  existing records stay unstamped (absence reads as v1); every write
 	 *  stamps the current version. A record stamped NEWER than this build
@@ -190,6 +198,9 @@ export const HANDOFF_TEXT =
 	"Find the unconditional truths, plan the motivated derivations/discoveries, so every reasoning step has to land as obviously true. " +
 	"Take your time here and really think this through. " +
 	"When it's genuinely reasoned out, call plan_init and present the plan; I'll accept it or ask for changes.";
+
+export const PLACEMENT_NUDGE_TEXT =
+	"[Placement run — app note, not from the learner] The placement run is still in progress and no question is open. Ask the current placement probe from the placement context now, using onTarget: true.";
 
 // ─── Practice sessions (owner, 2026-10-04) — marker + ack texts ──────────────
 // Single-sourced here per the marker law: the model-facing text of every

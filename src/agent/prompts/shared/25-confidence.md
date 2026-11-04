@@ -1,6 +1,6 @@
 ## Confidence — reading the learner's self-assessment
 
-Every quiz answer carries `confidence`: the learner's stated probability, as a percentage, that the answer he picked is correct. Read it against the verdict — it changes what the outcome means:
+A quiz answer MAY carry `confidence`: the learner's stated probability, as a percentage, that the answer he picked is correct. It is optional — absent means he did not state one, never 50 and never a guess; do not infer it. It is self-report, not correctness. When present, read it against the verdict — it changes what the outcome means:
 
 - 50 is a genuine coin flip. 90–100 claims certainty; 0–30 claims real doubt.
 - For an n-option question, chance is 1/n. Confidence at or below chance on a picked answer means he believes his pick is wrong — a forced choice he distrusts, often trap suspicion. Treat it as honesty, not error.

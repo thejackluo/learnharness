@@ -52,8 +52,12 @@ import { catalogContextLimits, refreshConnectionCatalog } from "./model-catalog.
 import { emit } from "../core/events.ts";
 import { settledTurnResponse } from "./turn-runs.ts";
 import { asAgentMessages } from "../core/native-messages.ts";
+import { learnerContextFor } from "./learner.ts";
+import { sessionTargetState, targetContextFor } from "./target-adaptation.ts";
+import { advancePlacement, placementContextFor, placementNudgeFor, suggestFamiliarityFromChat } from "./familiarity.ts";
 import {
 	ChatInputError,
+	failedResponseAtEnd,
 	inputAppends,
 	parseChatInput,
 	retryDrops,
@@ -306,8 +310,8 @@ export async function handleChatInput(
 	try {
 		appends =
 			input.type === "steers"
-				? input.steers.filter((s) => !steerDelivered(record.messages, s.id))
-				: inputAppends(record, input);
+				? input.steers.filter((s) => !steerDelivered(compactedRecord.messages, s.id))
+				: inputAppends(compactedRecord, input);
 	} catch (err) {
 		if (err instanceof ChatInputError) {
 			return Response.json({ error: err.message }, { status: 400 });
@@ -427,11 +431,23 @@ export async function handleChatInput(
 		},
 		restoreAutomatic: (automaticIds, retainedIds) => restoreUncommittedAutomatic(chatId, constructed, automaticIds, retainedIds),
 	});
+	// The chosen target's standing gates `onTarget` claims for this turn.
+	try {
+		advancePlacement(chatId);
+	} catch (error) {
+		console.error(`[chat ${chatId}] placement advancement failed:`, error);
+	}
+	const targeting = stores.chatStore.getChat(chatId) ?? record;
+	const sessionTarget = sessionTargetState(targeting);
+	const suggestFamiliarity = targeting.target || targeting.placement
+		? (input: { skillId: string; quote: string }) => suggestFamiliarityFromChat(chatId, input)
+		: undefined;
 	const agentOpts: AgentBuildOptions = {
 		engine,
 		callPurpose,
 		requestCycle,
 		messages: asAgentMessages(agentMessages),
+		learnerContext: [learnerContextFor(chatId), targetContextFor(targeting), placementContextFor(targeting)].filter((part): part is string => !!part).join("\n\n") || undefined,
 		onUsage: collectUsage,
 		toolToggles: effective.agent.tools,
 		assessmentMode: effective.agent.assessmentMode,
@@ -471,6 +487,7 @@ export async function handleChatInput(
 							searchAvailable,
 						},
 						...(graphToolsEnabled(effective) ? { graph: { chatStore: stores.chatStore, graphStore: stores.graphStore } } : {}),
+						sessionTarget,
 					},
 					agentOpts,
 				)
@@ -484,6 +501,8 @@ export async function handleChatInput(
 						// The registry drop's signal (2026-09-20): no live engine
 						// = no research tool in the teacher's registry.
 						searchAvailable,
+						sessionTarget,
+						...(suggestFamiliarity ? { suggestFamiliarity } : {}),
 					},
 					agentOpts,
 				)
@@ -502,6 +521,8 @@ export async function handleChatInput(
 						// knowledge graph through tools when the gate opens —
 						// graph master switch AND the agent.graphTools toggle.
 						...(graphToolsEnabled(effective) ? { graphStore: stores.graphStore } : {}),
+						sessionTarget,
+						...(suggestFamiliarity ? { suggestFamiliarity } : {}),
 					},
 					agentOpts,
 				);
@@ -571,6 +592,19 @@ export async function handleChatInput(
 				// Wave B: append only messages past the temporary agent prefix.
 				// Retry's saved record still includes its earlier failed attempts.
 				const stamped = persistTurn(stores.chatStore, chatId, persistBaseCount, turnMessages, isAborted);
+				try {
+					advancePlacement(chatId);
+				} catch (error) {
+					console.error(`[chat ${chatId}] placement advancement failed:`, error);
+				}
+				if (!isAborted && !failedResponseAtEnd(stamped)) {
+					try {
+						const nudge = placementNudgeFor(chatId);
+						if (nudge) void deliverJobResult(nudge);
+					} catch (error) {
+						console.error(`[chat ${chatId}] placement nudge failed:`, error);
+					}
+				}
 				noteSteersDurable(chatId, stores.chatStore.getChat(chatId)?.messages ?? stamped);
 				// usage log append (idempotent per turn id) — the stats bar
 				// refolds this on the client after the turn settles. The

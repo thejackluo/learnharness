@@ -1,4 +1,6 @@
 export * from "./contracts/assessment.ts";
+export * from "./contracts/learner.ts";
+export * from "./contracts/familiarity.ts";
 /**
  * Shared contracts — the single source of truth every component codes against.
  *
@@ -18,3 +20,5 @@ export * from "./contracts/jobs.ts";
 export * from "./contracts/probe.ts";
 export * from "./contracts/models.ts";
 export type { LearningTargetRef } from "./contracts/learning-target.ts";
+export * from "./contracts/subject-map.ts";
+export * from "./contracts/activity.ts";

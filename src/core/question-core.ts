@@ -17,9 +17,12 @@
  * exited and resumed mid-question for free.
  */
 
+import { teachingStimulusField } from "./activity.ts";
+import type { TeachingStimulusSnapshot } from "./contracts/activity.ts";
 import { Type, type Static } from "typebox";
 import { stripModelValueDebris } from "./value-debris.ts";
 import { assessmentDisplayPartsSchema, assessmentPartsSchema, assessmentSpecProblems } from "./assessment.ts";
+import type { AssessmentEvaluationV1, AssessmentPartResponse } from "./contracts/assessment.ts";
 
 // ─── shared types ───────────────────────────────────────────────────────────
 
@@ -156,6 +159,15 @@ export function quizInputProblems(input: {
 // and reasoning happens BEFORE the answer is chosen — models emit tool
 // args in schema order, so explanation sits immediately BEFORE correctAnswer.
 // (All consumers read by key; the order is authoring guidance, nothing else.)
+export const onTargetField = Type.Optional(
+	Type.Boolean({
+		description:
+			"Optional. true = this item directly assesses the session target skill named in the learner context, so its " +
+			"result counts as evidence for that objective. Valid only in a session started from a current target (otherwise " +
+			"the call is rejected). Omit for prerequisites, clarifications and side topics.",
+	}),
+);
+
 export const quizInputBase = Type.Object({
 	question: Type.String({
 		description:
@@ -191,6 +203,7 @@ export const quizInputBase = Type.Object({
 	details: Type.Optional(
 		Type.String({ description: "Optional extra context or instructions shown under the question." }),
 	),
+	onTarget: onTargetField,
 });
 
 // The TEACH-side quiz object: the shared base + the plan-position field
@@ -317,6 +330,7 @@ export const explainInputBase = Type.Object({
 	details: Type.Optional(
 		Type.String({ description: "Optional extra context or instructions shown under the question." }),
 	),
+	onTarget: onTargetField,
 });
 
 /** The TEACH-side explain object: base + the plan-position field (same
@@ -337,6 +351,7 @@ export const explainInputObject = Type.Object({
 			"For off-map checks use ask_user_question.",
 	}),
 	...explainInputBase.properties,
+	stimulus: teachingStimulusField,
 });
 
 /** The DISPLAY parse for persisted explain calls (tool-parts.ts): the
@@ -348,6 +363,7 @@ export const explainDisplayInputSchema = Type.Object({
 	...explainInputBase.properties,
 	parts: Type.Optional(assessmentDisplayPartsSchema),
 	type: Type.Optional(Type.String()),
+	stimulus: Type.Optional(Type.Object({ kind: Type.Literal("teaching-stimulus"), toolCallId: Type.String() })),
 });
 
 /** The explain authoring contract: the commitment must exist. Empty
@@ -437,7 +453,12 @@ export interface QuestionData {
  *  NO questionId (owner, tool-result diet 2026-10-02): it was the
  *  toolCallId restated — the toolResult message already carries it. */
 export interface QuestionAnswerData {
+	/** explain only: the server-resolved activity this explanation was
+	 *  about (never client-supplied). Absent without a stimulus. */
+	stimulus?: TeachingStimulusSnapshot;
 	gradingProvenance?: "deterministic";
+	partResponses?: AssessmentPartResponse[];
+	autoEvaluation?: AssessmentEvaluationV1;
 	kind: QuestionKind;
 	/** The persisted call's tool NAME (owner, 2026-10-09): probe-phase
 	 *  calls are `probe`/`recall`, teach calls `quiz`/`explain` — the
@@ -493,16 +514,24 @@ export interface AnswerRequest {
 	text?: string; // ask text-mode
 	thinking?: string; // the reasoning-on-the-question channel (was `note`)
 	readingThinking?: string; // the thinking-while-reading channel (check answers)
-	confidence?: number; // quiz only: 0-100 raw probability — 50 is a real coin flip, always sent (owner, 2026-10-01)
+	confidence?: number; // quiz only: 0-100 raw probability, sent only when the learner set it — an explicit 50 stays 50
+	partResponses?: AssessmentPartResponse[];
 }
 
 /** The confidence slider's snap stops (owner, 2026-10-01): raw probability
  *  that the selected answer is correct, uneven on purpose — resolution
  *  concentrates at the top where the calibration signal lives (90 vs 100
- *  separates knows from mastered). 50 is a genuine coin flip and the
- *  resting default — untouched and deliberate 50 are the same number. */
+ *  separates knows from mastered). 50 is a genuine coin flip. Confidence is
+ *  OPTIONAL (PR 5): the dock starts unset and sends nothing until the
+ *  learner sets it; the first keyboard step lands on the default stop. */
 export const CONFIDENCE_STOPS: readonly number[] = [0, 30, 50, 70, 90, 100];
 export const DEFAULT_CONFIDENCE_INDEX = 2;
+
+/** One ←/→ step of the optional confidence control: unset starts at the default stop. */
+export function stepConfidenceIndex(current: number | null, direction: 1 | -1): number {
+	if (current === null) return DEFAULT_CONFIDENCE_INDEX;
+	return Math.min(CONFIDENCE_STOPS.length - 1, Math.max(0, current + direction));
+}
 
 // ─── dock selection (the client state machine, pure for tests) ─────────────
 
@@ -522,7 +551,9 @@ export interface QuestionFormDraft {
 	thinking: string;
 	other: string;
 	text: string;
-	confidenceIndex: number;
+	parts?: Record<string, Record<string, string>>;
+	/** Null = the learner has not stated a confidence. */
+	confidenceIndex: number | null;
 }
 
 export interface QuestionDraft {
@@ -721,6 +752,13 @@ export function buildAnswer(qd: QuestionData, req: AnswerRequest, tool?: string)
 		thinking: req.thinking?.trim() || undefined,
 		readingThinking: req.readingThinking?.trim() || undefined,
 		answeredAt: new Date().toISOString(),
+		...(req.partResponses?.length ? {
+			partResponses: req.partResponses.map(response => response.kind === "numeric"
+				? { partId: response.partId, kind: response.kind, value: response.value, unit: response.unit.trim() }
+				: response.kind === "exact"
+					? { partId: response.partId, kind: response.kind, text: response.text.trim() }
+					: { partId: response.partId, kind: response.kind, fields: response.fields.map(field => ({ id: field.id, text: field.text.trim() })) }),
+		} : {}),
 	};
 	// resolve selected option values → OptionAnswer (in display order)
 	if (req.values && req.values.length > 0) {
@@ -802,5 +840,22 @@ export function compactAnswerForModel(ad: QuestionAnswerData): Record<string, un
 	const thinking = ad.thinking ?? ad.note;
 	if (thinking) out.thinking = thinking;
 	if (ad.readingThinking) out.thinkingWhileReading = ad.readingThinking;
+	if (Array.isArray(ad.partResponses) && ad.partResponses.length) {
+		const autoCriteria = new Map((ad.autoEvaluation?.criteria ?? []).map(criterion => [criterion.criterionId, criterion]));
+		const autoParts = new Map((ad.autoEvaluation?.spec.parts ?? []).map(part => [part.id, part]));
+		out.parts = ad.partResponses.map(response => {
+			const criterion = autoParts.get(response.partId)?.criteria[0];
+			const award = criterion ? autoCriteria.get(criterion.id) : undefined;
+			return {
+				...response,
+				...(award && criterion ? {
+					award: award.award,
+					maxPoints: award.maxPoints,
+					outcome: award.outcome,
+					feedback: award.feedback,
+				} : {}),
+			};
+		});
+	}
 	return out;
 }
