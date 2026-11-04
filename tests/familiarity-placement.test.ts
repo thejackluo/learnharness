@@ -5,10 +5,11 @@ import path from "node:path";
 import test from "node:test";
 import type { PlacementRun } from "../src/core/contracts/familiarity.ts";
 import { projectPlacementContext } from "../src/core/familiarity.ts";
+import { newPlacementNudgeMessage } from "../src/core/native-messages.ts";
 
 const data = fs.mkdtempSync(path.join(os.tmpdir(), "lh-familiarity-placement-"));
 process.env.LH_DATA_DIR = data;
-const [{ stores }, { advancePlacement }] = await Promise.all([
+const [{ stores }, { advancePlacement, placementNudgeFor }] = await Promise.all([
 	import("../src/server/stores.ts"),
 	import("../src/server/familiarity.ts"),
 ]);
@@ -171,6 +172,51 @@ test("graded placement support assigns its call, suggests the prerequisite closu
 		assert.ok(profile.profile.suggestions?.every((item) => item.status === "pending" && item.reason.kind === "placement"));
 		assert.deepEqual(profile.profile.associations, []);
 	}
+});
+
+test("placement nudges are eligible once per unresolved probe and only without an open question", () => {
+	const map = createMap(["first", "second"]);
+	const chat = placementChat(map.id, "first");
+	saveMessages(chat.id, [{ id: "feedback", role: "assistant", content: [{ type: "text", text: "Correct." }], timestamp: Date.now() }]);
+
+	const firstNudge = placementNudgeFor(chat.id);
+	assert.ok(firstNudge);
+	assert.equal(firstNudge.customType, "placement-next");
+	assert.equal(firstNudge.id, `steer_placement_${chat.id}_0`);
+	assert.deepEqual(firstNudge.details, { chatId: chat.id, probeIndex: 0 });
+
+	saveMessages(chat.id, [
+		...stores.chatStore.getChat(chat.id)!.messages,
+		call("graded-first", "quiz", { onTarget: true }),
+		quizResult("graded-first", true),
+	]);
+	advancePlacement(chat.id);
+	const secondNudge = placementNudgeFor(chat.id);
+	assert.ok(secondNudge);
+	assert.equal(secondNudge.id, `steer_placement_${chat.id}_1`);
+	assert.notEqual(secondNudge.id, firstNudge.id);
+
+	const open = placementChat(map.id, "first");
+	saveMessages(open.id, [call("open-question", "quiz", { onTarget: true })]);
+	assert.equal(placementNudgeFor(open.id), null);
+});
+
+test("placement nudges are absent for completed, non-placement, and already-nudged chats", () => {
+	assert.equal(placementNudgeFor("chat_missing"), null);
+
+	const oneSkillMap = createMap(["only"]);
+	const completed = placementChat(oneSkillMap.id, "only");
+	saveMessages(completed.id, [call("only-probe", "quiz", { onTarget: true }), quizResult("only-probe", true)]);
+	advancePlacement(completed.id);
+	assert.ok(stores.chatStore.getChat(completed.id)?.placement?.completedAt);
+	assert.equal(placementNudgeFor(completed.id), null);
+
+	const ordinary = stores.chatStore.createChat("Synthetic ordinary chat");
+	assert.equal(placementNudgeFor(ordinary.id), null);
+
+	const alreadyNudged = placementChat(oneSkillMap.id, "only");
+	saveMessages(alreadyNudged.id, [newPlacementNudgeMessage(alreadyNudged.id, 0)]);
+	assert.equal(placementNudgeFor(alreadyNudged.id), null);
 });
 
 test("an against result rules out dependents and advances to an unresolved prerequisite", () => {

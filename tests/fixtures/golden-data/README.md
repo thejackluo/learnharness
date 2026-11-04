@@ -1,10 +1,11 @@
-# Golden fixtures — real user data, read through production paths
+# Golden fixtures — production-written records, read through production paths
 
-**The law (owner ruling, 2026-10-10):** this directory is a REAL data dir —
-verbatim records written by the real application code, never hand-edited. Any
-intentional on-disk format change updates these fixtures IN THE SAME COMMIT;
-an unintentional change fails `tests/golden-fixtures.test.ts`. When schema
-stamps land (Wave D), the stamping commit updates these files with it.
+**The law (owner ruling, 2026-10-10):** this directory contains verbatim
+records written by the real application code, never hand-edited. Owner-built
+records use real user data; the placement fixture is explicitly synthetic.
+Any intentional on-disk format change updates these fixtures IN THE SAME
+COMMIT; an unintentional change fails `tests/golden-fixtures.test.ts`. When
+schema stamps land (Wave D), the stamping commit updates these files with it.
 
 `tests/golden-fixtures.test.ts` copies this dir to a temp dir, points the
 production stores at it via the `LH_DATA_DIR` seam, and reads EVERYTHING
@@ -25,6 +26,13 @@ core tool surface must appear in real data here.
   2026-10-10): graph-context (the bracketed preamble), problem ×2,
   practice-thinking ×2, conclude ×2, practice-next, problem-dismissed — the
   full marker cycle of a practice session, including the dismissal.
+- `chats/chat_mw1fhw65_f121957a.json` — a synthetic placement nudge flow,
+  generated through the production handler, stores, placement advancement,
+  nudge delivery, and pump using a fake model (not owner-built through the
+  UI). It records a graded first probe, `placement-next`, and the fresh wake's
+  second quiz.
+- `maps/map_21dcdbb2-6937-4522-90da-8ab506409d96.json` — the synthetic
+  two-skill arithmetic map required by that placement chat.
 - `graph/` — the real ledgers: nodes (282 lines), chains (160), sessions (8),
   coverage (93), sources (4), render-settings, positions.
 - `jobs/` — five records covering kind × status: research done + aborted by
@@ -33,9 +41,19 @@ core tool surface must appear in real data here.
 
 ## Regenerating / extending
 
-Run the app (`npm run dev`), exercise the feature against `data/`, then copy
-the produced record in verbatim. Do not hand-edit content; if a record needs
-pruning, re-run the flow instead.
+From the repo root under Node 24, run:
+
+```sh
+npx tsx scripts/generate-placement-golden-fixture.ts
+```
+
+The script creates a scratch `LH_DATA_DIR`, runs the real chat handler and
+placement/pump write path with a deterministic fake model, then copies only
+the generated chat and map records here. It never uses `data/` or the live
+data directory and refuses to overwrite an existing fixture. To regenerate,
+remove only the two placement files listed above, then run the script again.
+Do not hand-edit records; if a record needs pruning, re-run the production
+flow instead.
 
 ## Stamps
 

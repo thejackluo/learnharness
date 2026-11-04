@@ -74,6 +74,7 @@ import { providerKeyMissing, type ModelSlotName } from "../src/core/settings.ts"
 import type { PiEngine } from "../src/agent/models.ts";
 import type { SearchProvider } from "../src/core/search.ts";
 import { PATHS } from "../config.ts";
+import { newPlacementNudgeMessage } from "../src/core/native-messages.ts";
 import { projectView as projectNative } from "../src/core/view.ts";
 import { subscribe } from "../src/core/events.ts";
 import type { LhMessage } from "../src/core/native-messages.ts";
@@ -1205,6 +1206,53 @@ describe("Wave C: live steering handoff + settlement reconciliation", () => {
 		await delivery;
 		assert.equal(fired.length, 1);
 		assert.equal(fired[0]![0]!.id, handoff.id, "the handoff rode the wake");
+	});
+
+	it("placement-next routes to its chat and starts a wake turn", async () => {
+		const chat = chatStore.createChat("Test: placement nudge routing");
+		const other = chatStore.createChat("Test: placement nudge other chat");
+		trackChat(chat.id);
+		trackChat(other.id);
+		const nudge = newPlacementNudgeMessage(chat.id, 1);
+		let firedChat = "";
+		let fired: SteerMessage[] = [];
+		setTurnRunner(async (chatId, input) => {
+			firedChat = chatId;
+			fired = (input as SteerInput).steers as SteerMessage[];
+			return 200;
+		});
+
+		await deliverJobResult(nudge);
+		assert.equal(firedChat, chat.id);
+		assert.notEqual(firedChat, other.id);
+		assert.equal(fired[0]?.id, nudge.id);
+		assert.equal(chatStore.getChat(chat.id)?.messages.some((message) => message.id === nudge.id), true);
+	});
+
+	it("placement-next is never handed to a live agent and waits for a fresh wake", async () => {
+		const chat = chatStore.createChat("Test: placement nudge never live");
+		trackChat(chat.id);
+		const nudge = newPlacementNudgeMessage(chat.id, 1);
+		const { handed, agent } = fakeAgent();
+		const fired: SteerMessage[][] = [];
+		setTurnRunner(async (_chatId, input) => {
+			fired.push((input as SteerInput).steers as SteerMessage[]);
+			return 200;
+		});
+
+		assert.ok(beginTurn(chat.id));
+		registerLiveAgent(chat.id, agent as never);
+		const delivery = deliverJobResult(nudge);
+		await delay(1200);
+		assert.equal(handed.length, 0, "the placement nudge was NOT steered into the live turn");
+		assert.equal(fired.length, 0, "the fresh wake waits until the live turn ends");
+
+		unregisterLiveAgent(chat.id);
+		settleSteers(chat.id, []);
+		endTurn(chat.id);
+		await delivery;
+		assert.equal(fired.length, 1);
+		assert.equal(fired[0]![0]!.id, nudge.id);
 	});
 
 	it("registerLiveAgent immediately steers pending markers into the NEW run (the parked-behind-quiz path)", async () => {

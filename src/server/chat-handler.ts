@@ -54,7 +54,7 @@ import { settledTurnResponse } from "./turn-runs.ts";
 import { asAgentMessages } from "../core/native-messages.ts";
 import { learnerContextFor } from "./learner.ts";
 import { sessionTargetState, targetContextFor } from "./target-adaptation.ts";
-import { advancePlacement, placementContextFor, suggestFamiliarityFromChat } from "./familiarity.ts";
+import { advancePlacement, placementContextFor, placementNudgeFor, suggestFamiliarityFromChat } from "./familiarity.ts";
 import {
 	ChatInputError,
 	inputAppends,
@@ -595,6 +595,14 @@ export async function handleChatInput(
 					advancePlacement(chatId);
 				} catch (error) {
 					console.error(`[chat ${chatId}] placement advancement failed:`, error);
+				}
+				if (!isAborted) {
+					try {
+						const nudge = placementNudgeFor(chatId);
+						if (nudge) void deliverJobResult(nudge);
+					} catch (error) {
+						console.error(`[chat ${chatId}] placement nudge failed:`, error);
+					}
 				}
 				noteSteersDurable(chatId, stores.chatStore.getChat(chatId)?.messages ?? stamped);
 				// usage log append (idempotent per turn id) — the stats bar

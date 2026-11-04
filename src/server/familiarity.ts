@@ -1,6 +1,7 @@
-import type { FamiliaritySuggestion, PlacementProbe, PlacementRun, SubjectMapV1 } from "../core/contracts.ts";
+import type { FamiliaritySuggestion, PlacementProbe, PlacementRun, SteerMessage, SubjectMapV1 } from "../core/contracts.ts";
 import { PLACEMENT_MAX_PROBES, assessmentSpecOf, deriveChatObservations, modelJudgedSpec } from "../core";
 import { decideFamiliaritySuggestions, mergeFamiliaritySuggestions, nextPlacementProbe, placementSuggestionTargets, quoteInText, normalizeQuoteText, projectPlacementContext, suggestionStanding, likelyKnownSkills } from "../core/familiarity.ts";
+import { danglingQuestionOf, newPlacementNudgeMessage } from "../core/native-messages.ts";
 import { evidencePolarity, subjectSkillTargetStatus } from "../core/subject-map.ts";
 import { LearnerProfileConflictError, LearnerProfileUnavailableError } from "../store/learner.ts";
 import { runFamiliarityInferrer } from "../agent/subagents/familiarity-inferrer.ts";
@@ -133,7 +134,7 @@ export function decideSuggestions(ids: string[], status: "confirmed" | "rejected
 	}, expectedRevision);
 }
 
-export function listFamiliaritySuggestions(mapId?: string) {
+export function listFamiliaritySuggestions(mapId?: string, options: { placementChatId?: string } = {}) {
 	const read = stores.learnerProfileStore.read();
 	if (read.state !== "ok" && read.state !== "absent") throw new LearnerProfileUnavailableError(read);
 	const maps = new Map<string, SubjectMapV1 | null>();
@@ -144,7 +145,22 @@ export function listFamiliaritySuggestions(mapId?: string) {
 		}
 		return maps.get(id) ?? null;
 	};
-	const suggestions = (read.profile.suggestions ?? []).filter((item) => !mapId || item.mapId === mapId).map((item) => {
+	let matching = (read.profile.suggestions ?? []).filter((item) => !mapId || item.mapId === mapId);
+	if (options.placementChatId !== undefined) {
+		const placement = stores.chatStore.getChat(options.placementChatId)?.placement;
+		if (!placement) matching = [];
+		else {
+			const observationIds = new Set(placement.probes.flatMap((probe) =>
+				typeof probe.observationId === "string" ? [probe.observationId] : [],
+			));
+			matching = matching.filter((item) =>
+				item.reason.kind === "placement" &&
+				item.mapId === placement.mapId &&
+				observationIds.has(item.reason.observationId),
+			);
+		}
+	}
+	const suggestions = matching.map((item) => {
 		const map = readMap(item.mapId);
 		const skill = map?.skills.find((s) => s.id === item.skillId);
 		const viaSkillId = item.reason.kind === "placement" ? item.reason.viaSkillId : undefined;
@@ -269,6 +285,16 @@ export function advancePlacement(chatId: string): void {
 		run.completedAt = new Date().toISOString();
 		stores.chatStore.saveTargeting(chatId, { placement: run });
 	}
+}
+
+export function placementNudgeFor(chatId: string): SteerMessage | null {
+	const record = stores.chatStore.getChat(chatId);
+	const placement = record?.placement;
+	if (!record || !placement || placement.completedAt) return null;
+	const probeIndex = placement.probes.findIndex((probe) => !probe.result);
+	if (probeIndex < 0 || danglingQuestionOf(record.messages) !== null) return null;
+	const nudge = newPlacementNudgeMessage(chatId, probeIndex);
+	return record.messages.some((message) => message.id === nudge.id) ? null : nudge;
 }
 
 export function latestPlacementFor(mapId: string) {

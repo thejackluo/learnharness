@@ -228,23 +228,29 @@ test("familiarity inbox sends accept/reject/accept-all/revoke decisions and relo
 	} finally { globalThis.fetch = originalFetch; }
 });
 
-test("completed placement panel reviews suggestions without note inference controls", async () => {
-	const requests: string[] = [];
-	globalThis.fetch = (async (input: RequestInfo | URL) => {
+test("completed placement panel accepts only suggestions from that run and omits note inference controls", async () => {
+	const requests: { url: string; method: string; body: string | null }[] = [];
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 		const url = String(input);
-		requests.push(url);
+		requests.push({
+			url,
+			method: init?.method ?? "GET",
+			body: typeof init?.body === "string" ? init.body : null,
+		});
 		if (url === "/api/chats/chat-placement/target") {
 			return Response.json({ view: null, placement: { mapId: map.id, completed: true } });
 		}
-		if (url === `/api/learner/familiarity?mapId=${map.id}`) {
+		if (url === `/api/learner/familiarity?mapId=${map.id}&chatId=chat-placement`) {
 			return Response.json({
 				profileRevision: 2,
 				suggestions: [
-					{ id: "pending", mapId: map.id, skillId: "proc", status: "pending", reason: { kind: "placement" }, mapTitle: "OS", skillTitle: "Processes", standing: "current", viaSkillTitle: "Scheduling" },
-					{ id: "confirmed", mapId: map.id, skillId: "thr", status: "confirmed", reason: { kind: "placement" }, mapTitle: "OS", skillTitle: "Threads", standing: "current", viaSkillTitle: "Processes" },
+					{ id: "run-a-first", mapId: map.id, skillId: "proc", status: "pending", reason: { kind: "placement" }, mapTitle: "OS", skillTitle: "Processes", standing: "current", viaSkillTitle: "Scheduling" },
+					{ id: "run-a-second", mapId: map.id, skillId: "thr", status: "pending", reason: { kind: "placement" }, mapTitle: "OS", skillTitle: "Threads", standing: "current", viaSkillTitle: "Processes" },
+					{ id: "run-a-confirmed", mapId: map.id, skillId: "sched", status: "confirmed", reason: { kind: "placement" }, mapTitle: "OS", skillTitle: "Scheduling", standing: "current", viaSkillTitle: "Processes" },
 				],
 			});
 		}
+		if (url === "/api/learner/familiarity/decisions" && init?.method === "POST") return Response.json({});
 		throw new Error(`unexpected ${url}`);
 	}) as typeof fetch;
 	try {
@@ -253,13 +259,21 @@ test("completed placement panel reviews suggestions without note inference contr
 		assert.match(container.textContent ?? "", /Placement complete — likely known, for you to confirm/);
 		assert.match(container.textContent ?? "", /Processes/);
 		assert.match(container.textContent ?? "", /Threads/);
+		await click(button(container, "Accept all"));
+		const decision = requests.find((request) => request.url === "/api/learner/familiarity/decisions" && request.method === "POST");
+		assert.ok(decision?.body);
+		assert.deepEqual(JSON.parse(decision.body), {
+			ids: ["run-a-first", "run-a-second"],
+			status: "confirmed",
+			expectedRevision: 2,
+		});
 		for (const label of ["Accept all", "Reject all", "Accept", "Reject", "Revoke"]) {
 			assert.ok([...container.querySelectorAll("button")].some((candidate) => candidate.textContent?.trim() === label), `${label} remains available`);
 		}
 		assert.equal(container.querySelector("textarea"), null);
 		assert.equal(container.querySelector('input[type="file"]'), null);
 		assert.doesNotMatch(container.textContent ?? "", /Infer from notes|Infer suggestions|Paste notes|Source name|Upload notes/);
-		assert.ok(requests.includes(`/api/learner/familiarity?mapId=${map.id}`));
+		assert.ok(requests.some((request) => request.url === `/api/learner/familiarity?mapId=${map.id}&chatId=chat-placement`));
 		await act(async () => root.unmount());
 	} finally {
 		globalThis.fetch = originalFetch;

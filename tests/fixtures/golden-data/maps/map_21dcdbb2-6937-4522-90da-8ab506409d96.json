@@ -1,0 +1,33 @@
+{
+	"title": "Synthetic placement fixture map",
+	"description": "A tiny arithmetic map for deterministic placement coverage.",
+	"skills": [
+		{
+			"id": "addition-two",
+			"title": "Adding two",
+			"objective": "Explain two plus two",
+			"revision": 1
+		},
+		{
+			"id": "addition-three",
+			"title": "Adding three",
+			"objective": "Explain three plus three",
+			"revision": 1
+		}
+	],
+	"edges": [],
+	"alternatives": [],
+	"goals": [
+		"addition-three"
+	],
+	"retired": [],
+	"version": 1,
+	"id": "map_21dcdbb2-6937-4522-90da-8ab506409d96",
+	"revision": 1,
+	"createdAt": "2026-11-04T01:19:00.124Z",
+	"updatedAt": "2026-11-04T01:19:00.124Z",
+	"links": {
+		"propositions": [],
+		"topics": []
+	}
+}

@@ -48,7 +48,7 @@ export function SessionTargetPanel({ chatId, refreshKey }: { chatId: string; ref
 			{placement?.completed && (
 				<section className="flex flex-col gap-3 border-b border-border/60 px-6 py-3 text-sm" data-testid="placement-complete-panel">
 					<h2 className="font-medium">Placement complete — likely known, for you to confirm</h2>
-					<FamiliaritySuggestions mapId={placement.mapId} reviewOnly />
+					<FamiliaritySuggestions mapId={placement.mapId} placementChatId={chatId} reviewOnly />
 				</section>
 			)}
 			{view && (

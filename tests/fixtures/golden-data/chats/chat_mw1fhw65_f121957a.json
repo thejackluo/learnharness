@@ -1,0 +1,247 @@
+{
+	"id": "chat_mw1fhw65_f121957a",
+	"title": "Golden placement nudge fixture",
+	"createdAt": "2026-11-04T01:19:00.125Z",
+	"updatedAt": "2026-11-04T01:19:01.315Z",
+	"messages": [
+		{
+			"id": "msg_mw1fhw6b_c25a15cb",
+			"role": "user",
+			"content": "Start synthetic placement.",
+			"timestamp": 1793755140131
+		},
+		{
+			"role": "assistant",
+			"content": [
+				{
+					"type": "toolCall",
+					"id": "placement-quiz-1",
+					"name": "quiz",
+					"arguments": {
+						"question": "What is two plus two?",
+						"options": [
+							{
+								"label": "Four"
+							},
+							{
+								"label": "Five"
+							}
+						],
+						"correctAnswer": "Four",
+						"explanation": "Two plus two is four.",
+						"type": "check",
+						"nodeId": "addition-two",
+						"onTarget": true
+					}
+				}
+			],
+			"api": "faux:1793755140124:4p1bcdt1r78",
+			"provider": "faux",
+			"model": "faux-1",
+			"usage": {
+				"input": 12277,
+				"output": 51,
+				"cacheRead": 0,
+				"cacheWrite": 0,
+				"totalTokens": 12328,
+				"cost": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"total": 0
+				}
+			},
+			"stopReason": "toolUse",
+			"timestamp": 1793755140137,
+			"durationMs": 1,
+			"thinkingLevel": "off",
+			"id": "msg_mw1fhw6n_65bcdf5d"
+		},
+		{
+			"id": "msg_mw1fhw6u_54b116ba",
+			"role": "toolResult",
+			"toolCallId": "placement-quiz-1",
+			"toolName": "quiz",
+			"content": [
+				{
+					"type": "text",
+					"text": "{\"kind\":\"quiz\",\"answers\":[{\"index\":1,\"label\":\"Four\"}],\"correct\":true}"
+				}
+			],
+			"details": {
+				"kind": "quiz",
+				"tool": "quiz",
+				"questionType": "check",
+				"questionText": "What is two plus two?",
+				"options": [
+					{
+						"index": 1,
+						"label": "Four"
+					},
+					{
+						"index": 2,
+						"label": "Five"
+					}
+				],
+				"dontKnow": false,
+				"answers": [
+					{
+						"label": "Four",
+						"value": "Four",
+						"index": 1
+					}
+				],
+				"answeredAt": "2026-11-04T01:19:00.150Z",
+				"correctIndices": [
+					1
+				],
+				"explanation": "Two plus two is four.",
+				"correct": true,
+				"gradingProvenance": "deterministic"
+			},
+			"isError": false,
+			"timestamp": 1793755140150
+		},
+		{
+			"role": "assistant",
+			"content": [
+				{
+					"type": "text",
+					"text": "Correct."
+				}
+			],
+			"api": "faux:1793755140124:4p1bcdt1r78",
+			"provider": "faux",
+			"model": "faux-1",
+			"usage": {
+				"input": 12367,
+				"output": 2,
+				"cacheRead": 0,
+				"cacheWrite": 0,
+				"totalTokens": 12369,
+				"cost": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"total": 0
+				}
+			},
+			"stopReason": "stop",
+			"timestamp": 1793755140153,
+			"durationMs": 0,
+			"thinkingLevel": "off",
+			"id": "msg_mw1fhw6x_04786ac9"
+		},
+		{
+			"id": "steer_placement_chat_mw1fhw65_f121957a_1",
+			"role": "custom",
+			"customType": "placement-next",
+			"content": "[Placement run — app note, not from the learner] The placement run is still in progress and no question is open. Ask the current placement probe from the placement context now, using onTarget: true.",
+			"display": false,
+			"details": {
+				"chatId": "chat_mw1fhw65_f121957a",
+				"probeIndex": 1
+			},
+			"timestamp": 1793755140153
+		},
+		{
+			"role": "assistant",
+			"content": [
+				{
+					"type": "toolCall",
+					"id": "placement-quiz-2",
+					"name": "quiz",
+					"arguments": {
+						"question": "What is three plus three?",
+						"options": [
+							{
+								"label": "Six"
+							},
+							{
+								"label": "Seven"
+							}
+						],
+						"correctAnswer": "Six",
+						"explanation": "Three plus three is six.",
+						"type": "check",
+						"nodeId": "addition-three",
+						"onTarget": true
+					}
+				}
+			],
+			"api": "faux:1793755140124:4p1bcdt1r78",
+			"provider": "faux",
+			"model": "faux-1",
+			"usage": {
+				"input": 12424,
+				"output": 53,
+				"cacheRead": 0,
+				"cacheWrite": 0,
+				"totalTokens": 12477,
+				"cost": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"total": 0
+				}
+			},
+			"stopReason": "toolUse",
+			"timestamp": 1793755141312,
+			"durationMs": 2,
+			"thinkingLevel": "off",
+			"id": "msg_mw1fhx37_5d595333"
+		}
+	],
+	"target": {
+		"kind": "subject-skill",
+		"mapId": "map_21dcdbb2-6937-4522-90da-8ab506409d96",
+		"skillId": "addition-three",
+		"skillRevision": 1
+	},
+	"placement": {
+		"mapId": "map_21dcdbb2-6937-4522-90da-8ab506409d96",
+		"maxProbes": 15,
+		"probes": [
+			{
+				"skillId": "addition-two",
+				"revision": 1,
+				"callIds": [
+					"placement-quiz-1"
+				],
+				"result": "supports",
+				"observationId": "ev:chat_mw1fhw65_f121957a:msg_mw1fhw6u_54b116ba:placement-quiz-1:"
+			},
+			{
+				"skillId": "addition-three",
+				"revision": 1,
+				"callIds": [
+					"placement-quiz-2"
+				]
+			}
+		]
+	},
+	"version": 1,
+	"settings": {
+		"model": {
+			"provider": "openrouter",
+			"id": "z-ai/glm-5.3-flash"
+		}
+	},
+	"tree": {
+		"nodes": [
+			{
+				"id": "addition-two",
+				"title": "Adding two"
+			},
+			{
+				"id": "addition-three",
+				"title": "Adding three"
+			}
+		],
+		"edges": [],
+		"version": 1
+	}
+}
