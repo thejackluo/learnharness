@@ -20,7 +20,7 @@ const GROUPS = [
 	["conversation", "From your conversations"],
 ] as const;
 
-export function FamiliaritySuggestions({ mapId, sharedListing, sharedError, onRefresh, reviewOnly = false }: { mapId?: string; sharedListing?: FamiliarityListing | null; sharedError?: string | null; onRefresh?: () => Promise<void>; reviewOnly?: boolean }) {
+export function FamiliaritySuggestions({ mapId, placementChatId, sharedListing, sharedError, onRefresh, reviewOnly = false }: { mapId?: string; placementChatId?: string; sharedListing?: FamiliarityListing | null; sharedError?: string | null; onRefresh?: () => Promise<void>; reviewOnly?: boolean }) {
 	const [listing, setListing] = useState<FamiliarityListing | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
@@ -29,12 +29,16 @@ export function FamiliaritySuggestions({ mapId, sharedListing, sharedError, onRe
 
 	const load = useCallback(async () => {
 		try {
-			const response = await fetch(`/api/learner/familiarity${mapId ? `?mapId=${encodeURIComponent(mapId)}` : ""}`, { cache: "no-store" });
+			const params = new URLSearchParams();
+			if (mapId) params.set("mapId", mapId);
+			if (placementChatId) params.set("chatId", placementChatId);
+			const query = params.toString();
+			const response = await fetch(`/api/learner/familiarity${query ? `?${query}` : ""}`, { cache: "no-store" });
 			if (!response.ok) throw new Error("Unable to load familiarity suggestions.");
 			setListing(await response.json() as FamiliarityListing);
 			setError(null);
 		} catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load familiarity suggestions."); }
-	}, [mapId]);
+	}, [mapId, placementChatId]);
 
 	useEffect(() => { if (sharedListing === undefined) void load(); }, [load, sharedListing]);
 	useEffect(() => { if (sharedListing !== undefined) setListing(sharedListing); }, [sharedListing]);
