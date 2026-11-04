@@ -13,6 +13,7 @@ import type { handleChatRequest } from "../src/server/chat-handler.ts";
 import type { TurnInput } from "../src/core/input-events.ts";
 
 type ChatBuilder = NonNullable<Parameters<typeof handleChatRequest>[1]>;
+const PLACEMENT_FIXTURE_TITLE = "Golden placement nudge fixture";
 
 export interface PlacementGoldenArtifact {
 	chatId: string;
@@ -70,7 +71,8 @@ export async function generatePlacementGoldenArtifact(dataDir: string): Promise<
 		]);
 		const engine = { model: faux.getModel(), streamFn: faux.streamSimple };
 		const buildAgent: ChatBuilder = (opts) =>
-			teacher.createTeacherAgent(undefined, { engine, messages: opts.messages });
+			teacher.createTeacherAgent(undefined, { ...opts, engine, messages: opts.messages });
+		const questionCore = await import("../src/core/question-core.ts");
 
 		const map = stores.subjectMapStore.create({
 			title: "Synthetic placement fixture map",
@@ -85,7 +87,7 @@ export async function generatePlacementGoldenArtifact(dataDir: string): Promise<
 			retired: [],
 		});
 		const chat = stores.chatStore.createChat(
-			"Golden placement nudge fixture",
+			PLACEMENT_FIXTURE_TITLE,
 			undefined,
 			{ kind: "subject-skill", mapId: map.id, skillId: "addition-two", skillRevision: 1 },
 			{
@@ -122,15 +124,15 @@ export async function generatePlacementGoldenArtifact(dataDir: string): Promise<
 
 		assert.equal(await drainTurn(chat.id, { type: "text", text: "Start synthetic placement." }), 200);
 		const options = [{ label: "Four" }, { label: "Five" }];
-		const normalized = (await import("../src/core/question-core.ts")).normalizeOptions(options);
-		const answer = (await import("../src/core/question-core.ts")).buildAnswer(
+		const normalized = questionCore.normalizeOptions(options);
+		const answer = questionCore.buildAnswer(
 			{
 				id: "placement-quiz-1",
 				kind: "quiz",
 				question: quizOne.question,
 				mode: "single-select",
 				options: normalized,
-				correctIndices: (await import("../src/core/question-core.ts")).resolveCorrect(quizOne.correctAnswer, normalized).indices,
+				correctIndices: questionCore.resolveCorrect(quizOne.correctAnswer, normalized).indices,
 				explanation: quizOne.explanation,
 				createdAt: new Date().toISOString(),
 			},
@@ -147,7 +149,12 @@ export async function generatePlacementGoldenArtifact(dataDir: string): Promise<
 				!saved.messages.some((message) =>
 					message.role === "assistant" &&
 					message.content.some((part) => part.type === "toolCall" && part.id === "placement-quiz-2"),
-				))
+				) ||
+				!saved.messages.some((message) =>
+					message.role === "assistant" &&
+					message.content.some((part) => part.type === "text" && part.text === "Choose the next answer."),
+				) ||
+				!!turnRuns.runningTurn(chat.id))
 		) {
 			await new Promise((resolve) => setTimeout(resolve, 25));
 			saved = stores.chatStore.getChat(chat.id);
@@ -194,10 +201,16 @@ function restoreEnv(name: string, value: string | undefined): void {
 }
 
 async function main(): Promise<void> {
-	const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "lh-placement-golden-"));
 	const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 	const fixtureChats = path.join(root, "tests", "fixtures", "golden-data", "chats");
 	const fixtureMaps = path.join(root, "tests", "fixtures", "golden-data", "maps");
+	for (const filename of fs.readdirSync(fixtureChats)) {
+		const existing = JSON.parse(fs.readFileSync(path.join(fixtureChats, filename), "utf8")) as { title?: string };
+		if (existing.title === PLACEMENT_FIXTURE_TITLE) {
+			throw new Error("The placement fixture already exists. Remove its generated chat and map before regenerating.");
+		}
+	}
+	const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "lh-placement-golden-"));
 	try {
 		const artifact = await generatePlacementGoldenArtifact(scratch);
 		const chatDestination = path.join(fixtureChats, path.basename(artifact.chatPath));
