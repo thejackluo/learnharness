@@ -184,7 +184,10 @@ export async function generatePlacementGoldenArtifact(dataDir: string): Promise<
 			nudgeIndex >= 0,
 			`the handler persisted a placement-next marker; placement=${JSON.stringify(saved.placement)} messages=${JSON.stringify(saved.messages)}`,
 		);
-		assert.ok(nextQuizIndex > nudgeIndex, "the pump's fresh wake asked the next placement quiz");
+		assert.ok(
+			nextQuizIndex > nudgeIndex,
+			`the pump's fresh wake asked the next placement quiz; wakes=${JSON.stringify(wakes)} messages=${JSON.stringify(saved.messages)}`,
+		);
 		assert.ok(
 			wakes.some(
 				(wake) =>
