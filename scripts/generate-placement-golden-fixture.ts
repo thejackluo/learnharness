@@ -9,7 +9,7 @@ import {
 	fauxText,
 	fauxToolCall,
 } from "@earendil-works/pi-ai";
-import type { handleChatRequest } from "../src/server/chat-handler.ts";
+import type { handleChatInput } from "../src/server/chat-handler.ts";
 import type { TurnInput } from "../src/core/input-events.ts";
 
 type ChatBuilder = NonNullable<Parameters<typeof handleChatInput>[2]>;
