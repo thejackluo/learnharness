@@ -12,7 +12,7 @@ import {
 import type { handleChatRequest } from "../src/server/chat-handler.ts";
 import type { TurnInput } from "../src/core/input-events.ts";
 
-type ChatBuilder = NonNullable<Parameters<typeof handleChatRequest>[1]>;
+type ChatBuilder = NonNullable<Parameters<typeof handleChatInput>[2]>;
 const PLACEMENT_FIXTURE_TITLE = "Golden placement nudge fixture";
 
 export interface PlacementGoldenArtifact {
@@ -110,13 +110,8 @@ export async function generatePlacementGoldenArtifact(dataDir: string): Promise<
 			version: 1,
 		});
 
-		const request = (chatId: string, input: TurnInput) => new Request("http://test/api/chat", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ chatId, input }),
-		});
 		const drainTurn = async (chatId: string, input: TurnInput): Promise<number> => {
-			const response = await chatHandler.handleChatRequest(request(chatId, input), buildAgent);
+			const response = await chatHandler.handleChatInput(chatId, input, buildAgent);
 			if (response.status !== 200) {
 				throw new Error(`Synthetic turn returned ${response.status}: ${await response.text()}`);
 			}
