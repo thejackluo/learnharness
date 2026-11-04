@@ -1,6 +1,7 @@
-import type { FamiliaritySuggestion, PlacementProbe, PlacementRun, SubjectMapV1 } from "../core/contracts.ts";
+import type { FamiliaritySuggestion, PlacementProbe, PlacementRun, SteerMessage, SubjectMapV1 } from "../core/contracts.ts";
 import { PLACEMENT_MAX_PROBES, deriveChatObservations } from "../core";
 import { decideFamiliaritySuggestions, mergeFamiliaritySuggestions, nextPlacementProbe, placementSuggestionTargets, quoteInText, normalizeQuoteText, projectPlacementContext, suggestionStanding, likelyKnownSkills } from "../core/familiarity.ts";
+import { danglingQuestionOf, newPlacementNudgeMessage } from "../core/native-messages.ts";
 import { evidencePolarity, subjectSkillTargetStatus } from "../core/subject-map.ts";
 import { LearnerProfileConflictError, LearnerProfileUnavailableError } from "../store/learner.ts";
 import { runFamiliarityInferrer } from "../agent/subagents/familiarity-inferrer.ts";
@@ -226,6 +227,16 @@ export function advancePlacement(chatId: string): void {
 		run.completedAt = new Date().toISOString();
 		stores.chatStore.saveTargeting(chatId, { placement: run });
 	}
+}
+
+export function placementNudgeFor(chatId: string): SteerMessage | null {
+	const record = stores.chatStore.getChat(chatId);
+	const placement = record?.placement;
+	if (!record || !placement || placement.completedAt) return null;
+	const probeIndex = placement.probes.findIndex((probe) => !probe.result);
+	if (probeIndex < 0 || danglingQuestionOf(record.messages) !== null) return null;
+	const nudge = newPlacementNudgeMessage(chatId, probeIndex);
+	return record.messages.some((message) => message.id === nudge.id) ? null : nudge;
 }
 
 export function latestPlacementFor(mapId: string) {

@@ -40,6 +40,7 @@ import {
 	CONCLUDE_ACK_TEXT,
 	HANDOFF_TEXT,
 	NEXT_PROBLEM_TEXT,
+	PLACEMENT_NUDGE_TEXT,
 	THINKING_LABEL,
 } from "./contracts/chat.ts";
 import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.ts";
@@ -68,6 +69,7 @@ export interface LhMarkerMessage {
 	customType:
 		| "graph-context"
 		| "probe-handoff"
+		| "placement-next"
 		| "subagent-steer"
 		| "subagent-abort"
 		| "plan-block"
@@ -213,6 +215,18 @@ export function newHandoffMessage(chatId: string): LhMarkerMessage {
 		content: HANDOFF_TEXT,
 		display: true,
 		details: { chatId },
+		timestamp: Date.now(),
+	};
+}
+
+export function newPlacementNudgeMessage(chatId: string, probeIndex: number): LhMarkerMessage {
+	return {
+		id: `steer_placement_${chatId}_${probeIndex}`,
+		role: "custom",
+		customType: "placement-next",
+		content: PLACEMENT_NUDGE_TEXT,
+		display: false,
+		details: { chatId, probeIndex },
 		timestamp: Date.now(),
 	};
 }
@@ -756,7 +770,7 @@ export function nativeInputCause(message: AgentMessage, history: readonly AgentM
 	if (message.role === "user") return "learner";
 	if (message.role === "system" || message.role === "assistant") return "neutral";
 	if (message.role === "custom") {
-		if (["probe-handoff", "subagent-steer", "subagent-abort"].includes(message.customType)) return "automatic";
+		if (["probe-handoff", "placement-next", "subagent-steer", "subagent-abort"].includes(message.customType)) return "automatic";
 		if (["practice-thinking", "practice-next"].includes(message.customType)) return "learner";
 		return ["graph-context", "plan-block", "problem-dismissed", "compaction"].includes(message.customType) ? "neutral" : "unrecognizable";
 	}

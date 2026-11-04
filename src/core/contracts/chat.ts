@@ -199,6 +199,9 @@ export const HANDOFF_TEXT =
 	"Take your time here and really think this through. " +
 	"When it's genuinely reasoned out, call plan_init and present the plan; I'll accept it or ask for changes.";
 
+export const PLACEMENT_NUDGE_TEXT =
+	"[Placement run — app note, not from the learner] The placement run is still in progress and no question is open. Ask the current placement probe from the placement context now, using onTarget: true.";
+
 // ─── Practice sessions (owner, 2026-10-04) — marker + ack texts ──────────────
 // Single-sourced here per the marker law: the model-facing text of every
 // custom marker lives in core/contracts, never in the flattening seam.

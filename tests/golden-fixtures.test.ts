@@ -39,15 +39,24 @@ const { chatStore } = await import("../src/store/chats.ts");
 const { graphStore } = await import("../src/store/graph.ts");
 const { jobStore } = await import("../src/store/jobs.ts");
 const { settingsStore } = await import("../src/store/settings.ts");
+const { subjectMapStore } = await import("../src/store/subject-maps.ts");
 const { readRenderSettings } = await import("../src/store/render-settings.ts");
 const { getGraph, deriveView } = await import("../src/core/graph.ts");
 const { sanitizeRenderSettings } = await import("../src/core/render-settings.ts");
 const { toLlmMessages } = await import("../src/core/native-messages.ts");
 const { phaseAt3Lh } = await import("../src/core/phases.ts");
 const { danglingQuestionOf, activeProblemOf } = await import("../src/core/native-messages.ts");
+const { placementContextFor } = await import("../src/server/familiarity.ts");
 
 const TEACH = "chat_mv27rrra_feff23b6";
 const PRACTICE = "chat_mv293wv5_10656952";
+const PLACEMENT_TITLE = "Golden placement nudge fixture";
+
+function placementFixtureId(): string {
+	const placement = chatStore.listChats().find((chat) => chat.title === PLACEMENT_TITLE);
+	assert.ok(placement, "the production-generated placement record lists");
+	return placement!.id;
+}
 
 function snapshotTree(dir: string): Map<string, Buffer> {
 	const out = new Map<string, Buffer>();
@@ -84,8 +93,17 @@ test("chats: both fixture records parse through the production read path", () =>
 	}
 });
 
+test("chats: placement fixture reads its synthetic map and pending next probe", () => {
+	const id = placementFixtureId();
+	const record = chatStore.getChat(id);
+	assert.ok(record?.placement);
+	assert.equal(subjectMapStore.read(record.placement.mapId).state, "ok");
+	assert.equal(danglingQuestionOf(record.messages)?.toolCallId, "placement-quiz-2");
+	assert.match(placementContextFor(record) ?? "", /Probe 2 of 15: Adding three/);
+});
+
 test("chats: the LLM wire flattening turns each full record into a legal provider message list", () => {
-	for (const id of [TEACH, PRACTICE]) {
+	for (const id of [TEACH, PRACTICE, placementFixtureId()]) {
 		const r = chatStore.getChat(id)!;
 		const wire = toLlmMessages(r.messages as never);
 		assert.ok(wire.length > 0);
@@ -117,6 +135,7 @@ test("markers: the fixture pair covers EVERY custom-marker kind of the current c
 	const EXPECTED = [
 		"graph-context",
 		"probe-handoff",
+		"placement-next",
 		"subagent-steer",
 		"subagent-abort",
 		"plan-block",
@@ -126,7 +145,7 @@ test("markers: the fixture pair covers EVERY custom-marker kind of the current c
 		"compaction",
 	] as const;
 	const seen = new Set<string>();
-	for (const id of [TEACH, PRACTICE]) {
+	for (const id of [TEACH, PRACTICE, placementFixtureId()]) {
 		for (const m of chatStore.getChat(id)!.messages) {
 			if ((m as { role?: string }).role === "custom") seen.add((m as { customType: string }).customType);
 		}
