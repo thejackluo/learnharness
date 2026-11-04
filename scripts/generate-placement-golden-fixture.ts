@@ -51,6 +51,7 @@ export async function generatePlacementGoldenArtifact(dataDir: string): Promise<
 			correctAnswer: "Four",
 			explanation: "Two plus two is four.",
 			type: "check",
+			nodeId: "addition-two",
 			onTarget: true,
 		};
 		const quizTwo = {
@@ -59,6 +60,7 @@ export async function generatePlacementGoldenArtifact(dataDir: string): Promise<
 			correctAnswer: "Six",
 			explanation: "Three plus three is six.",
 			type: "check",
+			nodeId: "addition-three",
 			onTarget: true,
 		};
 		const faux = createFauxCore({ tokenSize: { min: 64, max: 64 } });
@@ -71,7 +73,7 @@ export async function generatePlacementGoldenArtifact(dataDir: string): Promise<
 		]);
 		const engine = { model: faux.getModel(), streamFn: faux.streamSimple };
 		const buildAgent: ChatBuilder = (opts) =>
-			teacher.createTeacherAgent(undefined, { ...opts, engine, messages: opts.messages });
+			teacher.createTeacherAgent(undefined, { engine, messages: opts.messages, learnerContext: opts.learnerContext });
 		const questionCore = await import("../src/core/question-core.ts");
 
 		const map = stores.subjectMapStore.create({
@@ -102,6 +104,14 @@ export async function generatePlacementGoldenArtifact(dataDir: string): Promise<
 		stores.chatStore.saveSettings(chat.id, {
 			model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" },
 		});
+		stores.chatStore.saveTree(chat.id, {
+			nodes: [
+				{ id: "addition-two", title: "Adding two" },
+				{ id: "addition-three", title: "Adding three" },
+			],
+			edges: [],
+			version: 1,
+		});
 
 		const request = (chatId: string, input: TurnInput) => new Request("http://test/api/chat", {
 			method: "POST",
@@ -110,7 +120,9 @@ export async function generatePlacementGoldenArtifact(dataDir: string): Promise<
 		});
 		const drainTurn = async (chatId: string, input: TurnInput): Promise<number> => {
 			const response = await chatHandler.handleChatRequest(request(chatId, input), buildAgent);
-			if (response.status !== 200) return response.status;
+			if (response.status !== 200) {
+				throw new Error(`Synthetic turn returned ${response.status}: ${await response.text()}`);
+			}
 			const turn = turnRuns.runningTurn(chatId);
 			if (turn) await new Response(turn.subscribe()).arrayBuffer();
 			return response.status;
@@ -123,6 +135,14 @@ export async function generatePlacementGoldenArtifact(dataDir: string): Promise<
 		});
 
 		assert.equal(await drainTurn(chat.id, { type: "text", text: "Start synthetic placement." }), 200);
+		const posed = stores.chatStore.getChat(chat.id);
+		assert.ok(
+			posed?.messages.some((message) =>
+				message.role === "assistant" &&
+				message.content.some((part) => part.type === "toolCall" && part.id === "placement-quiz-1"),
+			),
+			`the fake model posed the first probe: ${JSON.stringify(posed?.messages)}`,
+		);
 		const options = [{ label: "Four" }, { label: "Five" }];
 		const normalized = questionCore.normalizeOptions(options);
 		const answer = questionCore.buildAnswer(
