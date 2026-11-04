@@ -95,10 +95,7 @@ export async function generatePlacementGoldenArtifact(dataDir: string): Promise<
 			{
 				mapId: map.id,
 				maxProbes: 15,
-				probes: [
-					{ skillId: "addition-two", revision: 1 },
-					{ skillId: "addition-three", revision: 1 },
-				],
+				probes: [{ skillId: "addition-two", revision: 1 }],
 			},
 		);
 		stores.chatStore.saveSettings(chat.id, {
