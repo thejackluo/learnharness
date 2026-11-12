@@ -91,3 +91,23 @@ test("Python responses are bounded, require each declared test id exactly once, 
 	assert.deepEqual(draft.responses, responses);
 	assert.equal(partResponsesFromDraft(spec, { sum: { source: codePart.starter } }).complete, false);
 });
+
+test("Python code awards use hundredths and preserve exact full credit", () => {
+	const tests = [
+		{ id: "first", name: "First", call: "1", expected: "1" },
+		{ id: "second", name: "Second", call: "2", expected: "2" },
+		{ id: "third", name: "Third", call: "3", expected: "3" },
+	];
+	for (const { points, statuses, expected, outcome } of [
+		{ points: 1.6, statuses: ["pass", "pass", "pass"], expected: 1.6, outcome: "met" },
+		{ points: 1.6, statuses: ["pass", "fail", "fail"], expected: 0.53, outcome: "partial" },
+		{ points: 1, statuses: ["pass", "pass", "fail"], expected: 0.66, outcome: "partial" },
+	] as const) {
+		const spec = assessmentSpecOf({ parts: [{ ...codePart, tests, points }] }) as AssessmentSpecV1;
+		const results = tests.map((test, index) => ({ testId: test.id, status: statuses[index]! })) as CodeTestResult[];
+		const evaluation = autoEvaluate(spec, [{ partId: "sum", kind: "code", source: "", results }], { sourceCallId: "call-1", responseId: "result-1" })!;
+		assert.equal(evaluation.criteria[0]?.award, expected);
+		assert.equal(evaluation.criteria[0]?.outcome, outcome);
+		assert.equal(evaluation.totals.awarded, expected);
+	}
+});

@@ -375,9 +375,12 @@ export function gradeCode(
 ): CriterionAward {
 	const passed = response.results.filter(result => result.status === "pass").length;
 	const maxPoints = part.criteria[0]!.maxPoints;
+	const award = passed === part.tests.length
+		? maxPoints
+		: Math.floor(maxPoints * passed / part.tests.length * 100) / 100;
 	return {
 		criterionId: part.id,
-		award: maxPoints * passed / part.tests.length,
+		award,
 		feedback: `Passed ${passed} of ${part.tests.length} Python tests.`,
 	};
 }
@@ -549,10 +552,9 @@ export function evaluationProblems(spec: AssessmentSpecV1, awards: readonly Crit
 		const c = criteria.find(c => c.id === a.criterionId);
 		if (!c || seen.has(a.criterionId)) problems.push("unknown or duplicate criterion");
 		seen.add(a.criterionId);
-		const part = spec.parts.find(part => part.criteria.some(criterion => criterion.id === a.criterionId));
 		if (a.award !== null && (
 			typeof a.award !== "number" ||
-			(part?.kind !== "code" && !hasHundredthPrecision(a.award)) ||
+			!hasHundredthPrecision(a.award) ||
 			!Number.isFinite(a.award) ||
 			a.award < 0 ||
 			(c && a.award > c.maxPoints)
