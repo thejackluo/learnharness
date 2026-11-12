@@ -88,7 +88,7 @@ describe("prober graph tools — registration", () => {
 
 	it("graphStore present → list_sessions + list_propositions join the registry beside the usual set", () => {
 		const { chatStore, graphStore } = fakeStores([node("n1", "Water cycle", [pt("c1")])]);
-		const tools = createProberTools({ ...baseCtx, chatStore, graphStore });
+		const tools = createProberTools({ ...baseCtx, chatStore, graphStore }, undefined, "choice");
 		// The standing set (fix wave 2026-09-20: research + pdf are
 		// phase-omnipresent) plus the two graph-map readers.
 		assert.deepEqual(Object.keys(tools).sort(), [

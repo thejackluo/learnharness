@@ -199,7 +199,7 @@ describe("the prober's quiz: no nodeId field at all", () => {
 
 	it("the prober's tool registry carries the nodeId-less quiz, probe_done, and the learner-filesystem set", () => {
 		const chatId = newChat("Prober: registry");
-		const tools = createProberTools({ chatId, chatStore, deliver: () => {}, jobStore, spawn: () => {} });
+		const tools = createProberTools({ chatId, chatStore, deliver: () => {}, jobStore, spawn: () => {} }, undefined, "choice");
 		// Fix wave (2026-09-20): the owner ruling adds research + pdf dispatch
 		// to the probe phase's registry (demo/visual stay teach-only).
 		assert.deepEqual(Object.keys(tools).sort(), [
@@ -263,21 +263,21 @@ describe("tool toggles (core/pending.ts + factories)", () => {
 		assert.deepEqual(TOGGLEABLE_TOOLS, ["research", "demo", "visual", "pdf"]);
 	});
 
-	it("createProberTools: absent record = full set; explicit false drops exactly that tool; probe_done survives everything", () => {
+	it("createProberTools: absent toggle record keeps the full set; explicit false drops exactly that tool; probe_done survives everything", () => {
 		const chatId = newChat("Prober: toggles");
 		const ctx = { chatId, chatStore, deliver: () => {}, jobStore, spawn: () => {} };
-		assert.deepEqual(Object.keys(createProberTools(ctx)).sort(), [
+		assert.deepEqual(Object.keys(createProberTools(ctx, undefined, "choice")).sort(), [
 			"ask_user_question", "evaluate", "find", "grep", "ls", "pdf", "probe", "probe_done", "read", "research",
 		]);
 
-		const noAsk = createProberTools(ctx, { ask_user_question: false });
+		const noAsk = createProberTools(ctx, { ask_user_question: false }, "choice");
 		assert.deepEqual(Object.keys(noAsk).sort(), ["evaluate", "find", "grep", "ls", "pdf", "probe", "probe_done", "read", "research"]);
 
 		// Quizzing is mechanics-managed now (owner 2026-09-27): quiz/explain
 		// NEVER pass through the generic filter — hand-written quiz:false is a
 		// no-op (the wedge danger stands: a quiz-less prober collapses its
 		// assessment flow). probe_done is never droppable — it ends the phase.
-		const noQuiz = createProberTools(ctx, { quiz: false });
+		const noQuiz = createProberTools(ctx, { quiz: false }, "choice");
 		assert.deepEqual(Object.keys(noQuiz).sort(), ["ask_user_question", "evaluate", "find", "grep", "ls", "pdf", "probe", "probe_done", "read", "research"]);
 		// The mechanic switch (owner 2026-09-27): tools.explain === true arms
 		// free-recall — explain in, quiz out, exactly one quizzing tool.
@@ -294,15 +294,15 @@ describe("tool toggles (core/pending.ts + factories)", () => {
 			jobStore,
 			spawn: () => {},
 		};
-		const full = Object.keys(createTeacherTools(ctx)).sort();
+		const full = Object.keys(createTeacherTools(ctx, undefined, "choice")).sort();
 		assert.deepEqual(full, ["ask_user_question", "demo", "evaluate", "find", "grep", "ls", "pdf", "plan_init", "quiz", "read", "research", "visual"]);
 
-		const noResearch = Object.keys(createTeacherTools(ctx, { research: false })).sort();
+		const noResearch = Object.keys(createTeacherTools(ctx, { research: false }, "choice")).sort();
 		assert.deepEqual(noResearch, ["ask_user_question", "demo", "evaluate", "find", "grep", "ls", "pdf", "plan_init", "quiz", "read", "visual"]);
 
 		// absent = enabled: an empty record and undefined behave identically
 		assert.deepEqual(
-			Object.keys(createTeacherTools(ctx, {})).sort(),
+			Object.keys(createTeacherTools(ctx, {}, "choice")).sort(),
 			full,
 			"absent keys mean enabled — old records behave exactly as today",
 		);
