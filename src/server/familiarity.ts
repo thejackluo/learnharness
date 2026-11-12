@@ -54,6 +54,7 @@ function appendSuggestions(candidates: Omit<FamiliaritySuggestion, "id" | "statu
 			stores.learnerProfileStore.replace({
 				background: read.profile.background, coursework: read.profile.coursework, topics: read.profile.topics,
 				excerpts: read.profile.excerpts, associations: read.profile.associations, suggestions: merged.suggestions,
+				patterns: read.profile.patterns,
 			}, read.profile.revision);
 			return merged;
 		} catch (error) {
@@ -131,6 +132,7 @@ export function decideSuggestions(ids: string[], status: "confirmed" | "rejected
 	return stores.learnerProfileStore.replace({
 		background: read.profile.background, coursework: read.profile.coursework, topics: read.profile.topics,
 		excerpts: read.profile.excerpts, associations: read.profile.associations, suggestions,
+		patterns: read.profile.patterns,
 	}, expectedRevision);
 }
 

@@ -244,6 +244,7 @@ export function attachEvidenceTarget(input: {
 			{ evidenceId: input.evidenceId, target: input.target, attachedAt: new Date().toISOString() },
 		],
 		suggestions: profile.suggestions,
+		patterns: profile.patterns,
 	}, input.expectedRevision);
 }
 
@@ -266,6 +267,7 @@ export function detachEvidenceTarget(input: {
 		excerpts: profile.excerpts,
 		associations,
 		suggestions: profile.suggestions,
+		patterns: profile.patterns,
 	}, input.expectedRevision);
 }
 
@@ -289,7 +291,14 @@ export function learnerContextFor(excludeChatId: string): string | null {
 				observations.push(withTargets(observation, profile?.associations ?? []));
 			}
 		}
-		return projectLearnerContext(profile, observations);
+		return projectLearnerContext(profile, observations, {
+			targetTitle: (target) => {
+				const mapRead = stores.subjectMapStore.read(target.mapId);
+				if (mapRead.state !== "ok") return undefined;
+				const skill = mapRead.map.skills.find((item) => item.id === target.skillId);
+				return skill ? `${mapRead.map.title} — ${skill.title}` : undefined;
+			},
+		});
 	} catch (error) {
 		console.error("[learner] context read failed:", error);
 		return null;

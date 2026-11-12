@@ -66,6 +66,7 @@ export async function POST(request: Request) {
 			excerpts: [...current.profile.excerpts, ...newExcerpts],
 			associations: current.profile.associations,
 			suggestions: current.profile.suggestions,
+			patterns: current.profile.patterns,
 		};
 		issues.push(...learnerProfileProblems(candidate));
 		if (issues.length) {

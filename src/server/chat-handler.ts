@@ -1,4 +1,5 @@
 import type { Usage } from "@earendil-works/pi-ai";
+import type { NotePatternToolInput } from "../agent/tools/note-pattern.ts";
 import {
 	createPracticeAgent,
 	createProberAgent,
@@ -55,6 +56,7 @@ import { asAgentMessages } from "../core/native-messages.ts";
 import { learnerContextFor } from "./learner.ts";
 import { sessionTargetState, targetContextFor } from "./target-adaptation.ts";
 import { advancePlacement, placementContextFor, placementNudgeFor, suggestFamiliarityFromChat } from "./familiarity.ts";
+import { notePatternFromChat } from "./weakness-patterns.ts";
 import {
 	ChatInputError,
 	failedResponseAtEnd,
@@ -442,6 +444,8 @@ export async function handleChatInput(
 	const suggestFamiliarity = targeting.target || targeting.placement
 		? (input: { skillId: string; quote: string }) => suggestFamiliarityFromChat(chatId, input)
 		: undefined;
+	const notePattern = (input: NotePatternToolInput) =>
+		notePatternFromChat(chatId, input);
 	const agentOpts: AgentBuildOptions = {
 		engine,
 		callPurpose,
@@ -503,6 +507,7 @@ export async function handleChatInput(
 						searchAvailable,
 						sessionTarget,
 						...(suggestFamiliarity ? { suggestFamiliarity } : {}),
+						notePattern,
 					},
 					agentOpts,
 				)
@@ -523,6 +528,7 @@ export async function handleChatInput(
 						...(graphToolsEnabled(effective) ? { graphStore: stores.graphStore } : {}),
 						sessionTarget,
 						...(suggestFamiliarity ? { suggestFamiliarity } : {}),
+						notePattern,
 					},
 					agentOpts,
 				);

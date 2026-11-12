@@ -52,6 +52,9 @@ test("hosted learner profile routes require a session and same-origin writes", (
 	const anonymous = proxy(new NextRequest("https://lh.invalid/api/learner/profile"));
 	assert.equal(anonymous.status, 401);
 	assert.equal(anonymous.headers.get("cache-control"), "private, no-store");
+	const anonymousPatterns = proxy(new NextRequest("https://lh.invalid/api/learner/patterns"));
+	assert.equal(anonymousPatterns.status, 401);
+	assert.equal(anonymousPatterns.headers.get("cache-control"), "private, no-store");
 
 	const crossOrigin = proxy(new NextRequest("https://lh.invalid/api/learner/profile", {
 		method: "PUT",
@@ -59,6 +62,12 @@ test("hosted learner profile routes require a session and same-origin writes", (
 	}));
 	assert.equal(crossOrigin.status, 403);
 	assert.equal(crossOrigin.headers.get("cache-control"), "private, no-store");
+	const crossOriginPatterns = proxy(new NextRequest("https://lh.invalid/api/learner/patterns", {
+		method: "POST",
+		headers: { origin: "https://elsewhere.invalid" },
+	}));
+	assert.equal(crossOriginPatterns.status, 403);
+	assert.equal(crossOriginPatterns.headers.get("cache-control"), "private, no-store");
 });
 
 test("hosted public login and health routes allow HEAD without a session", () => {

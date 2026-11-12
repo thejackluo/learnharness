@@ -151,6 +151,31 @@ test("session creation validates the target at the revision the learner saw", as
 
 test("conversation familiarity accepts the latest plain-string learner quote and rejects tutor text", async () => {
 	const chat = await sessionWith({ title: "Conversation quote", target: threads }, []);
+	const profileBefore = stores.learnerProfileStore.read();
+	assert.ok(profileBefore.state === "ok" || profileBefore.state === "absent");
+	const preservedPattern = {
+		id: "familiarity-writer-pattern",
+		subject: "Operating systems",
+		pattern: "confuses processes and threads",
+		status: "active" as const,
+		occurrences: [{
+			chatId: chat,
+			messageId: "learner-earlier",
+			quote: "I remember how threads work.",
+			at: new Date(stamp).toISOString(),
+		}],
+		createdAt: new Date(stamp).toISOString(),
+		updatedAt: new Date(stamp).toISOString(),
+	};
+	const seededProfile = stores.learnerProfileStore.replace({
+		background: profileBefore.profile.background,
+		coursework: profileBefore.profile.coursework,
+		topics: profileBefore.profile.topics,
+		excerpts: profileBefore.profile.excerpts,
+		associations: profileBefore.profile.associations,
+		suggestions: profileBefore.profile.suggestions,
+		patterns: [...(profileBefore.profile.patterns ?? []), preservedPattern],
+	}, profileBefore.profile.revision);
 	stores.chatStore.saveMessages(chat, [
 		{ id: "learner-earlier", role: "user", content: "I remember how threads work." },
 		{ id: "tutor", role: "assistant", content: "You said you remember how threads work." },
@@ -161,9 +186,14 @@ test("conversation familiarity accepts the latest plain-string learner quote and
 	const profile = stores.learnerProfileStore.read();
 	assert.equal(profile.state, "ok");
 	if (profile.state === "ok") {
+		assert.deepEqual(profile.profile.patterns, seededProfile.patterns, "suggestion writes preserve weakness patterns");
 		const suggestion = profile.profile.suggestions?.at(-1);
 		assert.equal(suggestion?.reason.kind, "conversation");
 		if (suggestion?.reason.kind === "conversation") assert.equal(suggestion.reason.messageId, "learner-latest");
+		if (suggestion) {
+			const decided = familiarity.decideSuggestions([suggestion.id], "confirmed", profile.profile.revision);
+			assert.deepEqual(decided.patterns, seededProfile.patterns, "suggestion decisions preserve weakness patterns");
+		}
 	}
 	stores.chatStore.saveMessages(chat, [{ id: "tutor-only", role: "assistant", content: "The tutor mentioned this phrase." }] as never);
 	const rejected = await familiarity.suggestFamiliarityFromChat(chat, { skillId: "threads", quote: "mentioned this phrase" });
@@ -175,7 +205,7 @@ test("conversation familiarity accepts the latest plain-string learner quote and
 	assert.equal((badQuote.details as { problems: string[] }).problems[0], "quote must appear verbatim in one of the learner's own messages");
 });
 
-test("familiarity tool is gated to teacher/prober callbacks and absent from practice", async () => {
+test("familiarity and pattern tools are gated to teacher/prober callbacks and absent from practice", async () => {
 	const chatId = await sessionWith({ title: "Tool registry" }, []);
 	const callback = () => ({ content: [{ type: "text" as const, text: "accepted" }], details: {} });
 	const ctx = {
@@ -185,13 +215,29 @@ test("familiarity tool is gated to teacher/prober callbacks and absent from prac
 		spawn: () => {},
 		deliver: () => {},
 		suggestFamiliarity: callback,
+		notePattern: callback,
 	};
 	assert.ok(tools.createTeacherTools(ctx).suggest_familiarity);
 	assert.ok(tools.createProberTools(ctx).suggest_familiarity);
+	assert.ok(tools.createTeacherTools(ctx).note_pattern);
+	assert.ok(tools.createProberTools(ctx).note_pattern);
 	assert.equal(tools.createTeacherTools({ ...ctx, suggestFamiliarity: undefined }).suggest_familiarity, undefined);
 	assert.equal(tools.createProberTools({ ...ctx, suggestFamiliarity: undefined }).suggest_familiarity, undefined);
+	assert.equal(tools.createTeacherTools({ ...ctx, notePattern: undefined }).note_pattern, undefined);
+	assert.equal(tools.createProberTools({ ...ctx, notePattern: undefined }).note_pattern, undefined);
+	const { capabilitiesOverride } = await import("../src/agent/capabilities.ts");
+	const { capabilitiesFor } = await import("../src/core/runtime.ts");
+	const previousCapabilities = capabilitiesOverride.current;
+	try {
+		capabilitiesOverride.current = capabilitiesFor("hosted");
+		assert.ok(tools.createTeacherTools(ctx).note_pattern, "hosted tools keep note_pattern without host filesystem capability");
+		assert.ok(tools.createProberTools(ctx).note_pattern, "hosted tools keep note_pattern without host filesystem capability");
+	} finally {
+		capabilitiesOverride.current = previousCapabilities;
+	}
 	const { practiceTools } = await import("../src/agent/tools/practice.ts");
 	assert.equal(practiceTools({ chatId, chatStore: stores.chatStore }).suggest_familiarity, undefined);
+	assert.equal(practiceTools({ chatId, chatStore: stores.chatStore }).note_pattern, undefined);
 	const invalid = await tools.createTeacherTools(ctx).suggest_familiarity!.execute("invalid", { skillId: "threads", quote: "" });
 	assert.equal(invalid.isError, true);
 	assert.deepEqual((invalid.details as { tool: string; problems: string[] }), {

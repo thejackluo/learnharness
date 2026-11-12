@@ -5,7 +5,13 @@ import type { Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
 import test from "node:test";
 import { LearnerSection, LearnerSectionBody } from "../components/settings/learner-section.tsx";
-import type { LearnerObservation, LearnerProfileV1 } from "../src/core/contracts/learner.ts";
+import type {
+	LearnerObservation,
+	LearnerProfileV1,
+	WeaknessPattern,
+	WeaknessPatternOccurrence,
+	WeaknessPatternStatus,
+} from "../src/core/contracts/learner.ts";
 import { emptyLearnerProfile } from "../src/core/learner.ts";
 
 const dom = parseHTML("<html><body></body></html>");
@@ -23,6 +29,69 @@ Object.assign(globalThis, {
 });
 const { createRoot } = await import("react-dom/client");
 const originalFetch = globalThis.fetch;
+
+test("recurring weaknesses render quotes and target titles; status buttons dispatch changes", async () => {
+	type DisplayPattern = WeaknessPattern & {
+		occurrences: (WeaknessPatternOccurrence & { targetTitle?: string })[];
+	};
+	const pattern: DisplayPattern = {
+		id: "pattern-1",
+		subject: "Python",
+		pattern: "off-by-one in range() bounds",
+		status: "active",
+		occurrences: [{
+			chatId: "chat-1",
+			messageId: "message-1",
+			quote: "I use range(0, n + 1).",
+			at: "2026-03-01T00:00:00.000Z",
+			target: { kind: "subject-skill", mapId: "map-1", skillId: "loops", skillRevision: 1 },
+			targetTitle: "Programming — Loop bounds",
+		}],
+		createdAt: "2026-03-01T00:00:00.000Z",
+		updatedAt: "2026-03-01T00:00:00.000Z",
+	};
+	const changes: [string, WeaknessPatternStatus][] = [];
+	let root: Root | undefined;
+	const host = document.createElement("div");
+	document.body.appendChild(host);
+	globalThis.fetch = async () => Response.json({ profileRevision: 0, suggestions: [] });
+	try {
+		root = createRoot(host);
+		await act(async () => {
+			root!.render(createElement(LearnerSectionBody, {
+				profileState: "ok",
+				patterns: [pattern],
+				onPatternStatusChange: (id, status) => changes.push([id, status]),
+			}));
+		});
+		assert.match(host.textContent ?? "", /Recurring weaknesses/);
+		assert.match(host.textContent ?? "", /×1/);
+		assert.match(host.textContent ?? "", /Programming — Loop bounds/);
+		assert.match(host.textContent ?? "", /I use range\(0, n \+ 1\)\./);
+		const patternSection = host.querySelector<HTMLElement>('[aria-labelledby="learner-patterns-heading"]')!;
+		const button = (label: string) => [...patternSection.querySelectorAll<HTMLButtonElement>("button")]
+			.find((element) => element.textContent?.trim() === label)!;
+		await act(async () => {
+			button("Dismiss").click();
+			button("Mark resolved").click();
+		});
+		assert.deepEqual(changes, [["pattern-1", "dismissed"], ["pattern-1", "resolved"]]);
+		const dismissedPattern = { ...pattern, status: "dismissed" as const };
+		await act(async () => {
+			root!.render(createElement(LearnerSectionBody, {
+				profileState: "ok",
+				patterns: [dismissedPattern],
+				onPatternStatusChange: (id, status) => changes.push([id, status]),
+			}));
+		});
+		await act(async () => { button("Reactivate").click(); });
+		assert.deepEqual(changes, [["pattern-1", "dismissed"], ["pattern-1", "resolved"], ["pattern-1", "active"]]);
+	} finally {
+		await act(async () => { root?.unmount(); });
+		host.remove();
+		globalThis.fetch = originalFetch;
+	}
+});
 
 test("learner section body renders escaped profile/evidence text and source-linked evidence", () => {
 	const observation: LearnerObservation = {
@@ -122,6 +191,7 @@ test("confirming reviewed excerpts preserves unsaved profile edits", async () =>
 	globalThis.fetch = async (input, init) => {
 		const url = String(input);
 		if (url === "/api/learner/profile") return Response.json({ state: "ok", profile: initialProfile });
+		if (url === "/api/learner/patterns") return Response.json({ patterns: [] });
 		if (url.startsWith("/api/learner/evidence")) {
 			return Response.json({
 				availability: "complete",
@@ -237,6 +307,7 @@ test("appended evidence pages stay ordered and deduplicated", async () => {
 	globalThis.fetch = async (input) => {
 		const url = String(input);
 		if (url === "/api/learner/profile") return Response.json({ state: "absent", profile: null });
+		if (url === "/api/learner/patterns") return Response.json({ patterns: [] });
 		if (url === "/api/learner/evidence") {
 			return Response.json({
 				availability: "partial",
@@ -282,6 +353,7 @@ test("import drafts can be removed and the import cancelled without any write", 
 		const url = String(input);
 		requests.push(`${init?.method ?? "GET"} ${url}`);
 		if (url === "/api/learner/profile") return Response.json({ state: "absent", profile: emptyLearnerProfile("2026-03-01T00:00:00.000Z") });
+		if (url === "/api/learner/patterns") return Response.json({ patterns: [] });
 		if (url.startsWith("/api/learner/evidence")) {
 			return Response.json({
 				availability: "complete",
