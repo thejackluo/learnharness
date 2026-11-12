@@ -62,3 +62,53 @@ test("Python runs use fresh workers and time out only tests without results", as
 		Object.defineProperty(globalThis, "Worker", { configurable: true, value: originalWorker });
 	}
 });
+
+test("Python results are capped in UTF-16 units without splitting surrogate pairs", async () => {
+	const part = {
+		id: "unicode",
+		kind: "code",
+		language: "python",
+		prompt: "Return text.",
+		starter: "",
+		tests: [{ id: "unicode", name: "Unicode", call: "1", expected: "1" }],
+		timeLimitMs: 500,
+		criteria: [{ id: "unicode", description: "Pass", maxPoints: 1, expectedEvidence: "Pass" }],
+	} as Extract<AssessmentPart, { kind: "code" }>;
+	const result = {
+		testId: "unicode",
+		status: "error" as const,
+		actual: "😀".repeat(300),
+		error: `${"x".repeat(499)}😀`,
+		stdout: "🙂".repeat(1100),
+	};
+	const originalWorker = globalThis.Worker;
+	class FakeWorker {
+		onmessage: ((event: MessageEvent) => void) | null = null;
+		onerror: (() => void) | null = null;
+
+		constructor(_url: URL, _options: WorkerOptions) {}
+
+		postMessage() {
+			const send = (data: unknown) => this.onmessage?.({ data } as MessageEvent);
+			queueMicrotask(() => {
+				send({ type: "ready" });
+				send({ type: "result", result });
+				send({ type: "done" });
+			});
+		}
+
+		terminate() {}
+	}
+	Object.defineProperty(globalThis, "Worker", { configurable: true, value: FakeWorker });
+	try {
+		const [bounded] = await runPythonCode(part, "");
+		assert.equal(bounded?.actual, "😀".repeat(250));
+		assert.equal(bounded?.actual?.length, 500);
+		assert.equal(bounded?.error, "x".repeat(499));
+		assert.equal(bounded?.error?.length, 499);
+		assert.equal(bounded?.stdout, "🙂".repeat(1000));
+		assert.equal(bounded?.stdout?.length, 2000);
+	} finally {
+		Object.defineProperty(globalThis, "Worker", { configurable: true, value: originalWorker });
+	}
+});
