@@ -6,9 +6,10 @@ import { ConnectionDialog, ConnectionFooter, ConnectionRow } from "./connection-
 import { Button } from "@/components/ui/button";
 import { Toggle } from "./controls";
 import { useChatGPTBridge } from "./subscription-client";
+import { useRuntimeOptional } from "@/components/runtime";
 
 export const CHATGPT_NOTICE = "LearnHarness stores your ChatGPT account details and credentials in an unencrypted local file on this device. When this connection is used, relevant conversation context, learning material, and tool results are sent directly to OpenAI. ChatGPT plan limits apply; any additional credits are authorized and managed in ChatGPT, not LearnHarness.";
-export function chatGPTNotice(web = false): string { return web ? `${CHATGPT_NOTICE.replace("on this device", "on the machine running LearnHarness")} Complete ChatGPT sign-in in a browser on that same machine.` : CHATGPT_NOTICE; }
+export function chatGPTNotice(web = false, hosted = false): string { return web ? `${CHATGPT_NOTICE.replace("on this device", "on the machine running LearnHarness")} ${hosted ? "Sign in at OpenAI, then paste the final address back into LearnHarness." : "Complete ChatGPT sign-in in a browser on that same machine."}` : CHATGPT_NOTICE; }
 export const CHATGPT_BACKGROUND_HINT = "Background work counts toward your ChatGPT plan usage.";
 const BACKGROUND_LABEL = "Allow background use for all ChatGPT accounts";
 const REVOCATION_WARNING = "Account disconnected locally. Remote revocation could not be confirmed.";
@@ -21,10 +22,11 @@ const CONTROL_ERROR = "The ChatGPT connection could not be changed. Try again.";
 function isStatus(value: unknown): value is ChatGPTStatus {
 	if (!value || typeof value !== "object") return false;
 	const s = value as ChatGPTStatus;
-	return typeof s.available === "boolean" && typeof s.pending === "boolean" && typeof s.allowBackgroundUse === "boolean" && (s.activeId === null || typeof s.activeId === "string") &&
+	return typeof s.available === "boolean" && typeof s.pending === "boolean" && (s.callbackPaste === undefined || typeof s.callbackPaste === "boolean") && typeof s.allowBackgroundUse === "boolean" && (s.activeId === null || typeof s.activeId === "string") &&
 		(s.error === null || typeof s.error === "string") && (s.catalogError == null || typeof s.catalogError === "string") && Array.isArray(s.accounts) &&
 		s.accounts.every((a) => a && typeof a.id === "string" && typeof a.email === "string" && typeof a.registration === "string" && typeof a.connected === "boolean" && (a.planEnabled === undefined || typeof a.planEnabled === "boolean") && (a.canSignInAgain === undefined || typeof a.canSignInAgain === "boolean"));
 }
+function attemptHasPhase(attempt: LoginAttempt, phase: LoginAttempt["phase"]): boolean { return attempt.phase === phase; }
 function replyError(value: unknown): string {
 	return value && typeof value === "object" && "error" in value && typeof value.error === "string" ? value.error : CONTROL_ERROR;
 }
@@ -45,6 +47,7 @@ const Context = createContext({
 export function ChatGPTUIProvider({ children }: { children: React.ReactNode }) {
 	const bridge = useChatGPTBridge();
 	const web = typeof window !== "undefined" && bridge !== window.lh?.chatgpt;
+	const hosted = useRuntimeOptional()?.mode === "hosted";
 	const [status, setStatus] = useState<ChatGPTStatus>(empty);
 	const [dialog, setDialog] = useState<Dialog | null>(null);
 	const [busy, setBusy] = useState(false);
@@ -53,6 +56,8 @@ export function ChatGPTUIProvider({ children }: { children: React.ReactNode }) {
 	const [background, setBackground] = useState(true);
 	const [backgroundDirty, setBackgroundDirty] = useState(false);
 	const [registration, setRegistration] = useState("");
+	const [callbackUrl, setCallbackUrl] = useState("");
+	const [pasteBusy, setPasteBusy] = useState(false);
 	const operation = useRef<"login" | "cancel" | "change" | "disconnect" | null>(null);
 	const generation = useRef(0);
 	const statusSequence = useRef(0);
@@ -145,6 +150,7 @@ export function ChatGPTUIProvider({ children }: { children: React.ReactNode }) {
 		setBackground(statusRef.current.allowBackgroundUse);
 		setBackgroundDirty(false);
 		setRegistration(accountId);
+		setCallbackUrl("");
 		setError(null);
 		setDismissedError(status.error);
 		showDialog({ kind: "connect" });
@@ -225,7 +231,7 @@ export function ChatGPTUIProvider({ children }: { children: React.ReactNode }) {
 		setBusy(true); setError(null); setDismissedError(null);
 		try {
 			let value: unknown = await bridge.login(registration || undefined);
-			if (!owns(attempt) || attempt.phase === "consent") return;
+			if (!owns(attempt) || attemptHasPhase(attempt, "consent")) return;
 			// Never publish an old acknowledgement over a newer event. If events
 			// coalesced past pending before the acknowledgement arrived, read the
 			// current backend state after it rather than losing that completion.
@@ -242,6 +248,31 @@ export function ChatGPTUIProvider({ children }: { children: React.ReactNode }) {
 		} catch { if (owns(attempt)) { setError(CONTROL_ERROR); finish(attempt); } }
 		// No finally: pending OAuth outlives this IPC promise. Only its status
 		// completion, failure, or explicit cancellation releases the attempt.
+	}
+	async function finishPasteSignIn() {
+		const attempt = loginAttempt.current;
+		if (!bridge?.complete || !attempt || !owns(attempt) || (!attemptHasPhase(attempt, "starting") && !attemptHasPhase(attempt, "pending")) || !statusRef.current.pending || !statusRef.current.callbackPaste || (operation.current !== null && operation.current !== "login") || pasteBusy) return;
+		if (attemptHasPhase(attempt, "starting")) { attempt.pending = true; attempt.phase = "pending"; }
+		setPasteBusy(true);
+		operation.current = "login";
+		setBusy(true); setError(null);
+		const request = ++statusSequence.current;
+		try {
+			let value: unknown = await bridge.complete(callbackUrl);
+			if (!owns(attempt) || attempt.phase === "consent") return;
+			if (request !== statusSequence.current && isStatus(value)) {
+				const refresh = ++statusSequence.current;
+				value = await bridge.status();
+				if (!owns(attempt) || attemptHasPhase(attempt, "consent") || refresh !== statusSequence.current) return;
+			}
+			const next = publishStatus(value);
+			if (!next) { finish(attempt); return; }
+			if (!next.pending) setCallbackUrl("");
+			reconcile(next, true);
+		} catch { if (owns(attempt)) setError(CONTROL_ERROR); }
+		finally {
+			setPasteBusy(false);
+		}
 	}
 	const context = {
 		status, busy, error: warning ? null : visibleError, inlineError: dialog || warning ? null : visibleError, warning: dialog?.kind === "warning" ? null : warning,
@@ -278,7 +309,7 @@ export function ChatGPTUIProvider({ children }: { children: React.ReactNode }) {
 						</select>
 						{registration && <Button variant="ghost" size="xs" disabled={busy} onClick={() => context.manage(registration)}>Manage…</Button>}
 					</div>}
-					<p className="mt-3 text-xs leading-relaxed text-muted-foreground" data-testid="chatgpt-privacy-notice">{chatGPTNotice(web)}</p>
+					<p className="mt-3 text-xs leading-relaxed text-muted-foreground" data-testid="chatgpt-privacy-notice">{chatGPTNotice(web, hosted)}</p>
 				</> : null}
 				<div className={`mt-4 flex items-center gap-3 text-xs text-foreground ${busy && operation.current === "change" && status.available && !status.pending ? "[&>button:disabled]:cursor-auto" : ""}`} data-testid="chatgpt-global-background">
 					<Toggle label={BACKGROUND_LABEL} checked={dialog.kind === "connect" ? background : status.allowBackgroundUse} disabled={busy || status.pending || !status.available} onChange={(enabled) => {
@@ -293,6 +324,12 @@ export function ChatGPTUIProvider({ children }: { children: React.ReactNode }) {
 				</div>
 				{!status.available && <p className="mt-3 text-xs text-muted-foreground">ChatGPT sign-in is available only in the desktop app. API-key connections remain available here.</p>}
 				{status.pending && <p role="status" className="mt-3 text-xs text-muted-foreground">Waiting for browser sign-in…</p>}
+				{status.pending && status.callbackPaste && <div className="mt-3 space-y-3" data-testid="chatgpt-callback-paste">
+					<p className="text-xs leading-relaxed text-muted-foreground">After you sign in, your browser will show a page that can't be reached (127.0.0.1). Copy the full address from that tab's address bar and paste it here.</p>
+					<label className="block text-xs text-foreground" htmlFor="chatgpt-callback-url">Final sign-in address</label>
+					<input id="chatgpt-callback-url" data-testid="chatgpt-callback-url" type="text" autoComplete="off" spellCheck={false} value={callbackUrl} onInput={(event) => setCallbackUrl(event.currentTarget.value)} className="w-full rounded-sm border border-border bg-background px-2 py-1.5 text-xs" />
+					<Button variant="outline" size="sm" disabled={pasteBusy || (busy && operation.current !== "login") || !callbackUrl.trim() || !bridge?.complete} onClick={() => void finishPasteSignIn()}>Finish sign-in</Button>
+				</div>}
 				{context.error && <p role="alert" className="mt-3 text-xs text-red-400">{context.error}</p>}
 				{dialog.kind === "manage" && managed && <div className="mt-4 flex flex-wrap items-center justify-between gap-3" data-testid="chatgpt-account-strip">
 					<div data-testid="chatgpt-managed-identity" className="flex min-w-0 items-center gap-2 text-xs text-foreground">

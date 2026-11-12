@@ -1,6 +1,6 @@
 import type { PiEngine } from "../agent/models.ts";
 import { piEngineForSpec } from "../agent/models.ts";
-import { agentCapabilities } from "../agent/capabilities.ts";
+import { subscriptionProviderAllowed } from "../agent/capabilities.ts";
 import { connectionBackgroundAllowed, isSubscriptionProvider } from "../agent/subscription-connections.ts";
 import { runMapDrafter } from "../agent/subagents/map-drafter.ts";
 import { accumulateJobUsage, type JobUsage } from "../core/contracts/jobs.ts";
@@ -31,7 +31,7 @@ export class MapDraftNotFoundError extends Error {
 function engineForDraft(deps: MapDraftDeps): PiEngine {
 	if (deps.engine) return deps.engine;
 	const spec = resolveRoleSpec("mapDrafter", stores.settingsStore.readSettings());
-	if (!spec || (isSubscriptionProvider(spec.provider) && !agentCapabilities().subscriptions) || !connectionBackgroundAllowed(spec.provider)) throw new ModelsNotConfiguredError(["strong"]);
+	if (!spec || (isSubscriptionProvider(spec.provider) && !subscriptionProviderAllowed(spec.provider)) || !connectionBackgroundAllowed(spec.provider)) throw new ModelsNotConfiguredError(["strong"]);
 	if (!providerKeyPresent(spec.provider)) throw new ProviderKeyMissingError(spec.provider, ["strong"]);
 	return piEngineForSpec(spec, true);
 }

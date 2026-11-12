@@ -7,6 +7,7 @@ export type RuntimeCapabilities = Readonly<{
 	serverBrowser: boolean;
 	generatedHtml: boolean;
 	subscriptions: boolean;
+	chatgptSubscription: boolean;
 }>;
 
 export type RuntimeCapability = keyof RuntimeCapabilities;
@@ -23,7 +24,8 @@ export const CAPABILITY_REASONS: Readonly<Record<RuntimeCapability, string>> = O
 	generatedJobs: "Hosted mode does not run generated research, demo, visual, or PDF jobs.",
 	serverBrowser: "Hosted mode does not execute generated content in a server browser.",
 	generatedHtml: "Hosted mode does not execute stored generated HTML.",
-	subscriptions: "Hosted mode cannot connect to subscription accounts.",
+	subscriptions: "Hosted mode cannot connect this subscription.",
+	chatgptSubscription: "Hosted mode cannot connect this subscription.",
 });
 
 const LOCAL_CAPABILITIES: RuntimeCapabilities = Object.freeze({
@@ -33,6 +35,7 @@ const LOCAL_CAPABILITIES: RuntimeCapabilities = Object.freeze({
 	serverBrowser: true,
 	generatedHtml: true,
 	subscriptions: true,
+	chatgptSubscription: true,
 });
 
 const HOSTED_CAPABILITIES: RuntimeCapabilities = Object.freeze({
@@ -42,6 +45,7 @@ const HOSTED_CAPABILITIES: RuntimeCapabilities = Object.freeze({
 	serverBrowser: false,
 	generatedHtml: false,
 	subscriptions: false,
+	chatgptSubscription: true,
 });
 
 export function capabilitiesFor(mode: RuntimeMode): RuntimeCapabilities {

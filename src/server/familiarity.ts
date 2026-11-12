@@ -7,7 +7,7 @@ import { LearnerProfileConflictError, LearnerProfileUnavailableError } from "../
 import { runFamiliarityInferrer } from "../agent/subagents/familiarity-inferrer.ts";
 import { invalidInputResult } from "../agent/tool-execute.ts";
 import type { PiEngine } from "../agent/models.ts";
-import { agentCapabilities } from "../agent/capabilities.ts";
+import { subscriptionProviderAllowed } from "../agent/capabilities.ts";
 import { connectionBackgroundAllowed, isSubscriptionProvider } from "../agent/subscription-connections.ts";
 import { resolveRoleSpec } from "../core/settings-resolution.ts";
 import { ModelsNotConfiguredError, ProviderKeyMissingError } from "../core/settings.ts";
@@ -65,7 +65,7 @@ function appendSuggestions(candidates: Omit<FamiliaritySuggestion, "id" | "statu
 
 function familiarityEngine(): PiEngine {
 	const spec = resolveRoleSpec("familiarityInferrer", stores.settingsStore.readSettings());
-	if (!spec || (isSubscriptionProvider(spec.provider) && !agentCapabilities().subscriptions) || !connectionBackgroundAllowed(spec.provider)) throw new ModelsNotConfiguredError(["strong"]);
+	if (!spec || (isSubscriptionProvider(spec.provider) && !subscriptionProviderAllowed(spec.provider)) || !connectionBackgroundAllowed(spec.provider)) throw new ModelsNotConfiguredError(["strong"]);
 	if (!providerKeyPresent(spec.provider)) throw new ProviderKeyMissingError(spec.provider, ["strong"]);
 	return piEngineForSpec(spec, true);
 }

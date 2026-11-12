@@ -10,6 +10,7 @@ import type { ChatGPTStatus } from "../src/core/contracts/chatgpt.ts";
 import { completedWithin } from "./completion.ts";
 const require = createRequire(import.meta.url);
 const { createChatGPT, fileStore, allowedAuthEndpoint, SCOPES } = require("../electron/chatgpt.cjs");
+const http = require("node:http") as { createServer: (...args: any[]) => any };
 const { privateKey, publicKey } = await generateKeyPair("RS256");
 const jwk = { ...await exportJWK(publicKey), kid: "scratch-key", alg: "RS256", use: "sig" };
 const tokenUrl = "https://auth.openai.com/api/accounts/oauth/token";
@@ -18,7 +19,7 @@ async function signed(client: string, nonce: string, subject = "scratch-user", o
 	return new SignJWT({ nonce, email: "dummy@example.invalid", ...overrides }).setProtectedHeader({ alg: "RS256", kid: "scratch-key" }).setIssuer("https://auth.openai.com").setSubject(subject).setAudience(client).setIssuedAt().setExpirationTime("1h").sign(privateKey);
 }
 function deferred<T = void>() { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done; }); return { resolve, promise }; }
-function fixture(options: { state?: any; expires?: number; timeoutMs?: number; token?: (form: URLSearchParams, url: URL) => Promise<Response>; write?: (next: any) => Promise<void>; read?: () => void; change?: (push: any) => void; provider?: (target: string, init: RequestInit) => Promise<Response | undefined> } = {}) {
+function fixture(options: { state?: any; expires?: number; timeoutMs?: number; callbackMode?: "listen" | "paste"; token?: (form: URLSearchParams, url: URL) => Promise<Response>; write?: (next: any) => Promise<void>; read?: () => void; change?: (push: any) => void; provider?: (target: string, init: RequestInit) => Promise<Response | undefined> } = {}) {
 	let saved = structuredClone(options.state ?? initial());
 	let url!: URL;
 	let writeCount = 0;
@@ -28,6 +29,7 @@ function fixture(options: { state?: any; expires?: number; timeoutMs?: number; t
 		store: { async read() { options.read?.(); return structuredClone(saved); }, async write(next: any) { writeCount++; await options.write?.(next); saved = structuredClone(next); } },
 		openExternal: async (value: string) => { url = new URL(value); },
 		timeoutMs: options.timeoutMs ?? 5000,
+		callbackMode: options.callbackMode,
 		onChange: (push: any) => { options.change?.(push); if (!push.status.pending) changed.resolve(); },
 		fetch: async (target: string, init: RequestInit = {}) => {
 			const form = init.body instanceof URLSearchParams ? init.body : undefined;
@@ -51,11 +53,14 @@ function fixture(options: { state?: any; expires?: number; timeoutMs?: number; t
 		const catalog = await discovered;
 		return rawLease(background, { expectedAccountId: catalog.accountId ?? saved.activeId ?? "scratch-missing", expectedAuthorityRevision: catalog.authorityRevision, selectedModelId: "gpt-5" });
 	};
-	return { service, rawLease, requests, changed, get url() { return url; }, get saved() { return saved; }, get writeCount() { return writeCount; }, async callback(params: Record<string, string> = {}) {
+	const pastedCallback = (params: Record<string, string> = {}) => {
 		const callback = new URL(url.searchParams.get("redirect_uri")!);
 		callback.search = new URLSearchParams({ state: url.searchParams.get("state")!, code: "scratch-code", client_id: "oaiapp_scratch", ...params }).toString();
-		return fetch(callback);
-	} };
+		return callback.toString();
+	};
+	return { service, rawLease, requests, changed, get url() { return url; }, get saved() { return saved; }, get writeCount() { return writeCount; },
+		pastedCallback, async callback(params: Record<string, string> = {}) { return fetch(pastedCallback(params)); },
+	};
 }
 async function loggedIn(options: Parameters<typeof fixture>[0] = {}) {
 	const f = fixture(options);
@@ -95,6 +100,94 @@ test("PKCE/state/nonce/host identity and exact ephemeral 127.0.0.1 callback; no 
 		await f.service.consent(false);
 		await assert.rejects(f.service.lease(true), /background/);
 	} finally { f.service.close(); }
+});
+
+test("paste mode creates no listener and completes the same fake PKCE exchange", async () => {
+	const f = fixture({ callbackMode: "paste" });
+	const createServer = http.createServer;
+	let serverCreations = 0;
+	http.createServer = (...args: any[]) => { serverCreations++; return createServer(...args); };
+	try {
+		await f.service.login();
+		const redirect = new URL(f.url.searchParams.get("redirect_uri")!);
+		assert.equal(serverCreations, 0);
+		assert.equal(redirect.hostname, "127.0.0.1");
+		assert.equal(redirect.pathname, "/auth/callback");
+		assert(Number(redirect.port) >= 49152 && Number(redirect.port) <= 65535);
+		assert.equal((await f.service.status()).callbackPaste, true);
+		const completed = await f.service.completeLogin(f.pastedCallback());
+		assert.equal(completed.pending, false);
+		assert.equal(completed.callbackPaste, undefined);
+		assert.equal(completed.error, null);
+		assert.equal(f.saved.activeId, completed.activeId);
+		assert.equal(f.saved.registrations[0].subject, "scratch-user");
+		assert.equal(f.saved.registrations[0].tokens.accessToken, "scratch-oauth-token");
+		const form = f.requests.find((r) => r.url === tokenUrl)!.form!;
+		assert.equal(form.get("redirect_uri"), redirect.toString());
+		assert.equal(createHash("sha256").update(form.get("code_verifier")!).digest("base64url"), f.url.searchParams.get("code_challenge"));
+		assert(!JSON.stringify(completed).includes("scratch-oauth-token"));
+	} finally {
+		http.createServer = createServer;
+		f.service.close();
+	}
+});
+
+test("paste state and duplicate parameters fail without consuming the attempt", async () => {
+	const f = fixture({ callbackMode: "paste" });
+	try {
+		await f.service.login();
+		const wrongState = await f.service.completeLogin(f.pastedCallback({ state: "wrong-state" }));
+		assert.equal(wrongState.pending, true);
+		assert.match(wrongState.error!, /could not be verified/i);
+		assert.equal(f.requests.length, 0);
+		const duplicate = new URL(f.pastedCallback());
+		duplicate.searchParams.append("state", "duplicate-state");
+		const duplicateState = await f.service.completeLogin(duplicate.toString());
+		assert.equal(duplicateState.pending, true);
+		assert.match(duplicateState.error!, /could not be verified/i);
+		assert.equal(f.requests.length, 0);
+		const completed = await f.service.completeLogin(f.pastedCallback());
+		assert.equal(completed.pending, false);
+		assert.equal(f.saved.activeId, completed.activeId);
+	} finally { f.service.close(); }
+});
+
+test("paste mode rejects wrong origins, ports, paths, and oversized callback addresses without consuming the attempt", async () => {
+	const f = fixture({ callbackMode: "paste" });
+	try {
+		await f.service.login();
+		const valid = new URL(f.pastedCallback());
+		const wrongOrigin = new URL(valid); wrongOrigin.hostname = "callback.invalid";
+		const wrongPort = new URL(valid); wrongPort.port = "49151";
+		const wrongPath = new URL(valid); wrongPath.pathname = "/other";
+		const oversized = `${valid.toString()}&extra=${"x".repeat(4100)}`;
+		for (const callbackUrl of [wrongOrigin.toString(), wrongPort.toString(), wrongPath.toString(), oversized]) {
+			const rejected = await f.service.completeLogin(callbackUrl);
+			assert.equal(rejected.pending, true);
+			assert.match(rejected.error!, /could not be verified/i);
+		}
+		assert.equal(f.requests.length, 0);
+		assert.equal((await f.service.completeLogin(f.pastedCallback())).pending, false);
+	} finally { f.service.close(); }
+});
+
+test("paste completion requires a pending attempt, rejects reuse, and reports access_denied as cancellation", async () => {
+	const f = fixture({ callbackMode: "paste" });
+	try {
+		await assert.rejects(f.service.completeLogin("http://127.0.0.1/auth/callback"), /disconnected/);
+		await f.service.login();
+		const callback = f.pastedCallback();
+		assert.equal((await f.service.completeLogin(callback)).pending, false);
+		await assert.rejects(f.service.completeLogin(callback), /disconnected/);
+	} finally { f.service.close(); }
+	const denied = fixture({ callbackMode: "paste" });
+	try {
+		await denied.service.login();
+		const cancelled = await denied.service.completeLogin(denied.pastedCallback({ error: "access_denied" }));
+		assert.equal(cancelled.pending, false);
+		assert.equal(cancelled.error, "ChatGPT sign-in cancelled.");
+		assert.equal(denied.requests.length, 0);
+	} finally { denied.service.close(); }
 });
 
 test("returning sign-in reuses issued client/host and fresh PKCE; rejects account/client mismatch without replacing active credentials", async () => {

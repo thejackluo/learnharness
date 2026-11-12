@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
 import { ROOT } from "../config.ts";
-import { capabilitiesFor, resolveRuntimeMode } from "../src/core/runtime.ts";
+import { CAPABILITY_REASONS, capabilitiesFor, resolveRuntimeMode } from "../src/core/runtime.ts";
 import { validateHostedRuntime } from "../src/server/runtime.ts";
 import { createOwnerStore } from "../src/store/owner.ts";
 
@@ -30,9 +30,15 @@ describe("runtime mode", () => {
 		assert("error" in resolveRuntimeMode({ LH_RUNTIME: "hosted", LH_DESKTOP_API_SECRET: "secret" }));
 	});
 
-	it("returns immutable allow-all local and all-denied hosted capability sets", () => {
-		assert.deepEqual(Object.values(capabilitiesFor("hosted")), [false, false, false, false, false, false]);
-		assert.deepEqual(Object.values(capabilitiesFor("local")), [true, true, true, true, true, true]);
+	it("keeps hosted ChatGPT subscription access separate from native subscription providers", () => {
+		assert.deepEqual(Object.values(capabilitiesFor("hosted")), [false, false, false, false, false, false, true]);
+		assert.deepEqual(Object.values(capabilitiesFor("local")), [true, true, true, true, true, true, true]);
+		assert.equal(capabilitiesFor("hosted").subscriptions, false);
+		assert.equal(capabilitiesFor("hosted").chatgptSubscription, true);
+		assert.equal(capabilitiesFor("local").subscriptions, true);
+		assert.equal(capabilitiesFor("local").chatgptSubscription, true);
+		assert.equal(CAPABILITY_REASONS.subscriptions, "Hosted mode cannot connect this subscription.");
+		assert.equal(CAPABILITY_REASONS.chatgptSubscription, "Hosted mode cannot connect this subscription.");
 		assert(Object.isFrozen(capabilitiesFor("hosted")));
 		assert(Object.isFrozen(capabilitiesFor("desktop")));
 	});
