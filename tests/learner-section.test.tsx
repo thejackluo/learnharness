@@ -30,7 +30,7 @@ Object.assign(globalThis, {
 const { createRoot } = await import("react-dom/client");
 const originalFetch = globalThis.fetch;
 
-test("recurring weaknesses render quotes and target titles; status buttons dispatch changes", async () => {
+test("recurring weaknesses render quotes and target titles; dismissed and resolved statuses can reactivate", async () => {
 	type DisplayPattern = WeaknessPattern & {
 		occurrences: (WeaknessPatternOccurrence & { targetTitle?: string })[];
 	};
@@ -86,6 +86,16 @@ test("recurring weaknesses render quotes and target titles; status buttons dispa
 		});
 		await act(async () => { button("Reactivate").click(); });
 		assert.deepEqual(changes, [["pattern-1", "dismissed"], ["pattern-1", "resolved"], ["pattern-1", "active"]]);
+		const resolvedPattern = { ...pattern, status: "resolved" as const };
+		await act(async () => {
+			root!.render(createElement(LearnerSectionBody, {
+				profileState: "ok",
+				patterns: [resolvedPattern],
+				onPatternStatusChange: (id, status) => changes.push([id, status]),
+			}));
+		});
+		await act(async () => { button("Reactivate").click(); });
+		assert.deepEqual(changes, [["pattern-1", "dismissed"], ["pattern-1", "resolved"], ["pattern-1", "active"], ["pattern-1", "active"]]);
 	} finally {
 		await act(async () => { root?.unmount(); });
 		host.remove();

@@ -401,7 +401,7 @@ export function LearnerSectionBody({
 												<button type="button" onClick={() => onPatternStatusChange(pattern.id, "dismissed")} disabled={!editable || updatingPatternId === pattern.id} className="rounded-sm border border-border px-2.5 py-1.5 text-xs hover:bg-accent disabled:opacity-50">Dismiss</button>
 												<button type="button" onClick={() => onPatternStatusChange(pattern.id, "resolved")} disabled={!editable || updatingPatternId === pattern.id} className="rounded-sm border border-border px-2.5 py-1.5 text-xs hover:bg-accent disabled:opacity-50">Mark resolved</button>
 											</>}
-											{pattern.status === "dismissed" && (
+											{(pattern.status === "dismissed" || pattern.status === "resolved") && (
 												<button type="button" onClick={() => onPatternStatusChange(pattern.id, "active")} disabled={!editable || updatingPatternId === pattern.id} className="rounded-sm border border-border px-2.5 py-1.5 text-xs hover:bg-accent disabled:opacity-50">Reactivate</button>
 											)}
 										</div>
