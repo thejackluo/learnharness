@@ -201,6 +201,9 @@ describe("the source-derived segment list", () => {
 		);
 		assert.equal(teacher.some((s) => s.path === "teacher/05-method.md"), true);
 		assert.equal(teacher.some((s) => s.path === "teacher/10-planning.md"), true);
+		const weaknessPatterns = teacher.find((s) => s.path === "teacher/27-weakness-patterns.md");
+		assert.ok(weaknessPatterns);
+		assert.match(weaknessPatterns.sourceText, /note_pattern/);
 		assert.equal(teacher.some((s) => s.path === "teacher/60-probing-in-brief.md"), false);
 		assert.equal(
 			teacher.every(

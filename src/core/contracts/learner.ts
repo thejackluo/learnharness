@@ -17,6 +17,11 @@ export const LEARNER_LIMITS = {
 	associations: 2000,
 	suggestions: 2000,
 	suggestionQuoteChars: 500,
+	patterns: 200,
+	patternOccurrences: 20,
+	patternSubjectChars: 60,
+	patternChars: 80,
+	patternQuoteChars: 300,
 } as const;
 
 export interface LearnerTopicClaim {
@@ -56,6 +61,26 @@ export interface FamiliaritySuggestion {
 	reason: FamiliaritySuggestionReason;
 }
 
+export type WeaknessPatternStatus = "active" | "dismissed" | "resolved";
+
+export interface WeaknessPatternOccurrence {
+	chatId: string;
+	messageId: string;
+	quote: string;
+	at: string;
+	target?: LearningTargetRef;
+}
+
+export interface WeaknessPattern {
+	id: string;
+	subject: string;
+	pattern: string;
+	status: WeaknessPatternStatus;
+	occurrences: WeaknessPatternOccurrence[];
+	createdAt: string;
+	updatedAt: string;
+}
+
 export interface LearnerProfileV1 {
 	version: 1;
 	revision: number;
@@ -66,6 +91,7 @@ export interface LearnerProfileV1 {
 	excerpts: LearnerProfileExcerpt[];
 	associations: LearnerEvidenceAssociation[];
 	suggestions?: FamiliaritySuggestion[];
+	patterns?: WeaknessPattern[];
 }
 
 export type LearnerProfileRead =

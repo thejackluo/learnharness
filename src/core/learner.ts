@@ -340,6 +340,11 @@ function oneLine(value: string): string {
 	return cleanText(value).replace(/\s+/g, " ").trim();
 }
 
+function patternQuoteLine(value: string): string {
+	const chars = Array.from(oneLine(value));
+	return chars.length <= 120 ? chars.join("") : `${chars.slice(0, 119).join("")}…`;
+}
+
 /** Learner-written text is quoted line by line so it cannot pose as a heading or an observation. */
 function quoted(value: string, chars: number): string {
 	return capText(value.replace(/\r\n?|[\u2028\u2029]/g, "\n"), chars)
@@ -378,7 +383,10 @@ function observationLine(observation: LearnerObservation): string {
 export function projectLearnerContext(
 	profile: LearnerProfileV1 | null,
 	observations: LearnerObservation[],
-	opts?: { maxChars?: number },
+	opts?: {
+		maxChars?: number;
+		targetTitle?: (target: LearningTargetRef) => string | undefined;
+	},
 ): string | null {
 	const lines = [PROJECTION_HEADER];
 	if (profile?.background.trim()) {
@@ -406,6 +414,19 @@ export function projectLearnerContext(
 			.sort((a, b) => b.observedAt.localeCompare(a.observedAt) || a.id.localeCompare(b.id))
 			.slice(0, 12);
 		lines.push(...recent.map(observationLine));
+	}
+	const activePatterns = (profile?.patterns ?? [])
+		.filter((pattern) => pattern.status === "active")
+		.sort((a, b) => b.occurrences.length - a.occurrences.length || b.updatedAt.localeCompare(a.updatedAt))
+		.slice(0, 10);
+	if (activePatterns.length) {
+		lines.push("", "Recurring weaknesses");
+		for (const pattern of activePatterns) {
+			const newest = pattern.occurrences[pattern.occurrences.length - 1];
+			const newestQuote = newest ? patternQuoteLine(newest.quote) : "";
+			const targetTitle = newest?.target ? opts?.targetTitle?.(newest.target) : undefined;
+			lines.push(`- ${oneLine(pattern.subject)} — ${oneLine(pattern.pattern)} (×${pattern.occurrences.length})${targetTitle ? `; target: ${oneLine(targetTitle)}` : ""}; newest quote: “${newestQuote}”`);
+		}
 	}
 	if (lines.length === 1) return null;
 	const maxChars = opts?.maxChars ?? 6000;
@@ -523,6 +544,42 @@ export function learnerProfileProblems(input: unknown): string[] {
 					if (!bounded(reason.messageId, 255) || !reason.messageId) issues.push("conversation suggestion messageId is invalid");
 					if (!bounded(reason.quote, LEARNER_LIMITS.suggestionQuoteChars) || !reason.quote.trim()) issues.push("conversation suggestion quote is invalid");
 				} else issues.push("suggestion reason kind is invalid");
+			}
+		}
+	}
+	if (input.patterns !== undefined) {
+		if (!Array.isArray(input.patterns) || input.patterns.length > LEARNER_LIMITS.patterns) {
+			issues.push(`patterns must be an array of at most ${LEARNER_LIMITS.patterns} items`);
+		} else {
+			const ids = new Set<string>();
+			for (const pattern of input.patterns) {
+				if (!isRecord(pattern)) {
+					issues.push("each weakness pattern must be an object");
+					continue;
+				}
+				if (!bounded(pattern.id, 128) || !pattern.id.trim()) issues.push("weakness pattern ids must be non-empty bounded strings");
+				else if (ids.has(pattern.id)) issues.push(`duplicate weakness pattern id ${pattern.id}`);
+				else ids.add(pattern.id);
+				if (!bounded(pattern.subject, LEARNER_LIMITS.patternSubjectChars) || !pattern.subject.trim()) issues.push(`weakness pattern subject must be a non-empty string of at most ${LEARNER_LIMITS.patternSubjectChars} characters`);
+				if (!bounded(pattern.pattern, LEARNER_LIMITS.patternChars) || !pattern.pattern.trim()) issues.push(`weakness pattern label must be a non-empty string of at most ${LEARNER_LIMITS.patternChars} characters`);
+				if (!["active", "dismissed", "resolved"].includes(String(pattern.status))) issues.push("weakness pattern status is invalid");
+				if (!validIsoString(pattern.createdAt)) issues.push("weakness pattern createdAt must be an ISO date");
+				if (!validIsoString(pattern.updatedAt)) issues.push("weakness pattern updatedAt must be an ISO date");
+				if (!Array.isArray(pattern.occurrences) || pattern.occurrences.length > LEARNER_LIMITS.patternOccurrences) {
+					issues.push(`weakness pattern occurrences must be an array of at most ${LEARNER_LIMITS.patternOccurrences} items`);
+					continue;
+				}
+				for (const occurrence of pattern.occurrences) {
+					if (!isRecord(occurrence)) {
+						issues.push("each weakness pattern occurrence must be an object");
+						continue;
+					}
+					if (!bounded(occurrence.chatId, 255) || !occurrence.chatId.trim()) issues.push("weakness pattern occurrence chatId is invalid");
+					if (!bounded(occurrence.messageId, 255) || !occurrence.messageId.trim()) issues.push("weakness pattern occurrence messageId is invalid");
+					if (!bounded(occurrence.quote, LEARNER_LIMITS.patternQuoteChars) || !occurrence.quote.trim()) issues.push(`weakness pattern occurrence quote must be a non-empty string of at most ${LEARNER_LIMITS.patternQuoteChars} characters`);
+					if (!validIsoString(occurrence.at)) issues.push("weakness pattern occurrence at must be an ISO date");
+					if (occurrence.target !== undefined) issues.push(...learnerTargetProblems(occurrence.target));
+				}
 			}
 		}
 	}

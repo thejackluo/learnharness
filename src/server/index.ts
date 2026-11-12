@@ -6,6 +6,7 @@
 
 export * from "./chat-handler.ts";
 export * from "./learner.ts";
+export * from "./weakness-patterns.ts";
 export * from "./subject-maps.ts";
 export * from "./map-drafts.ts";
 export * from "./familiarity.ts";

@@ -304,7 +304,7 @@ test("evidence pagination preserves all observations from a chat beyond the page
 	assert.equal(body.observations.filter((observation: { chatId: string }) => observation.chatId === chat.id).length, 51);
 });
 
-test("profile PUT, evidence attach/detach and import-confirm preserve suggestions", async () => {
+test("profile PUT, evidence attach/detach and import-confirm preserve suggestions and weakness patterns", async () => {
 	const initial = stores.learnerProfileStore.read();
 	assert.ok(initial.state === "ok" || initial.state === "absent");
 	const base = initial.profile;
@@ -317,6 +317,20 @@ test("profile PUT, evidence attach/detach and import-confirm preserve suggestion
 		status: "pending" as const,
 		createdAt: "2026-03-01T00:00:00.000Z",
 	};
+	const weaknessPattern = {
+		id: "preserved-pattern",
+		subject: "Python",
+		pattern: "off-by-one in range() bounds",
+		status: "active" as const,
+		occurrences: [{
+			chatId: "source-chat",
+			messageId: "source-message",
+			quote: "I use range(0, n + 1).",
+			at: "2026-03-01T00:00:00.000Z",
+		}],
+		createdAt: "2026-03-01T00:00:00.000Z",
+		updatedAt: "2026-03-01T00:00:00.000Z",
+	};
 	const seeded = stores.learnerProfileStore.replace({
 		background: base.background,
 		coursework: base.coursework,
@@ -324,6 +338,7 @@ test("profile PUT, evidence attach/detach and import-confirm preserve suggestion
 		excerpts: base.excerpts,
 		associations: base.associations,
 		suggestions: [...(base.suggestions ?? []), suggestion],
+		patterns: [...(base.patterns ?? []), weaknessPattern],
 	}, base.revision);
 
 	const put = await profileRoute.PUT(jsonRequest("PUT", {
@@ -337,6 +352,7 @@ test("profile PUT, evidence attach/detach and import-confirm preserve suggestion
 	assert.equal(put.status, 200);
 	let profile = (await json(put)).profile;
 	assert.deepEqual(profile.suggestions, seeded.suggestions, "PUT cannot replace suggestions supplied by the client");
+	assert.deepEqual(profile.patterns, seeded.patterns, "PUT preserves recurring weakness patterns");
 
 	const chat = stores.chatStore.createChat("Suggestion-preserving evidence");
 	stores.chatStore.saveMessages(chat.id, [evidenceMessage(chat.id)]);
@@ -346,8 +362,10 @@ test("profile PUT, evidence attach/detach and import-confirm preserve suggestion
 	const target = { kind: "subject-skill" as const, mapId: "map_synthetic", skillId: "synthetic", skillRevision: 1 };
 	profile = attachEvidenceTarget({ evidenceId: observation.observation.id, target, expectedRevision: profile.revision });
 	assert.deepEqual(profile.suggestions, seeded.suggestions);
+	assert.deepEqual(profile.patterns, seeded.patterns);
 	profile = detachEvidenceTarget({ evidenceId: observation.observation.id, target, expectedRevision: profile.revision });
 	assert.deepEqual(profile.suggestions, seeded.suggestions);
+	assert.deepEqual(profile.patterns, seeded.patterns);
 
 	const confirm = await confirmRoute.POST(jsonRequest("POST", {
 		expectedRevision: profile.revision,
@@ -356,6 +374,7 @@ test("profile PUT, evidence attach/detach and import-confirm preserve suggestion
 	assert.equal(confirm.status, 200);
 	profile = (await json(confirm)).profile;
 	assert.deepEqual(profile.suggestions, seeded.suggestions);
+	assert.deepEqual(profile.patterns, seeded.patterns);
 });
 
 test("familiarity decisions reject stale revisions, unknown ids, and invalid statuses", async () => {

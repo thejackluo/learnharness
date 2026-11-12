@@ -9,9 +9,15 @@ import {
 	type LearnerProfileExcerpt,
 	type LearnerProfileV1,
 	type LearnerTopicClaim,
+	type WeaknessPattern,
+	type WeaknessPatternOccurrence,
+	type WeaknessPatternStatus,
 } from "@/src/core";
 import { FamiliaritySuggestions } from "@/components/familiarity-suggestions";
 
+type PatternForDisplay = WeaknessPattern & {
+	occurrences: (WeaknessPatternOccurrence & { targetTitle?: string })[];
+};
 type EditableTopic = Omit<LearnerTopicClaim, "id" | "note" | "updatedAt"> & { id?: string; note: string };
 type EditableExcerpt = LearnerProfileExcerpt;
 type ImportDraft = { sourceName: string; text: string; bytes: number; key?: string };
@@ -26,6 +32,7 @@ interface LearnerSectionBodyProps {
 	hasSelectedFiles?: boolean;
 	importInputKey?: number;
 	observations?: LearnerObservation[];
+	patterns?: PatternForDisplay[];
 	coverage?: Coverage;
 	availability?: "complete" | "partial";
 	nextCursor?: string | null;
@@ -38,6 +45,8 @@ interface LearnerSectionBodyProps {
 	evidenceLoading?: boolean;
 	error?: string | null;
 	evidenceError?: string | null;
+	patternStatusError?: string | null;
+	updatingPatternId?: string | null;
 	conflictProfile?: LearnerProfileV1 | null;
 	onBackgroundChange?: (value: string) => void;
 	onCourseworkChange?: (value: string) => void;
@@ -55,6 +64,7 @@ interface LearnerSectionBodyProps {
 	onSave?: () => void;
 	onReload?: () => void;
 	onLoadMore?: () => void;
+	onPatternStatusChange?: (id: string, status: WeaknessPatternStatus) => void;
 }
 
 const NOOP = () => {};
@@ -102,6 +112,17 @@ function orderedUniqueObservations(observations: LearnerObservation[]): LearnerO
 	);
 }
 
+function patternGroups(patterns: PatternForDisplay[]): { subject: string; patterns: PatternForDisplay[] }[] {
+	const groups = new Map<string, { subject: string; patterns: PatternForDisplay[] }>();
+	for (const pattern of patterns) {
+		const key = pattern.subject.trim().toUpperCase().toLowerCase().replace(/ß/g, "ss");
+		const group = groups.get(key) ?? { subject: pattern.subject, patterns: [] };
+		group.patterns.push(pattern);
+		groups.set(key, group);
+	}
+	return [...groups.values()];
+}
+
 export function LearnerSectionBody({
 	background = "",
 	coursework = "",
@@ -111,6 +132,7 @@ export function LearnerSectionBody({
 	hasSelectedFiles = false,
 	importInputKey = 0,
 	observations = [],
+	patterns = [],
 	coverage = NO_COVERAGE,
 	availability = "complete",
 	nextCursor = null,
@@ -123,6 +145,8 @@ export function LearnerSectionBody({
 	evidenceLoading = false,
 	error = null,
 	evidenceError = null,
+	patternStatusError = null,
+	updatingPatternId = null,
 	conflictProfile = null,
 	onBackgroundChange = NOOP,
 	onCourseworkChange = NOOP,
@@ -140,6 +164,7 @@ export function LearnerSectionBody({
 	onSave = NOOP,
 	onReload = NOOP,
 	onLoadMore = NOOP,
+	onPatternStatusChange = NOOP,
 }: LearnerSectionBodyProps) {
 	const conflictBannerRef = useRef<HTMLDivElement>(null);
 	const excerptBytes = excerpts.reduce((total, excerpt) => total + utf8Bytes(excerpt.text), 0) +
@@ -343,6 +368,53 @@ export function LearnerSectionBody({
 				</button>
 			</div>
 
+			<section aria-labelledby="learner-patterns-heading" className="flex flex-col gap-3 border-t border-border/60 pt-4">
+				<h3 id="learner-patterns-heading" className="text-xs uppercase tracking-widest text-muted-foreground">Recurring weaknesses</h3>
+				{patternStatusError && <p className="text-xs text-red-500" role="alert">{patternStatusError}</p>}
+				{patterns.length === 0 ? (
+					<p className="text-sm text-muted-foreground">No recurring weaknesses noted.</p>
+				) : (
+					patternGroups(patterns).map((group) => (
+						<div key={group.subject} className="flex flex-col gap-2">
+							<h4 className="text-xs font-medium">{group.subject}</h4>
+							{group.patterns.map((pattern) => {
+								const newest = pattern.occurrences[pattern.occurrences.length - 1];
+								return (
+									<div key={pattern.id} className="flex flex-col gap-2 rounded-sm border border-border/60 p-3">
+										<div className="flex flex-wrap items-baseline justify-between gap-2">
+											<p className="text-sm">{pattern.pattern} <span className="text-xs text-muted-foreground">×{pattern.occurrences.length}</span></p>
+											{newest && <time dateTime={newest.at} className="text-xs text-muted-foreground">Last seen {newest.at}</time>}
+										</div>
+										<p className="text-xs text-muted-foreground">Status: {pattern.status}</p>
+										<details>
+											<summary className="cursor-pointer text-xs underline underline-offset-2">Quotes ({pattern.occurrences.length})</summary>
+											<ul className="mt-2 flex flex-col gap-2">
+												{[...pattern.occurrences].reverse().map((occurrence, index) => (
+													<li key={`${occurrence.messageId}-${occurrence.at}-${index}`} className="rounded-sm bg-muted/40 px-2 py-1.5">
+														<p className="font-prose text-sm">{occurrence.quote}</p>
+														{occurrence.targetTitle && <p className="text-xs text-muted-foreground">Target: {occurrence.targetTitle}</p>}
+														<time dateTime={occurrence.at} className="text-xs text-muted-foreground">{occurrence.at}</time>
+													</li>
+												))}
+											</ul>
+										</details>
+										<div className="flex flex-wrap gap-2">
+											{pattern.status === "active" && <>
+												<button type="button" onClick={() => onPatternStatusChange(pattern.id, "dismissed")} disabled={!editable || updatingPatternId === pattern.id} className="rounded-sm border border-border px-2.5 py-1.5 text-xs hover:bg-accent disabled:opacity-50">Dismiss</button>
+												<button type="button" onClick={() => onPatternStatusChange(pattern.id, "resolved")} disabled={!editable || updatingPatternId === pattern.id} className="rounded-sm border border-border px-2.5 py-1.5 text-xs hover:bg-accent disabled:opacity-50">Mark resolved</button>
+											</>}
+											{(pattern.status === "dismissed" || pattern.status === "resolved") && (
+												<button type="button" onClick={() => onPatternStatusChange(pattern.id, "active")} disabled={!editable || updatingPatternId === pattern.id} className="rounded-sm border border-border px-2.5 py-1.5 text-xs hover:bg-accent disabled:opacity-50">Reactivate</button>
+											)}
+										</div>
+									</div>
+								);
+							})}
+						</div>
+					))
+				)}
+			</section>
+
 			<section aria-labelledby="learner-evidence-heading" className="flex flex-col gap-3 border-t border-border/60 pt-4">
 				<div className="flex items-center justify-between gap-3">
 					<h3 id="learner-evidence-heading" className="text-xs uppercase tracking-widest text-muted-foreground">Assessment and practice observations</h3>
@@ -402,6 +474,7 @@ function profileDraft(profile: LearnerProfileV1) {
 
 export function LearnerSection() {
 	const [profile, setProfile] = useState<LearnerProfileV1 | null>(null);
+	const [patterns, setPatterns] = useState<PatternForDisplay[]>([]);
 	const [profileState, setProfileState] = useState("loading");
 	const [background, setBackground] = useState("");
 	const [coursework, setCoursework] = useState("");
@@ -421,6 +494,8 @@ export function LearnerSection() {
 	const [confirming, setConfirming] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [evidenceError, setEvidenceError] = useState<string | null>(null);
+	const [patternStatusError, setPatternStatusError] = useState<string | null>(null);
+	const [updatingPatternId, setUpdatingPatternId] = useState<string | null>(null);
 	const [conflictProfile, setConflictProfile] = useState<LearnerProfileV1 | null>(null);
 
 	function applyProfile(next: LearnerProfileV1) {
@@ -493,10 +568,23 @@ export function LearnerSection() {
 		}
 	}, []);
 
+	const loadPatterns = useCallback(async () => {
+		setPatternStatusError(null);
+		try {
+			const response = await fetch("/api/learner/patterns", { cache: "no-store" });
+			const body = await response.json() as { patterns?: PatternForDisplay[] | null; error?: string };
+			if (!response.ok) throw new Error(body.error ?? `Weakness-pattern request failed (${response.status}).`);
+			setPatterns(body.patterns ?? []);
+		} catch (loadError) {
+			setPatternStatusError(loadError instanceof Error ? loadError.message : "Unable to load recurring weaknesses.");
+		}
+	}, []);
+
 	useEffect(() => {
 		void reloadProfile();
 		void loadEvidence(null);
-	}, [loadEvidence, reloadProfile]);
+		void loadPatterns();
+	}, [loadEvidence, loadPatterns, reloadProfile]);
 
 	async function saveProfile() {
 		if (!profile) return;
@@ -607,6 +695,33 @@ export function LearnerSection() {
 		}
 	}
 
+	async function updatePatternStatus(id: string, status: WeaknessPatternStatus) {
+		if (!profile) return;
+		setUpdatingPatternId(id);
+		setPatternStatusError(null);
+		try {
+			const response = await fetch("/api/learner/patterns", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ id, status, expectedRevision: profile.revision }),
+			});
+			const body = await response.json() as {
+				profile?: LearnerProfileV1;
+				patterns?: PatternForDisplay[] | null;
+				current?: { profile?: LearnerProfileV1 };
+				error?: string;
+			};
+			if (response.status === 409) setConflictProfile(body.current?.profile ?? null);
+			if (!response.ok || !body.profile) throw new Error(body.error ?? `Weakness-pattern update failed (${response.status}).`);
+			setProfile((current) => current ? { ...current, revision: body.profile!.revision } : body.profile!);
+			setPatterns(body.patterns ?? body.profile.patterns ?? []);
+		} catch (updateError) {
+			setPatternStatusError(updateError instanceof Error ? updateError.message : "Unable to update recurring weakness.");
+		} finally {
+			setUpdatingPatternId(null);
+		}
+	}
+
 	return (
 		<LearnerSectionBody
 			background={background}
@@ -617,6 +732,7 @@ export function LearnerSection() {
 			hasSelectedFiles={selectedFiles.length > 0}
 			importInputKey={importInputKey}
 			observations={observations}
+			patterns={patterns}
 			coverage={coverage}
 			availability={availability}
 			nextCursor={nextCursor}
@@ -629,6 +745,8 @@ export function LearnerSection() {
 			evidenceLoading={evidenceLoading}
 			error={error}
 			evidenceError={evidenceError}
+			patternStatusError={patternStatusError}
+			updatingPatternId={updatingPatternId}
 			conflictProfile={conflictProfile}
 			onBackgroundChange={setBackground}
 			onCourseworkChange={setCoursework}
@@ -649,6 +767,7 @@ export function LearnerSection() {
 			onSave={() => void saveProfile()}
 			onReload={() => void reloadProfile()}
 			onLoadMore={() => void loadEvidence(nextCursor)}
+			onPatternStatusChange={(id, status) => void updatePatternStatus(id, status)}
 		/>
 	);
 }
