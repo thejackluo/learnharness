@@ -79,9 +79,10 @@ export const JOB_TOOLS = ["research", "demo", "visual"] as const;
 export const TOGGLEABLE_TOOLS = ["research", "demo", "visual", "pdf"] as const;
 
 /** The keys the settings WRITE side accepts in agent.tools: the plain
- *  toggleables PLUS the quizzing-mechanics switch (`explain: true` arms
- *  free-recall quizzing and drops the MC quiz — see quizMechanics in
- *  agent/tools.ts; owner 2026-09-27). `quiz` itself stays unwritable:
+ *  toggleables PLUS the legacy quizzing-mechanics switch (`explain: true`
+ *  selects free response, `false` selects choice, and absent `explain`
+ *  defaults to mixed when `assessmentMode` is unset — see quizMechanics in
+ *  agent/tools.ts). `quiz` itself stays unwritable:
  *  mechanics-managed, never individually toggleable. */
 export const WRITABLE_TOOL_KEYS = [...TOGGLEABLE_TOOLS, "explain"] as const;
 
@@ -170,5 +171,3 @@ export function streamingToolActivity(messages: UIMessage[]): string | null {
 	}
 	return null;
 }
-
-

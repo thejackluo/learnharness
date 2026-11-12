@@ -374,9 +374,14 @@ test("mixed registration, settings precedence and additive sanitization", () => 
 	assert.ok(createProberTools(ctx, undefined, "mixed").recall);
 	assert.ok(createTeacherTools(ctx, undefined, "mixed").quiz);
 	assert.ok(createTeacherTools(ctx, undefined, "mixed").explain);
+	assert.ok(createProberTools(ctx).probe);
+	assert.ok(createProberTools(ctx).recall);
+	assert.ok(createTeacherTools(ctx).quiz);
+	assert.ok(createTeacherTools(ctx).explain);
 	for (const registry of [createProberTools(ctx), createTeacherTools(ctx), practiceTools(ctx)]) assert.ok(registry.evaluate);
-	assert.equal(quizMechanics(), "choice");
+	assert.equal(quizMechanics(), "mixed");
 	assert.equal(quizMechanics({ explain: true }), "free");
+	assert.equal(quizMechanics({ explain: false }), "choice");
 	assert.equal(quizMechanics({ explain: true }, "choice"), "choice");
 	for (const assessmentMode of ["choice", "free", "mixed"] as const) {
 		const settings = sanitizeUserSettings({ version: 1, future: 7, agent: { assessmentMode, tools: { explain: true }, futureAgent: "retained" } })!;

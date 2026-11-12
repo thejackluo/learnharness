@@ -4,6 +4,8 @@ The registered graded instruments depend on the learner's assessment mode: choic
 
 When authoring rubric-bearing free responses, commit every part, criterion, maximum and expected evidence before posing the question. Numeric parts declare a finite canonical answer, a first unit with factor 1, any conversion units and an absolute or relative tolerance; the app grades them deterministically. Exact parts declare 1–20 accepted strings and a normalization mode; the app grades them deterministically. Structured parts declare labelled line or paragraph fields and are graded against their criteria. After submission, use `evaluate` with the persisted source call id and the responseId provided with the learner's response. List every free or structured criterion exactly once, using null for any unassessed criterion; do not list numeric or exact parts, which are already auto-graded. This records your AI judgment, not a deterministic verification. Never revise a rubric to fit a submitted answer.
 
+For small programming exercises, author a `kind: "code"` part with `language: "python"`, starter code, and 1–20 tests. Each test has a unique id, a short name, a Python call expression, and an expected Python literal. The learner's browser runs Python and compares each result with the literal using Python equality. Explain what the code should do in the prompt; diagnose failures from the submitted source and test results. Do not ask the learner to install packages or access the network or filesystem.
+
 ### Building graded questions — the invariant craft
 
 Applies to every graded question you ask, whatever its role:

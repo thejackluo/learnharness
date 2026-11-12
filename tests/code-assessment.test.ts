@@ -65,10 +65,53 @@ test("Python responses are bounded, require each declared test id exactly once, 
 		autoEvaluation: evaluation,
 	});
 	const evaluationText = (modelAnswer.parts as Array<{ evaluationText: string }>)[0]!.evaluationText;
+	const failingModelPart = (modelAnswer.parts as Array<{ evaluationText: string; notePatternReminder?: string }>)[0]!;
+	assert.equal(
+		failingModelPart.notePatternReminder,
+		"Some tests did not pass. If the submitted source shows a specific, nameable mistake, call note_pattern with a short verbatim quote from the source. Skip it for a one-off typo.",
+	);
 	for (const detail of [
 		"Submitted source:", "def add(a, b):", "Call: add(-2, -3)", "Expected: -5", "Actual: 0",
 		"Error: AssertionError: expected -5",
 	]) assert.ok(evaluationText.includes(detail), detail);
+
+	const passingResponses: AssessmentPartResponse[] = [{
+		partId: "sum",
+		kind: "code",
+		source: codePart.starter,
+		results: results.map(result => ({ ...result, status: "pass" })),
+	}];
+	const passingEvaluation = autoEvaluate(spec, passingResponses, { sourceCallId: "call-2", responseId: "result-2" })!;
+	const passingAnswer = compactAnswerForModel({
+		kind: "explain",
+		questionText: "Write a sum function.",
+		answers: [],
+		dontKnow: false,
+		answeredAt: "2026-10-28T00:00:00.000Z",
+		partResponses: passingResponses,
+		autoEvaluation: passingEvaluation,
+	});
+	assert.equal("notePatternReminder" in (passingAnswer.parts as Array<Record<string, unknown>>)[0]!, false);
+
+	const structuredSpec = assessmentSpecOf({
+		parts: [{
+			id: "steps",
+			kind: "structured",
+			prompt: "Explain.",
+			fields: [{ id: "reason", label: "Reason", kind: "paragraph" }],
+			criteria: [{ id: "reasoning", description: "Explains the result", maxPoints: 1, expectedEvidence: "A reason." }],
+		}],
+	})!;
+	const structuredAnswer = compactAnswerForModel({
+		kind: "explain",
+		questionText: "Explain.",
+		answers: [],
+		dontKnow: false,
+		answeredAt: "2026-10-28T00:00:00.000Z",
+		partResponses: [{ partId: "steps", kind: "structured", fields: [{ id: "reason", text: "Because." }] }],
+		autoEvaluation: { ...passingEvaluation, spec: structuredSpec },
+	});
+	assert.equal("notePatternReminder" in (structuredAnswer.parts as Array<Record<string, unknown>>)[0]!, false);
 
 	for (const malformed of [
 		[{ partId: "sum", kind: "code", source: codePart.starter, results: [results[0]] }],

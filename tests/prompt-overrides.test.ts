@@ -169,6 +169,8 @@ describe("the source-derived segment list", () => {
 		promptOverrides.writeOverride("map-drafter/00-draft.md", "Owner map instructions");
 		assert.equal(effectivePromptSegments("map-drafter", { "map-drafter/00-draft.md": true })[0]!.overrideText, "Owner map instructions");
 		promptOverrides.deleteOverride("map-drafter/00-draft.md");
+		assert.equal(effectivePromptSegments("map-drafter", {}).some((segment) => segment.path === "shared/28-weakness-patterns.md"), false);
+		assert.equal(effectivePromptSegments("familiarity-inferrer", {}).some((segment) => segment.path === "shared/28-weakness-patterns.md"), false);
 	});
 	it("mirrors composeInstructions' discovery: base first, numeric fragments sorted, per agent", () => {
 		const prober = effectivePromptSegments("prober", {});
@@ -195,15 +197,24 @@ describe("the source-derived segment list", () => {
 				"shared/25-confidence.md",
 				"shared/26-target-evidence.md",
 				"shared/27-familiarity.md",
+				"shared/28-weakness-patterns.md",
 				"shared/30-learner-files.md",
 				"shared/40-formatting.md",
 			],
 		);
 		assert.equal(teacher.some((s) => s.path === "teacher/05-method.md"), true);
 		assert.equal(teacher.some((s) => s.path === "teacher/10-planning.md"), true);
-		const weaknessPatterns = teacher.find((s) => s.path === "teacher/27-weakness-patterns.md");
+		const weaknessPatterns = teacher.find((s) => s.path === "shared/28-weakness-patterns.md");
 		assert.ok(weaknessPatterns);
 		assert.match(weaknessPatterns.sourceText, /note_pattern/);
+		assert.equal(prober.some((s) => s.path === "shared/28-weakness-patterns.md"), true);
+		assert.equal(effectivePromptSegments("practice", {}).some((s) => s.path === "shared/28-weakness-patterns.md"), false);
+		const sharedQuestionTools = prober.find((s) => s.path === "shared/20-question-tools.md");
+		assert.ok(sharedQuestionTools);
+		assert.match(sharedQuestionTools.sourceText, /kind: "code"/);
+		const teacherQuestionPrinciples = teacher.find((s) => s.path === "teacher/30-question-principles.md");
+		assert.ok(teacherQuestionPrinciples);
+		assert.doesNotMatch(teacherQuestionPrinciples.sourceText, /For small programming exercises, author a `kind: "code"` part/);
 		assert.equal(teacher.some((s) => s.path === "teacher/60-probing-in-brief.md"), false);
 		assert.equal(
 			teacher.every(

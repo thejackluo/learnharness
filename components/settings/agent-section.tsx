@@ -718,12 +718,14 @@ export function AgentSection({
 						</SettingsRow>
 					);
 				})()}
-				{/* The quizzing mechanic (owner 2026-09-27): segmented — exactly one
-				    of Multiple choice / Free recall is active; the choice swaps which
-				    quizzing tool BOTH agents carry (prober checks + teach checks).
-				    Persisted as agent.tools.explain; absent = Multiple choice. */}
+				{/* Quizzing can use choice, free response, or both for both agents.
+				    Legacy agent.tools.explain maps true to free response, false to
+				    choice, and an absent value to mixed unless assessmentMode is set. */}
 				{(() => {
-					const mode = agent?.assessmentMode ?? (agent?.tools?.explain === true ? "free" : "choice");
+					const mode = agent?.assessmentMode ?? (
+						agent?.tools?.explain === true ? "free" :
+							agent?.tools?.explain === false ? "choice" : "mixed"
+					);
 					return (
 						<SettingsRow
 							label="Quizzing"

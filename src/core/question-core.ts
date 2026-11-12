@@ -850,6 +850,12 @@ export function compactAnswerForModel(ad: QuestionAnswerData): Record<string, un
 			const autoPart = autoParts.get(response.partId);
 			const criterion = autoPart?.criteria[0];
 			const award = criterion ? autoCriteria.get(criterion.id) : undefined;
+			const notePatternReminder =
+				response.kind === "code" &&
+				autoPart?.kind === "code" &&
+				response.results.some(result => result.status !== "pass")
+					? "Some tests did not pass. If the submitted source shows a specific, nameable mistake, call note_pattern with a short verbatim quote from the source. Skip it for a one-off typo."
+					: undefined;
 			const evaluationText = response.kind === "code" && autoPart?.kind === "code"
 				? [
 					`Submitted source:\n${response.source}`,
@@ -868,6 +874,7 @@ export function compactAnswerForModel(ad: QuestionAnswerData): Record<string, un
 			return {
 				...response,
 				...(evaluationText ? { evaluationText } : {}),
+				...(notePatternReminder ? { notePatternReminder } : {}),
 				...(award && criterion ? {
 					award: award.award,
 					maxPoints: award.maxPoints,
