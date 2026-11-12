@@ -8,6 +8,7 @@ import type {
 	AssessmentSpecV1,
 	CriterionAward,
 	CriterionOutcome,
+	CodeTestResult,
 	ExactNormalize,
 	NumericTolerance,
 } from "./contracts/assessment.ts";
@@ -60,9 +61,25 @@ const structuredPart = Type.Object({
 	}), { minItems: 1, maxItems: 8, description: "Named fields the learner fills in; field ids must be unique within this part." }),
 	criteria: Type.Array(criterion, { minItems: 1, maxItems: 8 }),
 });
+const codePart = Type.Object({
+	id,
+	label: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
+	prompt: text,
+	kind: Type.Literal("code", { description: "A Python exercise executed in the learner's browser and graded by its tests." }),
+	language: Type.Literal("python"),
+	starter: Type.String({ maxLength: 8000 }),
+	tests: Type.Array(Type.Object({
+		id,
+		name: Type.String({ minLength: 1, maxLength: 120 }),
+		call: Type.String({ minLength: 1, maxLength: 500 }),
+		expected: Type.String({ minLength: 1, maxLength: 500 }),
+	}), { minItems: 1, maxItems: 20 }),
+	timeLimitMs: Type.Optional(Type.Integer({ minimum: 500, maximum: 10000 })),
+	points,
+});
 
 export const freeAssessmentPartsSchema = Type.Array(freePart, { minItems: 1, maxItems: 8 });
-export const assessmentPartsSchema = Type.Array(Type.Union([freePart, numericPart, exactPart, structuredPart]), { minItems: 1, maxItems: 8 });
+export const assessmentPartsSchema = Type.Array(Type.Union([freePart, numericPart, exactPart, structuredPart, codePart]), { minItems: 1, maxItems: 8 });
 
 const displayCriterion = Type.Object({
 	id: Type.String(),
@@ -101,8 +118,24 @@ const displayStructuredPart = Type.Object({
 	fields: Type.Array(Type.Object({ id: Type.String(), label: Type.String(), kind: Type.Union([Type.Literal("line"), Type.Literal("paragraph")]) }), { minItems: 1 }),
 	criteria: Type.Array(displayCriterion, { minItems: 1 }),
 });
+const displayCodePart = Type.Object({
+	id,
+	label: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
+	prompt: text,
+	kind: Type.Literal("code"),
+	language: Type.Literal("python"),
+	starter: Type.String({ maxLength: 8000 }),
+	tests: Type.Array(Type.Object({
+		id,
+		name: Type.String({ minLength: 1, maxLength: 120 }),
+		call: Type.String({ minLength: 1, maxLength: 500 }),
+		expected: Type.String({ minLength: 1, maxLength: 500 }),
+	}), { minItems: 1, maxItems: 20 }),
+	timeLimitMs: Type.Optional(Type.Integer({ minimum: 500, maximum: 10000 })),
+	points,
+});
 export const assessmentDisplayPartsSchema = Type.Array(
-	Type.Union([displayFreePart, displayNumericPart, displayExactPart, displayStructuredPart]),
+	Type.Union([displayFreePart, displayNumericPart, displayExactPart, displayStructuredPart, displayCodePart]),
 	{ minItems: 1 },
 );
 
@@ -115,8 +148,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-export function isAutoGradedPart(part: AssessmentPart): part is Extract<AssessmentPart, { kind: "numeric" | "exact" }> {
-	return part.kind === "numeric" || part.kind === "exact";
+function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+	return Object.keys(value).every(key => keys.includes(key));
+}
+
+export function isAutoGradedPart(part: AssessmentPart): part is Extract<AssessmentPart, { kind: "numeric" | "exact" | "code" }> {
+	return part.kind === "numeric" || part.kind === "exact" || part.kind === "code";
 }
 
 function partCriteria(part: unknown): Array<{ id: string; description: string; maxPoints: number; expectedEvidence: string }> {
@@ -144,6 +181,14 @@ function partCriteria(part: unknown): Array<{ id: string; description: string; m
 			expectedEvidence: `Accepted: ${(part.accepted as string[]).join(", ")} (${part.normalize})`,
 		}];
 	}
+	if (part.kind === "code" && Array.isArray(part.tests)) {
+		return [{
+			id: part.id as string,
+			description: "Python tests passed",
+			maxPoints: part.points as number,
+			expectedEvidence: `${part.tests.length} committed Python tests`,
+		}];
+	}
 	return Array.isArray(part.criteria) ? part.criteria as Array<{ id: string; description: string; maxPoints: number; expectedEvidence: string }> : [];
 }
 
@@ -168,6 +213,14 @@ function normalizedPart(raw: Record<string, unknown>): AssessmentPart | undefine
 	if (raw.kind === "structured") {
 		if (!Value.Check(displayStructuredPart, raw)) return undefined;
 		return raw as unknown as AssessmentPart;
+	}
+	if (raw.kind === "code") {
+		if (!Value.Check(displayCodePart, raw)) return undefined;
+		return {
+			...raw,
+			timeLimitMs: typeof raw.timeLimitMs === "number" ? raw.timeLimitMs : 3000,
+			criteria: partCriteria(raw),
+		} as unknown as AssessmentPart;
 	}
 	return undefined;
 }
@@ -203,6 +256,11 @@ export function assessmentSpecProblems(parts: unknown): string[] {
 			const normalize = part.normalize as ExactNormalize;
 			if ((part.accepted as string[]).some(answer => !normalizeExact(answer, normalize))) problems.push(`exact part ${partId} accepted answers must not be blank after normalization`);
 			if (!hasHundredthPrecision(part.points as number)) problems.push(`exact part ${partId} points must use increments of 0.01`);
+		} else if (part.kind === "code") {
+			if (!hasHundredthPrecision(part.points as number)) problems.push(`code part ${partId} points must use increments of 0.01`);
+			if (new Set((part.tests as Array<{ id: string }>).map(test => test.id)).size !== (part.tests as unknown[]).length) {
+				problems.push(`duplicate test id in code part ${partId}`);
+			}
 		} else {
 			if (part.kind === "structured") {
 				const fieldIds = new Set<string>();
@@ -220,7 +278,7 @@ export function assessmentSpecProblems(parts: unknown): string[] {
 		}
 	}
 	for (const part of candidates) {
-		if (part.kind === "numeric" || part.kind === "exact") {
+		if (part.kind === "numeric" || part.kind === "exact" || part.kind === "code") {
 			const partId = part.id as string;
 			if (criterionIds.has(partId)) problems.push(`duplicate criterion ${partId}`);
 			criterionIds.add(partId);
@@ -255,6 +313,10 @@ export function assessmentSpecOf(input: unknown): AssessmentSpecV1 | undefined {
 	))) return undefined;
 	if (normalized.some(part => part.kind === "exact" && part.accepted.some(answer => !normalizeExact(answer, part.normalize)))) return undefined;
 	if (normalized.some(part => part.kind === "structured" && new Set(part.fields.map(field => field.id)).size !== part.fields.length)) return undefined;
+	if (normalized.some(part => part.kind === "code" && (
+		!Number.isInteger(part.timeLimitMs) || part.timeLimitMs < 500 || part.timeLimitMs > 10000 ||
+		new Set(part.tests.map(test => test.id)).size !== part.tests.length
+	))) return undefined;
 	return { version: 1, parts: normalized };
 }
 
@@ -307,6 +369,19 @@ export function gradeExact(part: ExactPart, value: string): CriterionAward {
 		: { criterionId: criterion.id, award: 0, feedback: "Not an accepted answer." };
 }
 
+export function gradeCode(
+	part: Extract<AssessmentPart, { kind: "code" }>,
+	response: Extract<AssessmentPartResponse, { kind: "code" }>,
+): CriterionAward {
+	const passed = response.results.filter(result => result.status === "pass").length;
+	const maxPoints = part.criteria[0]!.maxPoints;
+	return {
+		criterionId: part.id,
+		award: maxPoints * passed / part.tests.length,
+		feedback: `Passed ${passed} of ${part.tests.length} Python tests.`,
+	};
+}
+
 export function partResponseProblems(spec: AssessmentSpecV1, responses: unknown): string[] {
 	const typed = spec.parts.filter(part => part.kind !== undefined);
 	if (!typed.length) return responses === undefined || Array.isArray(responses) && responses.length === 0 ? [] : ["partResponses must be absent or empty when no typed parts are committed"];
@@ -332,6 +407,43 @@ export function partResponseProblems(spec: AssessmentSpecV1, responses: unknown)
 			if (typeof response.unit !== "string" || response.unit.length > 20) problems.push(`numeric response unit for ${part.id} must be at most 20 characters`);
 		} else if (part.kind === "exact") {
 			if (typeof response.text !== "string" || !response.text.trim() || response.text.length > 200) problems.push(`exact response for ${part.id} must be nonblank and at most 200 characters`);
+		} else if (part.kind === "code") {
+			if (!hasOnlyKeys(response, ["partId", "kind", "source", "results"])) {
+				problems.push(`code response for ${part.id} has an invalid shape`);
+			}
+			const test = new Map(part.tests.map(test => [test.id, test]));
+			const seenTests = new Set<string>();
+			if (!Array.isArray(response.results) || response.results.length !== part.tests.length) {
+				problems.push(`code response for ${part.id} must include every test result`);
+				continue;
+			}
+			if (typeof response.source !== "string" || response.source.length > 20000) {
+				problems.push(`code source for ${part.id} must be at most 20000 characters`);
+			}
+			for (const result of response.results) {
+				if (!isRecord(result) || typeof result.testId !== "string" || !test.has(result.testId)) {
+					problems.push(`code response for ${part.id} contains an unknown testId`);
+					continue;
+				}
+				if (!hasOnlyKeys(result, ["testId", "status", "actual", "error", "stdout"])) {
+					problems.push(`code result for ${result.testId} has an invalid shape`);
+				}
+				if (seenTests.has(result.testId)) problems.push(`duplicate code result for test ${result.testId}`);
+				seenTests.add(result.testId);
+				if (!["pass", "fail", "error", "timeout"].includes(String(result.status))) {
+					problems.push(`code result for ${result.testId} has an invalid status`);
+				}
+				if (result.actual !== undefined && (typeof result.actual !== "string" || result.actual.length > 500)) {
+					problems.push(`code result actual for ${result.testId} must be at most 500 characters`);
+				}
+				if (result.error !== undefined && (typeof result.error !== "string" || result.error.length > 500)) {
+					problems.push(`code result error for ${result.testId} must be at most 500 characters`);
+				}
+				if (result.stdout !== undefined && (typeof result.stdout !== "string" || result.stdout.length > 2000)) {
+					problems.push(`code result stdout for ${result.testId} must be at most 2000 characters`);
+				}
+			}
+			if (seenTests.size !== test.size) problems.push(`code response for ${part.id} must include every test exactly once`);
 		} else {
 			if (!Array.isArray(response.fields)) {
 				problems.push(`structured response for ${part.id} must contain fields`);
@@ -365,21 +477,26 @@ export function autoEvaluate(
 	responses: unknown,
 	ids: { sourceCallId: string; responseId: string },
 ): AssessmentEvaluationV1 | undefined {
-	const graded = autoGradedSpec(spec);
+	const autoParts = spec.parts.filter(isAutoGradedPart);
+	const graded = specSubset(spec, autoParts);
 	if (!graded || partResponseProblems(spec, responses).length) return undefined;
 	const byPart = new Map((responses as AssessmentPartResponse[]).map(response => [response.partId, response]));
-	const awards = graded.parts.map(part => {
+	const awards = autoParts.map(part => {
 		const response = byPart.get(part.id)!;
-		return part.kind === "numeric"
-			? gradeNumeric(part, (response as Extract<AssessmentPartResponse, { kind: "numeric" }>).value, (response as Extract<AssessmentPartResponse, { kind: "numeric" }>).unit)
-			: gradeExact(part as ExactPart, (response as Extract<AssessmentPartResponse, { kind: "exact" }>).text);
+		if (part.kind === "numeric") {
+			return gradeNumeric(part, (response as Extract<AssessmentPartResponse, { kind: "numeric" }>).value, (response as Extract<AssessmentPartResponse, { kind: "numeric" }>).unit);
+		}
+		if (part.kind === "exact") {
+			return gradeExact(part, (response as Extract<AssessmentPartResponse, { kind: "exact" }>).text);
+		}
+		return gradeCode(part, response as Extract<AssessmentPartResponse, { kind: "code" }>);
 	});
 	return {
 		version: 1,
 		sourceCallId: ids.sourceCallId,
 		responseId: ids.responseId,
 		evaluationId: `auto:${ids.responseId}`,
-		provenance: "deterministic",
+		provenance: graded.parts.some(part => part.kind === "code") ? "clientExecuted" : "deterministic",
 		spec: graded,
 		...scoreEvaluation(graded, awards),
 	};
@@ -388,6 +505,7 @@ export function autoEvaluate(
 export function partResponsesFromDraft(
 	spec: AssessmentSpecV1,
 	drafts: Record<string, Record<string, string>> | undefined,
+	codeResults?: Record<string, CodeTestResult[]>,
 ): { responses: AssessmentPartResponse[]; complete: boolean } {
 	const responses: AssessmentPartResponse[] = [];
 	let complete = true;
@@ -407,6 +525,11 @@ export function partResponsesFromDraft(
 			const fields = part.fields.map(field => ({ id: field.id, text: draft[field.id] ?? "" }));
 			if (!fields.some(field => field.text.trim())) complete = false;
 			responses.push({ partId: part.id, kind: "structured", fields });
+		} else if (part.kind === "code") {
+			const source = drafts?.[part.id]?.source ?? "";
+			const results = codeResults?.[part.id] ?? [];
+			if (results.length !== part.tests.length) complete = false;
+			else responses.push({ partId: part.id, kind: "code", source, results });
 		}
 	}
 	return { responses, complete };
@@ -426,7 +549,14 @@ export function evaluationProblems(spec: AssessmentSpecV1, awards: readonly Crit
 		const c = criteria.find(c => c.id === a.criterionId);
 		if (!c || seen.has(a.criterionId)) problems.push("unknown or duplicate criterion");
 		seen.add(a.criterionId);
-		if (a.award !== null && (typeof a.award !== "number" || !hasHundredthPrecision(a.award) || a.award < 0 || (c && a.award > c.maxPoints))) problems.push("award must be within committed bounds in increments of 0.01");
+		const part = spec.parts.find(part => part.criteria.some(criterion => criterion.id === a.criterionId));
+		if (a.award !== null && (
+			typeof a.award !== "number" ||
+			(part?.kind !== "code" && !hasHundredthPrecision(a.award)) ||
+			!Number.isFinite(a.award) ||
+			a.award < 0 ||
+			(c && a.award > c.maxPoints)
+		)) problems.push("award must be within committed bounds in increments of 0.01");
 		if (typeof a.feedback !== "string" || !a.feedback.trim() || a.feedback.length > 4000) problems.push("feedback is required and bounded");
 	}
 	return problems;

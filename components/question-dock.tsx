@@ -37,12 +37,14 @@ import {
 	type QuestionData,
 	type QuizToolInput,
 	type ActivityGuide,
+	type CodeTestResult,
 	type SelectMode,
 	type Phase3,
 } from "@/src/core";
 import { CONFIDENCE_COLORS, confidenceRailStyle } from "@/components/confidence-rail";
 import { ActivityStimulusNote } from "@/components/activity-card";
 import { ReadAloudButton } from "@/components/read-aloud-controls";
+import { runPythonCode, type CodeExerciseRunner } from "@/components/python-runner";
 
 /**
  * The question dock — a pending quiz/ask REPLACES the chat composer: the
@@ -102,6 +104,7 @@ export interface QuestionDockProps {
 	 *  this is the affordance. */
 	compactionRunning?: boolean;
 	stimulusGuide?: ActivityGuide;
+	runCode?: CodeExerciseRunner;
 }
 
 export function QuestionDock({
@@ -119,6 +122,7 @@ export function QuestionDock({
 	dictationClaim = true,
 	compactionRunning = false,
 	stimulusGuide,
+	runCode,
 }: QuestionDockProps) {
 	// The probe-phase names (owner, 2026-10-09) canonicalize onto their
 	// teach twins for every dock concern — parse dispatch, labels, kinds:
@@ -176,6 +180,7 @@ export function QuestionDock({
 					dictationClaim={dictationClaim}
 					compactionRunning={compactionRunning}
 					stimulusGuide={stimulusGuide}
+					runCode={runCode}
 				/>
 			</div>
 		</>
@@ -274,6 +279,7 @@ function QuestionDockForm({
 	dictationClaim = true,
 	compactionRunning = false,
 	stimulusGuide,
+	runCode,
 }: Omit<QuestionDockProps, "expanded" | "onExpand" | "reveal">) {
 	const kind = toolQuestionKind(toolName);
 	const stimulusRef = teachingStimulusRefOf(input);
@@ -308,6 +314,9 @@ function QuestionDockForm({
 	const [text, setText] = useState(initialDraft?.text ?? "");
 	const [partDrafts, setPartDrafts] = useState(initialDraft?.parts ?? {});
 	const partDraftsRef = useRef(initialDraft?.parts ?? {});
+	const [codeResults, setCodeResults] = useState<Record<string, CodeTestResult[]>>(initialDraft?.codeResults ?? {});
+	const codeResultsRef = useRef(initialDraft?.codeResults ?? {});
+	const [runningCode, setRunningCode] = useState<Record<string, boolean>>({});
 	const setPartDraft = (partId: string, fieldId: string, value: string) => {
 		const next = {
 			...partDraftsRef.current,
@@ -368,7 +377,7 @@ function QuestionDockForm({
 
 	const toggle = (idx: number) => setSel(toggleOption(selectMode, sel, idx));
 
-	const partSubmission = assessmentSpec ? partResponsesFromDraft(assessmentSpec, partDrafts) : undefined;
+	const partSubmission = assessmentSpec ? partResponsesFromDraft(assessmentSpec, partDrafts, codeResults) : undefined;
 	const canSubmit = (qd.mode === "text"
 		? !needsSharedAnswer || text.trim().length > 0
 		: sel.dontKnow || (sel.otherSelected && other.trim().length > 0) || sel.selected.size > 0)
@@ -396,7 +405,7 @@ function QuestionDockForm({
 			other: sel.otherSelected ? other : undefined,
 			text: needsSharedAnswer ? answerTextRef.current : undefined,
 			thinking: qd.mode !== "text" ? thinkingTextRef.current.trim() || undefined : undefined,
-			partResponses: assessmentSpec ? partResponsesFromDraft(assessmentSpec, partDraftsRef.current).responses : undefined,
+			partResponses: assessmentSpec ? partResponsesFromDraft(assessmentSpec, partDraftsRef.current, codeResultsRef.current).responses : undefined,
 			// Sent only once the learner set it (50 means 50; untouched means
 			// nothing stated); buildAnswer drops it on "I don't know".
 			confidence: kind === "quiz" && confIdx !== null ? CONFIDENCE_STOPS[confIdx] : undefined,
@@ -409,6 +418,7 @@ function QuestionDockForm({
 			other,
 			text: answerTextRef.current,
 			parts: partDraftsRef.current,
+			codeResults: codeResultsRef.current,
 			confidenceIndex: confIdx,
 		});
 		onSubmit(buildAnswer(qd, req, toolName));
@@ -421,6 +431,32 @@ function QuestionDockForm({
 		} else if (e.key === "Enter" && (!e.shiftKey || e.metaKey || e.ctrlKey)) {
 			e.preventDefault();
 			submit();
+		}
+	};
+
+	const setCodeResultsForPart = (partId: string, results?: CodeTestResult[]) => {
+		const next = { ...codeResultsRef.current };
+		if (results) next[partId] = results;
+		else delete next[partId];
+		codeResultsRef.current = next;
+		setCodeResults(next);
+	};
+
+	const runCodePart = async (part: Extract<NonNullable<typeof assessmentSpec>["parts"][number], { kind: "code" }>) => {
+		const source = partDraftsRef.current[part.id]?.source ?? part.starter;
+		setPartDraft(part.id, "source", source);
+		setRunningCode(current => ({ ...current, [part.id]: true }));
+		try {
+			const results = await (runCode ?? runPythonCode)(part, source);
+			setCodeResultsForPart(part.id, results);
+		} catch (error) {
+			setCodeResultsForPart(part.id, part.tests.map(test => ({
+				testId: test.id,
+				status: "error",
+				error: error instanceof Error ? `${error.name}: ${error.message}`.slice(0, 500) : "Python runner failed.",
+			})));
+		} finally {
+			setRunningCode(current => ({ ...current, [part.id]: false }));
 		}
 	};
 
@@ -952,6 +988,41 @@ function QuestionDockForm({
 									)}
 								</div>;
 							})}
+						</div>
+					)}
+					{part.kind === "code" && (
+						<div className="mt-2 space-y-2">
+							<label htmlFor={`question-${toolCallId}-${part.id}-source`} className="block text-xs font-medium text-muted-foreground">Python code</label>
+							<textarea
+								id={`question-${toolCallId}-${part.id}-source`}
+								maxLength={20000}
+								rows={8}
+								spellCheck={false}
+								value={partDrafts[part.id]?.source ?? part.starter}
+								disabled={runningCode[part.id] === true}
+								onChange={e => {
+									setPartDraft(part.id, "source", e.target.value);
+									setCodeResultsForPart(part.id);
+								}}
+								className="lh-input min-h-40 w-full resize-y rounded-md border border-border/70 bg-background/60 px-2.5 py-2 font-mono text-xs outline-none focus:border-primary/50"
+							/>
+							<Button type="button" size="sm" variant="outline" disabled={runningCode[part.id] === true} onClick={() => void runCodePart(part)}>
+								{runningCode[part.id] ? "Running tests…" : "Run tests"}
+							</Button>
+							{codeResults[part.id]?.length ? (
+								<div className="space-y-1" data-testid={`code-results-${part.id}`}>
+									{codeResults[part.id]!.map(result => {
+										const test = part.tests.find(candidate => candidate.id === result.testId);
+										return <section key={result.testId} className="rounded-md border border-border/60 p-2">
+											<strong>{test?.name ?? result.testId}: {result.status}</strong>
+											{test && <div className="font-mono text-xs">Call: {test.call} · Expected: {test.expected}</div>}
+											{result.actual !== undefined && <div className="font-mono text-xs">Actual: {result.actual}</div>}
+											{result.error && <div className="whitespace-pre-wrap text-xs text-destructive">{result.error}</div>}
+											{result.stdout && <pre className="whitespace-pre-wrap text-xs text-muted-foreground">{result.stdout}</pre>}
+										</section>;
+									})}
+								</div>
+							) : null}
 						</div>
 					)}
 				</div>

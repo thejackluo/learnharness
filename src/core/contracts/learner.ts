@@ -74,7 +74,7 @@ export type LearnerProfileRead =
 	| { state: "corrupt" }
 	| { state: "future"; version: number };
 
-export type ObservationProvenance = "deterministic" | "modelJudged" | "modelAuthored" | "legacyClientGraded";
+export type ObservationProvenance = "deterministic" | "modelJudged" | "modelAuthored" | "legacyClientGraded" | "clientExecuted";
 
 export type LearnerObservation = {
 	id: string;

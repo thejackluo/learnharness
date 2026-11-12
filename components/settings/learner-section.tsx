@@ -87,6 +87,8 @@ function provenanceLabel(observation: LearnerObservation): string {
 			return "tutor's practice verdict";
 		case "legacyClientGraded":
 			return "legacy, client-graded (unverified)";
+		case "clientExecuted":
+			return "Ran your code in the browser.";
 	}
 }
 

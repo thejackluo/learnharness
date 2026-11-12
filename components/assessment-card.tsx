@@ -9,6 +9,7 @@ export function AssessmentCommitment({ spec }: { spec: AssessmentSpecV1 }) {
 		<strong>{p.label ?? p.id}</strong>
 		<ToolContentResponse>{p.prompt}</ToolContentResponse>
 		{p.kind === "structured" && <div className="text-xs text-muted-foreground">Fields: {p.fields.map(field => field.label).join(", ")}</div>}
+		{p.kind === "code" && <div className="text-xs text-muted-foreground">Python · {p.tests.length} test{p.tests.length === 1 ? "" : "s"}</div>}
 		{p.criteria.map(c => <div key={c.id} className="my-2 border-l pl-3">
 			<div>{c.description} · {c.maxPoints} pts</div>
 			<ToolContentResponse>{c.expectedEvidence}</ToolContentResponse>
@@ -18,7 +19,7 @@ export function AssessmentCommitment({ spec }: { spec: AssessmentSpecV1 }) {
 
 export function AssessmentFeedback({ evaluation: e }: { evaluation: AssessmentEvaluationV1 }) {
 	return <div className="space-y-3 rounded-xl border bg-card p-4 text-sm" data-testid="assessment-feedback">
-		<strong>{e.provenance === "modelJudged" ? "AI-evaluated" : "Auto-graded"}</strong>
+		<strong>{e.provenance === "modelJudged" ? "AI-evaluated" : e.provenance === "clientExecuted" ? "Ran your code in the browser." : "Auto-graded"}</strong>
 		{e.spec.parts.map(p => <section key={p.id}>
 			<strong>{p.label ?? p.id}</strong>
 			{p.criteria.map(c => {

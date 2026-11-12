@@ -67,3 +67,50 @@ test("typed controls accept numeric, exact, and structured answers and submit th
 		host.remove();
 	}
 });
+
+test("Python code parts run through the injectable runner and submit their source and results", async () => {
+	const input = {
+		question: "Write add(a, b).",
+		correctAnswer: "Secret",
+		parts: [{
+			id: "sum",
+			kind: "code",
+			language: "python",
+			prompt: "Return the sum.",
+			starter: "def add(a, b):\n    return a + b",
+			tests: [{ id: "positive", name: "Positive values", call: "add(2, 3)", expected: "5" }],
+			points: 1,
+		}],
+	};
+	let submitted: QuestionAnswerData | undefined;
+	let run: { source: string; testId: string } | undefined;
+	const host = document.createElement("div");
+	document.body.append(host);
+	const root = createRoot(host);
+	try {
+		await act(async () => root.render(
+			<QuestionDock toolName="explain" toolCallId="python" input={input} expanded dictationClaim={false}
+				onExpand={() => {}} onSubmit={answer => { submitted = answer; }}
+				runCode={async (part, source) => {
+					run = { source, testId: part.tests[0]!.id };
+					return [{ testId: "positive", status: "pass", actual: "5" }];
+				}} />,
+		));
+		const runButton = [...host.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Run tests")!;
+		await act(async () => runButton.click());
+		assert.deepEqual(run, { source: input.parts[0]!.starter, testId: "positive" });
+		assert.match(host.textContent ?? "", /Positive values: pass/);
+		const submit = [...host.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.includes("Submit answer"))!;
+		assert.equal(submit.disabled, false);
+		await act(async () => submit.closest("form")!.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+		assert.deepEqual(submitted?.partResponses, [{
+			partId: "sum",
+			kind: "code",
+			source: input.parts[0]!.starter,
+			results: [{ testId: "positive", status: "pass", actual: "5" }],
+		}]);
+	} finally {
+		await act(async () => root.unmount());
+		host.remove();
+	}
+});

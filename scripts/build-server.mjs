@@ -38,6 +38,20 @@ copyTree(staticFrom, staticTo);
 if (exists(path.join(ROOT, "public"))) {
 	copyTree(path.join(ROOT, "public"), path.join(STANDALONE, "public"));
 }
+for (const asset of [
+	"pyodide.js",
+	"pyodide.mjs",
+	"pyodide.asm.js",
+	"pyodide.asm.mjs",
+	"pyodide.asm.wasm",
+	"python_stdlib.zip",
+	"pyodide-lock.json",
+]) {
+	if (!exists(path.join(STANDALONE, "public", "pyodide", asset))) {
+		console.error(`[build-server] Pyodide asset missing from standalone public/: ${asset}`);
+		process.exit(1);
+	}
+}
 
 // 2) Safety: the repo's real data/ must NEVER ride along in the bundle.
 const leakedData = path.join(STANDALONE, "data");

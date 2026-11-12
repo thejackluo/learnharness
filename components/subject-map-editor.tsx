@@ -95,6 +95,7 @@ function provenanceLabel(observation: LearnerObservation): string {
 		case "modelJudged": return "AI-evaluated";
 		case "modelAuthored": return "tutor's practice verdict";
 		case "legacyClientGraded": return "legacy, client-graded (unverified)";
+		case "clientExecuted": return "Ran your code in the browser.";
 	}
 }
 

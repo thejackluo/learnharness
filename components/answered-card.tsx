@@ -177,6 +177,20 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 								<div className="whitespace-pre-wrap">{response.value}{response.unit ? ` ${response.unit}` : ""}</div>
 							) : response.kind === "exact" ? (
 								<div className="whitespace-pre-wrap">{response.text}</div>
+							) : response.kind === "code" ? (
+								<div className="mt-1 space-y-2">
+									<pre className="overflow-x-auto whitespace-pre-wrap rounded-md bg-background/70 p-2 font-mono text-xs">{response.source}</pre>
+									{response.results.map(result => {
+										const test = part?.kind === "code" ? part.tests.find(candidate => candidate.id === result.testId) : undefined;
+										return <div key={result.testId} className="rounded-md border border-border/60 p-2">
+											<strong>{test?.name ?? result.testId}: {result.status}</strong>
+											{test && <div className="font-mono text-xs">Call: {test.call} · Expected: {test.expected}</div>}
+											{result.actual !== undefined && <div className="font-mono text-xs">Actual: {result.actual}</div>}
+											{result.error && <div className="whitespace-pre-wrap text-xs text-destructive">{result.error}</div>}
+											{result.stdout && <pre className="whitespace-pre-wrap text-xs text-muted-foreground">{result.stdout}</pre>}
+										</div>;
+									})}
+								</div>
 							) : response.fields.map(field => {
 								const label = part?.kind === "structured" ? part.fields.find(candidate => candidate.id === field.id)?.label : undefined;
 								return <div key={field.id} className="mt-1">

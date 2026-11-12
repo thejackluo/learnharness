@@ -1,4 +1,5 @@
 export * from "./assessment.ts";
+export * from "./python-harness.ts";
 export * from "./learner.ts";
 export * from "./canonical-question.ts";
 /**
