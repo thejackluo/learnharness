@@ -27,12 +27,13 @@ const errorReply = () => ({ error: storageError } as ChatGPTStatus);
 function deferred<T>() { let resolve!: (v: T) => void; let reject!: (error: unknown) => void; const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; }); return { promise, resolve, reject }; }
 function fixture(initial = disconnected(), overrides: Partial<ChatGPTControlBridge> = {}) {
  let status = initial;
- const calls = { login: [] as (string | undefined)[], cancel: 0, consent: [] as boolean[], disconnect: [] as string[], select: [] as string[], logout: 0 };
+ const calls = { login: [] as (string | undefined)[], complete: [] as string[], cancel: 0, consent: [] as boolean[], disconnect: [] as string[], select: [] as string[], logout: 0 };
  const listeners = new Set<() => void>();
  function push(next: ChatGPTStatus) { status = next; for (const cb of listeners) cb(); }
  const bridge: ChatGPTControlBridge = {
   status: async () => status,
   login: async (id) => { calls.login.push(id); push({ ...status, pending: true, error: null }); return status; },
+  complete: async (callbackUrl) => { calls.complete.push(callbackUrl); return status; },
   cancel: async () => { calls.cancel++; push({ ...status, pending: false, error: null }); return status; },
   select: async (id) => { calls.select.push(id); push({ ...status, activeId: id }); return status; },
   disconnect: async (id) => { calls.disconnect.push(id); push({ ...status, activeId: status.activeId === id ? null : status.activeId, accounts: status.accounts.filter((a) => a.id !== id) }); return status; },
@@ -125,6 +126,90 @@ for (const value of [true, false]) test(`explicit global draft ${!value} is appl
  await act(async () => f.complete()); assert.deepEqual(f.calls.consent, [!value]); assert.equal(f.status.allowBackgroundUse, !value);
  assert(!document.querySelector('[data-testid="chatgpt-account-dialog"]'));
  await act(async () => f.push(f.status)); assert.deepEqual(f.calls.consent, [!value]);
+});
+
+test("hosted paste-back stays pending until the callback address is submitted through the bridge", async () => {
+ const f = fixture(); const submitted = "http://127.0.0.1:54321/auth/callback?code=fixture-code&state=fixture-state"; const rejected = deferred<void>(), completed = deferred<void>();
+ let completions = 0;
+ f.bridge.login = async (id) => {
+  f.calls.login.push(id);
+  f.push({ ...f.status, pending: true, callbackPaste: true, error: null });
+  return f.status;
+ };
+ f.bridge.complete = async (callbackUrl) => {
+  f.calls.complete.push(callbackUrl);
+  if (++completions === 1) {
+   const invalid = { ...f.status, pending: true, callbackPaste: true, error: "ChatGPT sign-in could not be verified." };
+   f.push(invalid); rejected.resolve(); return invalid;
+  }
+  const next = { ...connected(f.status.allowBackgroundUse), callbackPaste: false };
+  f.push(next); completed.resolve(); return next;
+ };
+ await mount(); await begin();
+ assert(document.body.textContent?.includes("After you sign in, your browser will show a page that can't be reached (127.0.0.1). Copy the full address from that tab's address bar and paste it here."));
+	const input = byTest("chatgpt-callback-url") as HTMLInputElement;
+	await act(async () => {
+		Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(input, submitted);
+		input.dispatchEvent(new window.Event("input", { bubbles: true }));
+		input.dispatchEvent(new window.Event("change", { bubbles: true }));
+	});
+	assert.equal(input.value, submitted);
+	const finishButton = button("Finish sign-in", byTest("chatgpt-callback-paste"));
+	assert.equal(finishButton.disabled, false);
+	await click(finishButton);
+	assert.equal(f.calls.complete.length, 1);
+ await completedWithin(rejected.promise, "paste callback validation");
+ await act(async () => { await new Promise((resolve) => setImmediate(resolve)); });
+ assert.equal(document.querySelector('[role="alert"]')?.textContent, "ChatGPT sign-in could not be verified.");
+ assert(byTest("chatgpt-account-dialog"));
+ await click(button("Finish sign-in", byTest("chatgpt-callback-paste")));
+ await completedWithin(completed.promise, "paste callback submission");
+ await act(async () => { await new Promise((resolve) => setImmediate(resolve)); });
+ assert.deepEqual(f.calls.complete, [submitted, submitted]);
+ assert(!document.querySelector('[data-testid="chatgpt-account-dialog"]'));
+});
+
+test("pending hosted paste-back can be finished after a settings-page reload", async () => {
+ const pending = { ...disconnected(), pending: true, callbackPaste: true };
+ const f = fixture(pending);
+ const submitted = "http://127.0.0.1:54321/auth/callback?code=fixture-code&state=fixture-state";
+ const completed = deferred<void>();
+ f.bridge.complete = async (callbackUrl) => {
+  f.calls.complete.push(callbackUrl);
+  const next = { ...connected(), callbackPaste: false };
+  f.push(next);
+  completed.resolve();
+  return next;
+ };
+ await mount();
+ const connect = byTest("chatgpt-login") as HTMLButtonElement;
+ assert.equal(connect.disabled, false);
+ await click(connect);
+ assert(byTest("chatgpt-callback-paste"));
+ const input = byTest("chatgpt-callback-url") as HTMLInputElement;
+ await act(async () => {
+  Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(input, submitted);
+  input.dispatchEvent(new window.Event("input", { bubbles: true }));
+  input.dispatchEvent(new window.Event("change", { bubbles: true }));
+ });
+ await click(button("Finish sign-in", byTest("chatgpt-callback-paste")));
+ await completedWithin(completed.promise, "reloaded paste callback");
+ await act(async () => { await new Promise((resolve) => setImmediate(resolve)); });
+ assert.deepEqual(f.calls.complete, [submitted]);
+ assert(!document.querySelector('[data-testid="chatgpt-account-dialog"]'));
+ assert(button("Manage…"));
+});
+
+test("pending hosted paste-back can be cancelled after a settings-page reload", async () => {
+ const f = fixture({ ...disconnected(), pending: true, callbackPaste: true });
+ await mount();
+ await click(byTest("chatgpt-login"));
+ assert(byTest("chatgpt-callback-url"));
+ await click(button("Cancel sign-in", byTest("chatgpt-callback-paste")));
+ await act(async () => { await new Promise((resolve) => setImmediate(resolve)); });
+ assert.equal(f.calls.cancel, 1);
+ assert.equal(f.status.pending, false);
+ assert(!document.querySelector('[data-testid="chatgpt-account-dialog"]'));
 });
 
 test("Cancel after initial IPC promise ends cancels actual OAuth; late completion cannot apply draft or close another dialog", async () => {

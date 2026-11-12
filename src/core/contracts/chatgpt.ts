@@ -2,6 +2,7 @@
 export interface ChatGPTStatus {
 	available: boolean;
 	pending: boolean;
+	callbackPaste?: boolean;
 	/** App-wide ChatGPT background permission, independent of account selection. */
 	allowBackgroundUse: boolean;
 	activeId: string | null;
@@ -17,6 +18,7 @@ export interface ChatGPTStatus {
 export interface ChatGPTControlBridge {
 	status(): Promise<ChatGPTStatus>;
 	login(id?: string): Promise<ChatGPTStatus>;
+	complete?(callbackUrl: string): Promise<ChatGPTStatus>;
 	cancel(): Promise<ChatGPTStatus>;
 	select(id: string): Promise<ChatGPTStatus>;
 	/** Explicitly forget every local registration/credential for this verified identity. */

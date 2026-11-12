@@ -33,7 +33,7 @@ import { providerEventNote } from "../agent/provider-events.ts";
 import { effectiveSettings, stores } from "./stores.ts";
 import { searchAvailable, searchProvider } from "./search.ts";
 import { providerKeyPresent } from "./keys.ts";
-import { agentCapabilities } from "../agent/capabilities.ts";
+import { subscriptionProviderAllowed } from "../agent/capabilities.ts";
 import {
 	extractionEnabled,
 	graphToolsEnabled,
@@ -147,7 +147,7 @@ setTurnRunner(async (chatId, input) => {
  *  FRESH so a settings PUT between dispatch and spawn lands. */
 function resolveEngine(role: ModelRole): PiEngine | undefined {
 	const spec = resolveRoleSpec(role, stores.settingsStore.readSettings());
-	if (spec && isSubscriptionProvider(spec.provider) && !agentCapabilities().subscriptions) return undefined;
+	if (spec && isSubscriptionProvider(spec.provider) && !subscriptionProviderAllowed(spec.provider)) return undefined;
 	return spec ? piEngineForSpec(spec) : undefined;
 }
 
@@ -219,7 +219,7 @@ export async function handleChatInput(
 		console.info(`[chat ${chatId}] turn refused — ${JSON.stringify(envelope)}`);
 		return Response.json(envelope, { status: 503 });
 	}
-	if (isSubscriptionProvider(conversation.provider) && !agentCapabilities().subscriptions) {
+	if (isSubscriptionProvider(conversation.provider) && !subscriptionProviderAllowed(conversation.provider)) {
 		return Response.json({
 			error: "Subscription providers are disabled in hosted mode.",
 			code: "capability_disabled",

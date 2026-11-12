@@ -32,6 +32,19 @@ test("web ChatGPT reserves a new tab before async login, navigates only to an op
 	assert.deepEqual(await bridge.status(), safe);
 });
 
+test("web ChatGPT completes paste-back sign-in without opening another browser tab", async () => {
+	const callbackUrl = "http://127.0.0.1:54321/auth/callback?code=fixture-code&state=fixture-state";
+	let command: Record<string, unknown> | undefined;
+	const expected = { available: true, pending: false, callbackPaste: false, allowBackgroundUse: true, activeId: null, accounts: [], error: null };
+	globalThis.fetch = async (_url, options) => {
+		command = JSON.parse(String(options?.body));
+		return Response.json({ value: expected });
+	};
+	const bridge = createWebChatGPTBridge(null);
+	assert.deepEqual(await bridge.complete!(callbackUrl), expected);
+	assert.deepEqual(command, { providerId: "chatgpt", op: "complete", callbackUrl });
+});
+
 test("blocked popups do not start OAuth; failed login closes the reserved tab", async () => {
 	const bridge = createWebChatGPTBridge(null);
 	window.open = () => null;
@@ -72,6 +85,7 @@ test("web notices identify the server machine and same-machine ChatGPT sign-in; 
 	assert.equal(chatGPTNotice(), CHATGPT_NOTICE); assert(CHATGPT_NOTICE.includes("on this device"));
 	assert(chatGPTNotice(true).includes("on the machine running LearnHarness"));
 	assert(chatGPTNotice(true).endsWith("Complete ChatGPT sign-in in a browser on that same machine."));
+	assert(chatGPTNotice(true, true).endsWith("Sign in at OpenAI, then paste the final address back into LearnHarness."));
 	for (const label of ["GitHub Copilot", "Grok"]) {
 		assert(subscriptionNotice(label).includes("stored locally")); assert(subscriptionDisconnectCopy(label).includes("from this device"));
 		assert(subscriptionNotice(label, true).includes("on the machine running LearnHarness"));

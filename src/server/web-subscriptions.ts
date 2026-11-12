@@ -12,7 +12,9 @@ import { subscriptionControl } from "../../electron/subscription-ipc.cjs";
 import { emit } from "../core/events.ts";
 import type { ChatGPTStatus } from "../core/contracts/chatgpt.ts";
 import type { NativeSubscriptionSnapshot } from "../core/contracts/subscriptions.ts";
+import { agentCapabilities } from "../agent/capabilities.ts";
 import { configureWebSubscriptionRuntime, publishWebSubscriptionPacket, webSubscriptionsEnabled, type SubscriptionRuntimeChannel as Channel, type SubscriptionRuntimePacket as Packet } from "../agent/subscription-runtime.ts";
+import { runtimeMode } from "./runtime.ts";
 export { webSubscriptionsEnabled } from "../agent/subscription-runtime.ts";
 interface BrowserAction { target: string; origin: string; scope: string; expires: number; current(): Promise<boolean> }
 const KEY = Symbol.for("lh.webSubscriptions");
@@ -55,6 +57,7 @@ export function createWebSubscriptionOwner(options: {
 	const chatgpt = createChatGPT({
 		store: options.chatgptStore ?? fileStore(path.join(options.directory, "chatgpt-credentials.json")),
 		openExternal,
+		callbackMode: runtimeMode() === "hosted" ? "paste" : "listen",
 		onChange: (packet?: Packet) => { if (packet) notify("lh:chatgpt", packet); },
 	});
 	const native = createSubscriptions({
@@ -122,6 +125,7 @@ configureWebSubscriptionRuntime(webSubscriptionRequest);
 
 export async function webSubscriptionStatus(): Promise<{ chatgpt: ChatGPTStatus; native: NativeSubscriptionSnapshot["statuses"] }> {
 	const owner = webSubscriptionOwner();
-	const [chatgpt, native] = await Promise.all([owner.chatgpt.status(), owner.native.status()]);
+	const chatgpt = await owner.chatgpt.status();
+	const native = agentCapabilities().subscriptions ? await owner.native.status() : [];
 	return { chatgpt, native };
 }

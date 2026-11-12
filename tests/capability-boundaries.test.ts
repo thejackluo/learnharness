@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { capabilitiesFor } from "../src/core/runtime.ts";
-import { agentCapabilities, capabilitiesOverride, CapabilityDeniedError, capabilityFilter } from "../src/agent/capabilities.ts";
+import { agentCapabilities, capabilitiesOverride, CapabilityDeniedError, capabilityFilter, subscriptionProviderAllowed } from "../src/agent/capabilities.ts";
 import { jobTools } from "../src/agent/tools/jobs.ts";
 import { createJobRunner } from "../src/agent/subagents/runner.ts";
 import type { JobRecord } from "../src/core/contracts.ts";
@@ -9,13 +9,16 @@ import type { ChatStore, JobPatch, JobStore } from "../src/core/ports.ts";
 import { readTool } from "../src/agent/tools/read.ts";
 import { createWebTools } from "../src/agent/tools/web.ts";
 import { realHeadless } from "../src/agent/subagents/headless.ts";
-import { webSubscriptionRequest, webSubscriptionsEnabled } from "../src/agent/subscription-runtime.ts";
+import { configureWebSubscriptionRuntime, webSubscriptionRequest, webSubscriptionsEnabled } from "../src/agent/subscription-runtime.ts";
 
 test("hosted registration and direct boundaries deny before filesystem, network, or job work", async () => {
 	const previous = capabilitiesOverride.current;
 	capabilitiesOverride.current = capabilitiesFor("hosted");
 	try {
 		assert.deepEqual(agentCapabilities(), capabilitiesFor("hosted"));
+		assert.equal(subscriptionProviderAllowed("chatgpt"), true);
+		assert.equal(subscriptionProviderAllowed("github-copilot"), false);
+		assert.equal(subscriptionProviderAllowed("xai"), false);
 		assert.deepEqual(Object.keys(capabilityFilter({
 			read: {}, ls: {}, research: {}, demo: {}, visual: {}, pdf: {}, quiz: {},
 		})), ["quiz"]);
@@ -45,7 +48,9 @@ test("hosted registration and direct boundaries deny before filesystem, network,
 		await assert.rejects(realHeadless.runDemo("<html></html>"), CapabilityDeniedError);
 		await assert.rejects(realHeadless.renderSvg("<svg/>"), CapabilityDeniedError);
 		await assert.rejects(realHeadless.renderPdfPages("/synthetic/file.pdf", [1]), CapabilityDeniedError);
-		assert.equal(webSubscriptionsEnabled(), false);
+		configureWebSubscriptionRuntime(async <T>(channel: "lh:chatgpt" | "lh:subscriptions", op: string, fields: Record<string, unknown>): Promise<T> => ({ channel, op, fields } as T));
+		assert.equal(webSubscriptionsEnabled(), true);
+		assert.deepEqual(await webSubscriptionRequest("lh:chatgpt", "status", {}), { channel: "lh:chatgpt", op: "status", fields: {} });
 		await assert.rejects(webSubscriptionRequest("lh:subscriptions", "list", {}), CapabilityDeniedError);
 
 		for (const kind of ["research", "demo", "visual", "pdf"] as const) {

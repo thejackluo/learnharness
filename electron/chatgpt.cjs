@@ -95,7 +95,7 @@ function allowedAuthEndpoint(value) {
 	} catch { return false; }
 }
 
-function createChatGPT({ store, openExternal, fetch: request = globalThis.fetch, onChange = () => {}, timeoutMs = 180000 }) {
+function createChatGPT({ store, openExternal, fetch: request = globalThis.fetch, onChange = () => {}, timeoutMs = 180000, callbackMode = "listen" }) {
 	let state;
 	let init;
 	let queue = Promise.resolve();
@@ -181,6 +181,7 @@ function createChatGPT({ store, openExternal, fetch: request = globalThis.fetch,
 		return {
 			available: !!state && !closed && !paused,
 			pending: !!pending,
+			...(callbackMode === "paste" && pending?.mode === "paste" ? { callbackPaste: true } : {}),
 			allowBackgroundUse: backgroundAllowed(),
 			activeId: state?.activeId ?? null,
 			accounts: accountGroups().map((members) => {
@@ -248,6 +249,78 @@ function createChatGPT({ store, openExternal, fetch: request = globalThis.fetch,
 		return json(TOKEN, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" }, body: new URLSearchParams({ ...fields, resource: RESOURCE }), signal });
 	}
 
+	function cleanupAttempt(attempt) {
+		clearTimeout(attempt.timer);
+		if (attempt.listener?.listening) {
+			attempt.listener.close();
+			attempt.listener.closeAllConnections();
+		}
+	}
+	async function handleCallback(attempt, params, respond) {
+		if (attempt.consumed) {
+			respond?.("consumed");
+			if (attempt.mode === "paste") lastError = publicError(fail("identity"));
+			if (attempt.mode === "paste") notify();
+			return snapshot();
+		}
+		if (["state", "code", "client_id", "error"].some((key) => params.getAll(key).length > 1) || params.get("state") !== attempt.expectedState) {
+			respond?.("retry");
+			if (attempt.mode === "paste") {
+				lastError = publicError(fail("identity"));
+				notify();
+			}
+			return snapshot();
+		}
+		attempt.consumed = true;
+		respond?.("accepted");
+		cleanupAttempt(attempt);
+		lastError = null;
+		try {
+			if (params.has("error")) throw fail(params.get("error") === "access_denied" ? "cancelled" : "identity");
+			const clientId = params.get("client_id") || attempt.selected?.clientId;
+			if (!clientId || clientId === "dynamic_agent_client" || clientId.length > 512 || /[\s\x00-\x1f]/.test(clientId) || (attempt.selected && clientId !== attempt.selected.clientId) || !params.get("code")) throw fail("identity");
+			let body;
+			try {
+				body = await grant({
+					grant_type: "authorization_code", client_id: clientId, code: params.get("code"),
+					code_verifier: attempt.verifier, redirect_uri: attempt.redirectUri,
+				}, AbortSignal.any([attempt.abort.signal, AbortSignal.timeout(15000)]));
+			} catch (err) {
+				if (err.oauthCode === "invalid_grant" && !attempt.selected?.subject) retryRegistration = { clientId };
+				throw err;
+			}
+			if (typeof body.id_token !== "string") throw fail("identity");
+			const verified = await identity(body.id_token, clientId, attempt.nonce, attempt.selected?.subject);
+			const tokens = tokenSet(body);
+			await serial(async () => {
+				if (closed || attempt.abort.signal.aborted || epoch !== attempt.attemptEpoch) throw fail("cancelled");
+				const existing = state.registrations.find((r) => r.clientId === clientId);
+				if (existing && existing.subject !== verified.subject) throw fail("identity");
+				const record = { id: existing?.id ?? crypto.randomUUID(), clientId, issuer: ISSUER, ...verified, tokens };
+				const next = structuredClone(state);
+				next.registrations = next.registrations.filter((r) => r.id !== record.id).concat(record);
+				next.activeId = record.id;
+				const previous = structuredClone(state);
+				await save(next); // Active identity changes only AFTER validation and durable persistence.
+				if (closed || attempt.abort.signal.aborted || epoch !== attempt.attemptEpoch) {
+					await save(previous);
+					throw fail("cancelled");
+				}
+				stop();
+				storageDenied = false;
+				suspended = false;
+				retryRegistration = undefined;
+			});
+			lastError = planScopes(tokens) ? null : publicError(fail("scope"));
+		} catch (err) { if (!attempt.abort.signal.aborted) lastError = publicError(err); }
+		finally {
+			if (pending?.abort === attempt.abort) pending = null;
+			attempt.finish();
+			notify();
+		}
+		return snapshot();
+	}
+
 	async function login(accountId) {
 		await ready();
 		if (pending) throw fail("pending");
@@ -261,78 +334,49 @@ function createChatGPT({ store, openExternal, fetch: request = globalThis.fetch,
 		const abort = new AbortController();
 		let finish;
 		const completion = new Promise((resolve) => { finish = resolve; });
-		const listener = http.createServer();
-		let timer;
-		let consumed = false;
-		const cleanup = () => { clearTimeout(timer); listener.close(); listener.closeAllConnections(); };
+		const attempt = {
+			abort, selected, attemptEpoch, verifier, nonce, expectedState, mode: callbackMode,
+			redirectUri: undefined, listener: undefined, timer: undefined, consumed: false, finish,
+		};
 		const cancel = (code = "cancelled") => {
 			abort.abort();
-			cleanup();
+			cleanupAttempt(attempt);
 			if (pending?.abort === abort) pending = null;
 			lastError = publicError(fail(code));
 			finish();
 			notify();
 		};
-		pending = { abort, cancel };
+		attempt.cancel = cancel;
+		pending = attempt;
 		lastError = null;
 		notify();
 		try {
-			await new Promise((resolve, reject) => {
-				listener.once("error", reject);
-				listener.listen(0, "127.0.0.1", resolve);
-			});
-			const redirectUri = `http://127.0.0.1:${listener.address().port}/auth/callback`;
-			listener.on("request", async (req, res) => {
-				let callback;
-				try { callback = new URL(req.url || "/", redirectUri); }
-				catch { res.writeHead(400).end(); return; }
-				res.setHeader("Cache-Control", "no-store");
-				res.setHeader("Content-Security-Policy", "default-src 'none'");
-				res.setHeader("Referrer-Policy", "no-referrer");
-				if (req.method !== "GET" || callback.origin !== new URL(redirectUri).origin || callback.pathname !== "/auth/callback" || req.headers.host !== new URL(redirectUri).host || consumed) { res.writeHead(404).end(); return; }
-				const params = callback.searchParams;
-				// Reject duplicate parameters and unsolicited callbacks without consuming a valid pending attempt.
-				if (["state", "code", "client_id", "error"].some((key) => params.getAll(key).length > 1) || params.get("state") !== expectedState) { res.writeHead(400).end("Sign-in could not be verified."); return; }
-				consumed = true;
-				res.writeHead(200, { "content-type": "text/plain; charset=utf-8" }).end("Return to LearnHarness to view the sign-in result. You may close this tab.");
-				cleanup();
-				try {
-					if (params.has("error")) throw fail(params.get("error") === "access_denied" ? "cancelled" : "identity");
-					const clientId = params.get("client_id") || selected?.clientId;
-					if (!clientId || clientId === "dynamic_agent_client" || clientId.length > 512 || /[\s\x00-\x1f]/.test(clientId) || (selected && clientId !== selected.clientId) || !params.get("code")) throw fail("identity");
-					let body;
-					try { body = await grant({ grant_type: "authorization_code", client_id: clientId, code: params.get("code"), code_verifier: verifier, redirect_uri: redirectUri }, AbortSignal.any([abort.signal, AbortSignal.timeout(15000)])); }
-					catch (err) {
-						if (err.oauthCode === "invalid_grant" && !selected?.subject) retryRegistration = { clientId };
-						throw err;
-					}
-					if (typeof body.id_token !== "string") throw fail("identity");
-					const verified = await identity(body.id_token, clientId, nonce, selected?.subject);
-					const tokens = tokenSet(body);
-					await serial(async () => {
-						if (closed || abort.signal.aborted || epoch !== attemptEpoch) throw fail("cancelled");
-						const existing = state.registrations.find((r) => r.clientId === clientId);
-						if (existing && existing.subject !== verified.subject) throw fail("identity");
-						const record = { id: existing?.id ?? crypto.randomUUID(), clientId, issuer: ISSUER, ...verified, tokens };
-						const next = structuredClone(state);
-						next.registrations = next.registrations.filter((r) => r.id !== record.id).concat(record);
-						next.activeId = record.id;
-						const previous = structuredClone(state);
-						await save(next); // Active identity changes only AFTER validation and durable persistence.
-						if (closed || abort.signal.aborted || epoch !== attemptEpoch) {
-							await save(previous);
-							throw fail("cancelled");
-						}
-						stop();
-						storageDenied = false;
-						suspended = false;
-						retryRegistration = undefined;
+			if (callbackMode === "paste") {
+				attempt.redirectUri = `http://127.0.0.1:${crypto.randomInt(49152, 65536)}/auth/callback`;
+			} else {
+				const listener = http.createServer();
+				attempt.listener = listener;
+				await new Promise((resolve, reject) => {
+					listener.once("error", reject);
+					listener.listen(0, "127.0.0.1", resolve);
+				});
+				attempt.redirectUri = `http://127.0.0.1:${listener.address().port}/auth/callback`;
+				listener.on("request", async (req, res) => {
+					let callback;
+					try { callback = new URL(req.url || "/", attempt.redirectUri); }
+					catch { res.writeHead(400).end(); return; }
+					res.setHeader("Cache-Control", "no-store");
+					res.setHeader("Content-Security-Policy", "default-src 'none'");
+					res.setHeader("Referrer-Policy", "no-referrer");
+					if (req.method !== "GET" || callback.origin !== new URL(attempt.redirectUri).origin || callback.pathname !== "/auth/callback" || req.headers.host !== new URL(attempt.redirectUri).host) { res.writeHead(404).end(); return; }
+					await handleCallback(attempt, callback.searchParams, (result) => {
+						if (result === "consumed") res.writeHead(404).end();
+						else if (result === "retry") res.writeHead(400).end("Sign-in could not be verified.");
+						else res.writeHead(200, { "content-type": "text/plain; charset=utf-8" }).end("Return to LearnHarness to view the sign-in result. You may close this tab.");
 					});
-					lastError = planScopes(tokens) ? null : publicError(fail("scope"));
-				} catch (err) { if (!abort.signal.aborted) lastError = publicError(err); }
-				finally { if (pending?.abort === abort) pending = null; finish(); notify(); }
-			});
-			timer = setTimeout(() => cancel("timeout"), timeoutMs);
+				});
+			}
+			attempt.timer = setTimeout(() => cancel("timeout"), timeoutMs);
 			const url = new URL(AUTHORIZE);
 			url.search = new URLSearchParams({
 				client_id: selected?.clientId ?? "dynamic_agent_client",
@@ -340,7 +384,7 @@ function createChatGPT({ store, openExternal, fetch: request = globalThis.fetch,
 				ext_agent_host_id: state.hostId,
 				...(selected?.tokens?.idToken ? { id_token_hint: selected.tokens.idToken } : {}),
 				...(selected?.email ? { login_hint: selected.email } : {}),
-				response_type: "code", redirect_uri: redirectUri, scope: SCOPES.join(" "), resource: RESOURCE,
+				response_type: "code", redirect_uri: attempt.redirectUri, scope: SCOPES.join(" "), resource: RESOURCE,
 				state: expectedState, nonce, code_challenge_method: "S256",
 				code_challenge: crypto.createHash("sha256").update(verifier).digest("base64url"),
 			}).toString();
@@ -348,6 +392,20 @@ function createChatGPT({ store, openExternal, fetch: request = globalThis.fetch,
 		} catch (err) { cancel(err.code || "network"); }
 		void completion;
 		return snapshot();
+	}
+	function rejectPasteCallback() {
+		lastError = publicError(fail("identity"));
+		notify();
+		return snapshot();
+	}
+	async function completeLogin(callbackUrl) {
+		const attempt = pending;
+		if (callbackMode !== "paste" || attempt?.mode !== "paste") throw fail("disconnected");
+		if (typeof callbackUrl !== "string" || callbackUrl.length > 4096) return rejectPasteCallback();
+		let callback;
+		try { callback = new URL(callbackUrl); } catch { return rejectPasteCallback(); }
+		if (callback.origin !== new URL(attempt.redirectUri).origin || callback.pathname !== "/auth/callback") return rejectPasteCallback();
+		return handleCallback(attempt, callback.searchParams);
 	}
 	function cancelLogin() { pending?.cancel(); return snapshot(); }
 
@@ -536,7 +594,7 @@ function createChatGPT({ store, openExternal, fetch: request = globalThis.fetch,
 	function close() { closed = true; pending?.cancel(); stop(); }
 	function pause() { paused = true; pending?.cancel(); stop(); notify(); }
 	function resume() { paused = false; if (!storageDenied) suspended = false; notify(); }
-	return { status, login, cancelLogin, lease, models, select, consent, disconnect, logout, close, pause, resume, stamp };
+	return { status, login, completeLogin, cancelLogin, lease, models, select, consent, disconnect, logout, close, pause, resume, stamp };
 }
 
 module.exports = { createChatGPT, fileStore, publicError, allowedAuthEndpoint, SCOPES, validateState };

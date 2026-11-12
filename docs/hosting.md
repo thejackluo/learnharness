@@ -25,6 +25,10 @@ The container runs as uid 1000 with a read-only root filesystem, a temporary `/t
 
 Configure the reverse proxy to forward HTTPS requests to `http://127.0.0.1:3000` and preserve the public `Host`/forwarded-protocol information. The app must receive the exact `LH_PUBLIC_ORIGIN`; do not expose the upstream port publicly. `/api/health` is an unauthenticated liveness endpoint and returns the application version.
 
+## ChatGPT subscription (hosted)
+
+The owner can connect a ChatGPT/Codex subscription in hosted mode. Start sign-in in LearnHarness, authenticate at OpenAI, then copy the full address from the browser's unreachable `127.0.0.1` callback page and paste it back into LearnHarness. The hosted server completes the PKCE exchange and stores the credentials with the owner's hosted state. Treat the callback address as sensitive and paste it only into your trusted LearnHarness deployment. Other subscription providers, including Copilot and xAI, remain unavailable in hosted mode.
+
 To use a separately named state volume, set `LH_VOLUME_NAME` consistently for the helper scripts and Compose. Backups and restores operate on the volume name supplied by that variable.
 
 ## Encrypted backups and restore

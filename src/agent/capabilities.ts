@@ -18,6 +18,11 @@ export function agentCapabilities(): RuntimeCapabilities {
 	return cachedCapabilities;
 }
 
+export function subscriptionProviderAllowed(provider: string): boolean {
+	const capabilities = agentCapabilities();
+	return provider === "chatgpt" ? capabilities.chatgptSubscription : capabilities.subscriptions;
+}
+
 export class CapabilityDeniedError extends Error {
 	readonly capability: RuntimeCapability;
 
