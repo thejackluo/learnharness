@@ -5,6 +5,7 @@ import * as path from "node:path";
 import test, { beforeEach } from "node:test";
 import type { LhMessage } from "../src/core/native-messages.ts";
 import type {
+	LearnerObservation,
 	LearnerProfileV1,
 	WeaknessPattern,
 	WeaknessPatternOccurrence,
@@ -402,6 +403,51 @@ test("learner context orders active patterns, includes target title and newest q
 	assert.ok(!context.includes("p4 (×1)"));
 	assert.equal(projectLearnerContext({ ...emptyLearnerProfile(timestamp), patterns: [] }, []), null);
 	assert.equal(projectLearnerContext({ ...emptyLearnerProfile(timestamp), patterns: [makePattern("resolved", 2, timestamp, "resolved")] }, []), null);
+});
+
+test("long weakness patterns come after excerpts and observations and cap quotes at 120 characters", () => {
+	const profile: LearnerProfileV1 = {
+		...emptyLearnerProfile(timestamp),
+		excerpts: Array.from({ length: 6 }, (_, index) => ({
+			id: `excerpt-${index}`,
+			sourceName: `Source ${index} ${"s".repeat(230)}`,
+			text: "e".repeat(300),
+			importedAt: timestamp,
+		})),
+		patterns: Array.from({ length: 10 }, (_, index) => ({
+			id: `long-pattern-${index}`,
+			subject: "s".repeat(60),
+			pattern: "p".repeat(80),
+			status: "active" as const,
+			occurrences: [makeOccurrence(index, "q".repeat(300))],
+			createdAt: timestamp,
+			updatedAt: timestamp,
+		})),
+	};
+	const observations: LearnerObservation[] = Array.from({ length: 12 }, (_, index) => ({
+		id: `observation-${index}`,
+		chatId: `chat-${index}`,
+		chatTitle: `Session ${index} ${"o".repeat(230)}`,
+		chatKind: "teach",
+		resultMessageId: `result-${index}`,
+		sourceCallId: `call-${index}`,
+		observedAt: timestamp,
+		prompt: "Prompt",
+		provenance: "deterministic",
+		targets: [],
+		kind: "choice",
+		outcome: "correct",
+		tool: "quiz",
+	}));
+	const context = projectLearnerContext(profile, observations) ?? "";
+	assert.ok(context.includes("Confirmed excerpts"));
+	assert.ok(context.includes("Recent observations"));
+	assert.ok(context.includes("Session 0"));
+	assert.ok(context.indexOf("Confirmed excerpts") < context.indexOf("Recent observations"));
+
+	const largerProjection = projectLearnerContext(profile, [], { maxChars: 20_000 }) ?? "";
+	assert.ok(largerProjection.includes(`newest quote: “${"q".repeat(119)}…”`));
+	assert.ok(!largerProjection.includes("q".repeat(120)));
 });
 
 test("learner profile validation enforces weakness-pattern and target bounds", () => {

@@ -340,6 +340,11 @@ function oneLine(value: string): string {
 	return cleanText(value).replace(/\s+/g, " ").trim();
 }
 
+function patternQuoteLine(value: string): string {
+	const chars = Array.from(oneLine(value));
+	return chars.length <= 120 ? chars.join("") : `${chars.slice(0, 119).join("")}…`;
+}
+
 /** Learner-written text is quoted line by line so it cannot pose as a heading or an observation. */
 function quoted(value: string, chars: number): string {
 	return capText(value.replace(/\r\n?|[\u2028\u2029]/g, "\n"), chars)
@@ -396,19 +401,6 @@ export function projectLearnerContext(
 			lines.push(`- ${oneLine(topic.topic)}: ${topic.familiarity} (self-report, ${day(topic.updatedAt)})`);
 		}
 	}
-	const activePatterns = (profile?.patterns ?? [])
-		.filter((pattern) => pattern.status === "active")
-		.sort((a, b) => b.occurrences.length - a.occurrences.length || b.updatedAt.localeCompare(a.updatedAt))
-		.slice(0, 10);
-	if (activePatterns.length) {
-		lines.push("", "Recurring weaknesses");
-		for (const pattern of activePatterns) {
-			const newest = pattern.occurrences[pattern.occurrences.length - 1];
-			const newestQuote = newest?.quote ?? "";
-			const targetTitle = newest?.target ? opts?.targetTitle?.(newest.target) : undefined;
-			lines.push(`- ${oneLine(pattern.subject)} — ${oneLine(pattern.pattern)} (×${pattern.occurrences.length})${targetTitle ? `; target: ${oneLine(targetTitle)}` : ""}; newest quote: “${oneLine(newestQuote)}”`);
-		}
-	}
 	if (profile?.excerpts.length) {
 		lines.push("", "Confirmed excerpts");
 		for (const excerpt of profile.excerpts.slice(0, 6)) {
@@ -421,6 +413,19 @@ export function projectLearnerContext(
 			.sort((a, b) => b.observedAt.localeCompare(a.observedAt) || a.id.localeCompare(b.id))
 			.slice(0, 12);
 		lines.push(...recent.map(observationLine));
+	}
+	const activePatterns = (profile?.patterns ?? [])
+		.filter((pattern) => pattern.status === "active")
+		.sort((a, b) => b.occurrences.length - a.occurrences.length || b.updatedAt.localeCompare(a.updatedAt))
+		.slice(0, 10);
+	if (activePatterns.length) {
+		lines.push("", "Recurring weaknesses");
+		for (const pattern of activePatterns) {
+			const newest = pattern.occurrences[pattern.occurrences.length - 1];
+			const newestQuote = newest ? patternQuoteLine(newest.quote) : "";
+			const targetTitle = newest?.target ? opts?.targetTitle?.(newest.target) : undefined;
+			lines.push(`- ${oneLine(pattern.subject)} — ${oneLine(pattern.pattern)} (×${pattern.occurrences.length})${targetTitle ? `; target: ${oneLine(targetTitle)}` : ""}; newest quote: “${newestQuote}”`);
+		}
 	}
 	if (lines.length === 1) return null;
 	const maxChars = opts?.maxChars ?? 6000;
