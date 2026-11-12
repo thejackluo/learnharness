@@ -6,6 +6,7 @@ import type { LhMessage } from "../src/core/native-messages.ts";
 import {
 	deriveChatObservations,
 	learnerObservationId,
+	observationProvenanceLabel,
 	learnerProfileProblems,
 	parseLearnerObservationId,
 	projectLearnerContext,
@@ -42,6 +43,39 @@ test("learner observation ids round-trip escaped components", () => {
 	assert.deepEqual(parseLearnerObservationId(id), parts);
 	assert.equal(parseLearnerObservationId("ev:%E0%A4%A:r:c:"), null);
 	assert.equal(parseLearnerObservationId("other:a:b:c:d"), null);
+});
+
+test("client-executed code assessments derive browser-run observations", () => {
+	const codeSpec = {
+		version: 1,
+		parts: [{
+			id: "sum",
+			kind: "code",
+			prompt: "Write a sum function.",
+			criteria: [{ id: "sum", description: "Pass the tests", maxPoints: 1, expectedEvidence: "All tests pass" }],
+		}],
+	};
+	const observations = deriveChatObservations(record([result({
+		toolName: "explain",
+		details: {
+			kind: "explain",
+			questionText: "Write a sum function.",
+			autoEvaluation: {
+				version: 1,
+				sourceCallId: "call-1",
+				responseId: "result-1",
+				evaluationId: "auto:result-1",
+				provenance: "clientExecuted",
+				spec: codeSpec,
+				criteria: [{ criterionId: "sum", partId: "sum", maxPoints: 1, award: 0, outcome: "not_met", feedback: "One test failed." }],
+				totals: { possible: 1, awarded: 0, unassessed: 0, assessed: 1, complete: true },
+			},
+		},
+	})]));
+	assert.equal(observations.length, 1);
+	assert.equal(observations[0]?.kind, "criterion");
+	assert.equal(observations[0]?.provenance, "clientExecuted");
+	assert.equal(observationProvenanceLabel("clientExecuted"), "Ran your code in the browser.");
 });
 
 test("derives deterministic and legacy quiz observations, excluding non-evidence answers", () => {

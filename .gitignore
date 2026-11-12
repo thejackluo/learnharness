@@ -1,6 +1,7 @@
 node_modules/
 data/
 .next/
+/public/pyodide/
 *.log
 .DS_Store
 *.tsbuildinfo

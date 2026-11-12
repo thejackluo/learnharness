@@ -22,7 +22,7 @@ import type { TeachingStimulusSnapshot } from "./contracts/activity.ts";
 import { Type, type Static } from "typebox";
 import { stripModelValueDebris } from "./value-debris.ts";
 import { assessmentDisplayPartsSchema, assessmentPartsSchema, assessmentSpecProblems } from "./assessment.ts";
-import type { AssessmentEvaluationV1, AssessmentPartResponse } from "./contracts/assessment.ts";
+import type { AssessmentEvaluationV1, AssessmentPartResponse, CodeTestResult } from "./contracts/assessment.ts";
 
 // ─── shared types ───────────────────────────────────────────────────────────
 
@@ -552,6 +552,7 @@ export interface QuestionFormDraft {
 	other: string;
 	text: string;
 	parts?: Record<string, Record<string, string>>;
+	codeResults?: Record<string, CodeTestResult[]>;
 	/** Null = the learner has not stated a confidence. */
 	confidenceIndex: number | null;
 }
@@ -757,7 +758,9 @@ export function buildAnswer(qd: QuestionData, req: AnswerRequest, tool?: string)
 				? { partId: response.partId, kind: response.kind, value: response.value, unit: response.unit.trim() }
 				: response.kind === "exact"
 					? { partId: response.partId, kind: response.kind, text: response.text.trim() }
-					: { partId: response.partId, kind: response.kind, fields: response.fields.map(field => ({ id: field.id, text: field.text.trim() })) }),
+					: response.kind === "structured"
+						? { partId: response.partId, kind: response.kind, fields: response.fields.map(field => ({ id: field.id, text: field.text.trim() })) }
+						: { partId: response.partId, kind: response.kind, source: response.source, results: response.results }),
 		} : {}),
 	};
 	// resolve selected option values → OptionAnswer (in display order)
@@ -844,10 +847,27 @@ export function compactAnswerForModel(ad: QuestionAnswerData): Record<string, un
 		const autoCriteria = new Map((ad.autoEvaluation?.criteria ?? []).map(criterion => [criterion.criterionId, criterion]));
 		const autoParts = new Map((ad.autoEvaluation?.spec.parts ?? []).map(part => [part.id, part]));
 		out.parts = ad.partResponses.map(response => {
-			const criterion = autoParts.get(response.partId)?.criteria[0];
+			const autoPart = autoParts.get(response.partId);
+			const criterion = autoPart?.criteria[0];
 			const award = criterion ? autoCriteria.get(criterion.id) : undefined;
+			const evaluationText = response.kind === "code" && autoPart?.kind === "code"
+				? [
+					`Submitted source:\n${response.source}`,
+					...response.results.filter(result => result.status !== "pass").map(result => {
+						const test = autoPart.tests.find(candidate => candidate.id === result.testId);
+						return [
+							`Test: ${test?.name ?? result.testId}`,
+							`Call: ${test?.call ?? "(unknown)"}`,
+							`Expected: ${test?.expected ?? "(unknown)"}`,
+							`Actual: ${result.actual ?? "(none)"}`,
+							`Error: ${result.error ?? "(none)"}`,
+						].join("\n");
+					}),
+				].join("\n\n")
+				: undefined;
 			return {
 				...response,
+				...(evaluationText ? { evaluationText } : {}),
 				...(award && criterion ? {
 					award: award.award,
 					maxPoints: award.maxPoints,

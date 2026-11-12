@@ -31,6 +31,7 @@ import {
 	userFacingTextOf,
 } from "./native-messages.ts";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
+import { assessmentSpecOf } from "./assessment.ts";
 
 /** The practice join context (owner-approved, 2026-10-06 export round):
  *  practice tool RESULTS are acks — the statement, outcome, and verdict
@@ -89,6 +90,8 @@ function toolResultBody(result: ToolResultMessage, ctx?: MarkdownContext): { hea
 					unit?: string;
 					text?: string;
 					fields?: Array<{ id?: string; text?: string }>;
+					source?: string;
+					results?: Array<{ testId?: string; status?: string; actual?: string; error?: string; stdout?: string }>;
 				}>;
 		  }>
 		| undefined;
@@ -125,6 +128,18 @@ function toolResultBody(result: ToolResultMessage, ctx?: MarkdownContext): { hea
 					body.push(`- **${response.partId ?? "Part"}:**`);
 					for (const field of response.fields) {
 						if (typeof field.text === "string") body.push(`  - ${field.id ?? "Field"}: ${field.text}`);
+					}
+				} else if (response.kind === "code" && typeof response.source === "string" && Array.isArray(response.results)) {
+					body.push(`- **${response.partId ?? "Part"} — Python source:**\n\n\`\`\`python\n${response.source}\n\`\`\``);
+					const call = ctx?.calls.get(result.toolCallId);
+					const part = call ? assessmentSpecOf(call.args)?.parts.find(candidate => candidate.id === response.partId) : undefined;
+					const tests = part?.kind === "code" ? part.tests : [];
+					for (const codeResult of response.results) {
+						const test = tests.find(candidate => candidate.id === codeResult.testId);
+						body.push(`  - **${test?.name ?? codeResult.testId ?? "Test"}:** ${codeResult.status ?? "unknown"}`);
+						if (test) body.push(`    - Call: \`${test.call}\`; Expected: \`${test.expected}\``);
+						if (typeof codeResult.actual === "string") body.push(`    - Actual: \`${codeResult.actual}\``);
+						if (typeof codeResult.error === "string") body.push(`    - Error: ${codeResult.error}`);
 					}
 				}
 			}

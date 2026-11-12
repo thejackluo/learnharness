@@ -151,7 +151,7 @@ function criterionObservations(
 		details = result.details.autoEvaluation;
 		observationCallId = result.toolCallId;
 		if (
-			details.provenance !== "deterministic" ||
+			(details.provenance !== "deterministic" && details.provenance !== "clientExecuted") ||
 			details.responseId !== result.id ||
 			details.sourceCallId !== result.toolCallId ||
 			details.evaluationId !== `auto:${result.id}`
@@ -159,7 +159,7 @@ function criterionObservations(
 	} else return [];
 	if (
 		details.version !== 1 ||
-		(details.provenance !== "deterministic" && details.provenance !== "modelJudged") ||
+		(details.provenance !== "deterministic" && details.provenance !== "modelJudged" && details.provenance !== "clientExecuted") ||
 		!Array.isArray(details.criteria) ||
 		!isRecord(details.spec) ||
 		details.spec.version !== 1 ||
@@ -362,6 +362,7 @@ function provenanceLabel(provenance: ObservationProvenance): string {
 		case "modelJudged": return "AI-evaluated";
 		case "modelAuthored": return "tutor's practice verdict";
 		case "legacyClientGraded": return "legacy, client-graded (unverified)";
+		case "clientExecuted": return "Ran your code in the browser.";
 	}
 }
 

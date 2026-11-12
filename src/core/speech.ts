@@ -199,6 +199,7 @@ export function questionSpeech(toolName: string, toolCallId: string, input: unkn
 		lines.push(`Part ${partLabel(part.label, index)}: ${part.prompt}`);
 		if (part.kind === "numeric") lines.push(`Units: ${part.units.map(unit => unit.symbol).join(", ")}`);
 		if (part.kind === "structured") lines.push(`Fields: ${part.fields.map(field => field.label).join(", ")}`);
+		if (part.kind === "code") lines.push("Python code exercise.");
 	}
 	for (const [index, option] of question.options.entries()) {
 		const description = kind !== "quiz" && option.description ? ` ${option.description}` : "";
