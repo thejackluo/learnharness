@@ -1,9 +1,11 @@
-import type { AssessmentPart, CodeTestResult } from "@/src/core";
+import { PYTHON_HARNESS, type AssessmentPart, type CodeTestResult } from "@/src/core";
 
 export type CodeExerciseRunner = (
 	part: Extract<AssessmentPart, { kind: "code" }>,
 	source: string,
 ) => Promise<CodeTestResult[]>;
+
+export const PYTHON_STARTUP_TIMEOUT_MS = 60_000;
 
 type WorkerMessage =
 	| { type: "result"; result: CodeTestResult }
@@ -33,11 +35,13 @@ export const runPythonCode: CodeExerciseRunner = (part, source) => new Promise((
 	const results = new Map<string, CodeTestResult>();
 	const worker = new Worker(new URL("./python-code.worker.ts", import.meta.url), { type: "module" });
 	let timeout: ReturnType<typeof setTimeout> | undefined;
+	let startupTimeout: ReturnType<typeof setTimeout> | undefined;
 	let settled = false;
 
 	const finish = (timedOut = false, error?: string) => {
 		if (settled) return;
 		settled = true;
+		if (startupTimeout) clearTimeout(startupTimeout);
 		if (timeout) clearTimeout(timeout);
 		worker.terminate();
 		resolve(part.tests.map(test => results.get(test.id) ?? {
@@ -47,9 +51,12 @@ export const runPythonCode: CodeExerciseRunner = (part, source) => new Promise((
 		}));
 	};
 
+	startupTimeout = setTimeout(() => finish(false, "Python failed to start."), PYTHON_STARTUP_TIMEOUT_MS);
 	worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
 		const message = event.data;
 		if (message.type === "ready") {
+			if (startupTimeout) clearTimeout(startupTimeout);
+			startupTimeout = undefined;
 			timeout = setTimeout(() => finish(true), part.timeLimitMs);
 		} else if (message.type === "result") {
 			results.set(message.result.testId, boundedResult(message.result));
@@ -60,5 +67,6 @@ export const runPythonCode: CodeExerciseRunner = (part, source) => new Promise((
 		}
 	};
 	worker.onerror = () => finish(false, "Python worker failed.");
-	worker.postMessage({ source, tests: part.tests.map(({ id, call, expected }) => ({ id, call, expected })) });
+	worker.onmessageerror = () => finish(false, "Python worker failed.");
+	worker.postMessage({ harness: PYTHON_HARNESS, source, tests: part.tests.map(({ id, call, expected }) => ({ id, call, expected })) });
 });

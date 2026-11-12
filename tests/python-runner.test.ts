@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
-import { runPythonCode } from "../components/python-runner.ts";
+import { PYTHON_STARTUP_TIMEOUT_MS, runPythonCode } from "../components/python-runner.ts";
 import type { AssessmentPart } from "../src/core/contracts/assessment.ts";
+import { PYTHON_HARNESS } from "../src/core/python-harness.ts";
+
+test("Python worker source does not import from the core barrel", () => {
+	const source = readFileSync(new URL("../components/python-code.worker.ts", import.meta.url), "utf8");
+	assert.doesNotMatch(source, /@\/src\/core|\.\.\/src\/core/);
+});
 
 test("Python runs use fresh workers and time out only tests without results", async () => {
 	const part = {
@@ -20,9 +27,11 @@ test("Python runs use fresh workers and time out only tests without results", as
 	const originalWorker = globalThis.Worker;
 	const workers: Array<{ terminated: boolean }> = [];
 	let created = 0;
+	let postedMessage: unknown;
 	class FakeWorker {
 		onmessage: ((event: MessageEvent) => void) | null = null;
 		onerror: (() => void) | null = null;
+		onmessageerror: (() => void) | null = null;
 		terminated = false;
 
 		constructor(_url: URL, _options: WorkerOptions) {
@@ -30,7 +39,8 @@ test("Python runs use fresh workers and time out only tests without results", as
 			workers.push(this);
 		}
 
-		postMessage() {
+		postMessage(message: unknown) {
+			postedMessage = message;
 			const send = (data: unknown) => this.onmessage?.({ data } as MessageEvent);
 			queueMicrotask(() => {
 				send({ type: "ready" });
@@ -52,6 +62,11 @@ test("Python runs use fresh workers and time out only tests without results", as
 	try {
 		const timedOut = await runPythonCode(part, "source");
 		assert.deepEqual(timedOut.map(result => result.status), ["pass", "timeout"]);
+		assert.deepEqual(postedMessage, {
+			harness: PYTHON_HARNESS,
+			source: "source",
+			tests: part.tests.map(({ id, call, expected }) => ({ id, call, expected })),
+		});
 		assert.equal(workers[0]?.terminated, true);
 
 		const completed = await runPythonCode(part, "source");
@@ -85,6 +100,7 @@ test("Python results are capped in UTF-16 units without splitting surrogate pair
 	class FakeWorker {
 		onmessage: ((event: MessageEvent) => void) | null = null;
 		onerror: (() => void) | null = null;
+		onmessageerror: (() => void) | null = null;
 
 		constructor(_url: URL, _options: WorkerOptions) {}
 
@@ -109,6 +125,52 @@ test("Python results are capped in UTF-16 units without splitting surrogate pair
 		assert.equal(bounded?.stdout, "🙂".repeat(1000));
 		assert.equal(bounded?.stdout?.length, 2000);
 	} finally {
+		Object.defineProperty(globalThis, "Worker", { configurable: true, value: originalWorker });
+	}
+});
+
+test("Python startup timeout returns an error for every test if the worker never becomes ready", async (t) => {
+	const part = {
+		id: "sum",
+		kind: "code",
+		language: "python",
+		prompt: "Write add.",
+		starter: "",
+		tests: [
+			{ id: "first", name: "First", call: "1", expected: "1" },
+			{ id: "second", name: "Second", call: "2", expected: "2" },
+		],
+		timeLimitMs: 500,
+		criteria: [{ id: "sum", description: "Pass all tests", maxPoints: 1, expectedEvidence: "All pass" }],
+	} as Extract<AssessmentPart, { kind: "code" }>;
+	const originalWorker = globalThis.Worker;
+	let terminated = false;
+	class FakeWorker {
+		onmessage: ((event: MessageEvent) => void) | null = null;
+		onerror: (() => void) | null = null;
+		onmessageerror: (() => void) | null = null;
+
+		constructor(_url: URL, _options: WorkerOptions) {}
+
+		postMessage() {}
+
+		terminate() {
+			terminated = true;
+		}
+	}
+	Object.defineProperty(globalThis, "Worker", { configurable: true, value: FakeWorker });
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	try {
+		const pending = runPythonCode(part, "source");
+		t.mock.timers.tick(PYTHON_STARTUP_TIMEOUT_MS);
+		const results = await pending;
+		assert.deepEqual(results.map(({ status, error }) => ({ status, error })), [
+			{ status: "error", error: "Python failed to start." },
+			{ status: "error", error: "Python failed to start." },
+		]);
+		assert.equal(terminated, true);
+	} finally {
+		t.mock.timers.reset();
 		Object.defineProperty(globalThis, "Worker", { configurable: true, value: originalWorker });
 	}
 });
