@@ -11,6 +11,10 @@ for (const name of ["chatgpt-credentials.json", "github-copilot-credentials.json
 		const root = mkdtempSync(path.join(tmpdir(), "lh-sub-payload-"));
 		try {
 			mkdirSync(path.join(root, "scripts")); mkdirSync(path.join(root, ".next", "standalone"), { recursive: true }); mkdirSync(path.join(root, ".next", "static"));
+			mkdirSync(path.join(root, "public", "pyodide"), { recursive: true });
+			for (const asset of ["pyodide.js", "pyodide.mjs", "pyodide.asm.js", "pyodide.asm.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json"]) {
+				writeFileSync(path.join(root, "public", "pyodide", asset), "fixture");
+			}
 			copyFileSync(new URL("../scripts/build-server.mjs", import.meta.url), path.join(root, "scripts", "build-server.mjs"));
 			writeFileSync(path.join(root, ".next", "standalone", "server.js"), "// fixture");
 			writeFileSync(path.join(root, ".next", "standalone", secret), "fixture-not-real-credentials", { mode: 0o600 });
