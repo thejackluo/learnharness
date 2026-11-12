@@ -1,4 +1,5 @@
 import { PYTHON_HARNESS } from "@/src/core";
+import { lockWorkerNetwork } from "./worker-network-lockdown";
 
 type PyodideModule = typeof import("pyodide");
 type WorkerRequest = {
@@ -22,7 +23,9 @@ async function runtime(): Promise<PythonRuntime> {
 		runtimePromise = (async () => {
 			const url = "/pyodide/pyodide.mjs";
 			const pyodideModule = await import(/* webpackIgnore: true */ url) as PyodideModule;
-			return await pyodideModule.loadPyodide({ indexURL: "/pyodide/" }) as unknown as PythonRuntime;
+			const pyodide = await pyodideModule.loadPyodide({ indexURL: "/pyodide/" }) as unknown as PythonRuntime;
+			await pyodide.runPythonAsync("import ast, builtins, contextlib, io, json, traceback");
+			return pyodide;
 		})();
 	}
 	return runtimePromise;
@@ -31,6 +34,7 @@ async function runtime(): Promise<PythonRuntime> {
 workerScope.onmessage = async (event: MessageEvent<WorkerRequest>) => {
 	try {
 		const pyodide = await runtime();
+		lockWorkerNetwork(workerScope as unknown as Record<string, unknown>);
 		workerScope.postMessage({ type: "ready" });
 		pyodide.globals.set("__lh_request_json", JSON.stringify(event.data));
 		pyodide.globals.set("__lh_post_result", (json: string) => {
