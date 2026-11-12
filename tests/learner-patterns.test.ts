@@ -59,7 +59,7 @@ function chatWith(messages: LhMessage[]): string {
 	return chat.id;
 }
 
-function learnerAnswerChat(partResponses: unknown[]): string {
+function learnerAnswerChat(partResponses: unknown[], text?: string, resultCallId = "answer-call"): string {
 	const chat = stores.chatStore.createChat("Submitted answer quote");
 	stores.chatStore.saveMessages(chat.id, [
 		{
@@ -76,7 +76,7 @@ function learnerAnswerChat(partResponses: unknown[]): string {
 		{
 			id: "learner-answer",
 			role: "toolResult",
-			toolCallId: "answer-call",
+			toolCallId: resultCallId,
 			toolName: "explain",
 			content: [],
 			details: {
@@ -86,6 +86,7 @@ function learnerAnswerChat(partResponses: unknown[]): string {
 				answers: [],
 				answeredAt: timestamp,
 				partResponses,
+				...(text ? { text } : {}),
 			},
 			isError: false,
 			timestamp: Date.parse(timestamp) + 1,
@@ -207,6 +208,21 @@ test("submitted assessment strings, including future code source, are valid quot
 	const profile = stores.learnerProfileStore.read();
 	assert.equal(profile.state, "ok");
 	if (profile.state === "ok") assert.equal(profile.profile.patterns?.[0]?.occurrences.length, 4);
+});
+
+test("free-text answers are quote sources only when the tool result has learner cause", () => {
+	const answer = "I keep forgetting to carry the one.";
+	const chatId = learnerAnswerChat([], answer);
+	const accepted = patternsService.notePatternFromChat(chatId, {
+		subject: "Arithmetic", pattern: "drops the carried one", quote: answer,
+	});
+	assert.equal(successDetails(accepted).recorded, true);
+
+	const unmatchedAnswer = learnerAnswerChat([], answer, "unmatched-call");
+	const rejected = patternsService.notePatternFromChat(unmatchedAnswer, {
+		subject: "Arithmetic", pattern: "drops the carried one", quote: answer,
+	});
+	assert.equal(failureDetails(rejected).isError, true);
 });
 
 test("patterns merge by casefolded subject and label and deduplicate message-plus-quote", () => {

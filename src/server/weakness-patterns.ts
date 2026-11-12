@@ -34,7 +34,9 @@ function userMessageContainsQuote(message: LhMessage, quote: string): boolean {
 function answerContainsQuote(message: LhMessage, history: readonly LhMessage[], quote: string): boolean {
 	if (message.role !== "toolResult" || nativeInputCause(message, asAgentMessages(history)) !== "learner") return false;
 	const details = message.details;
-	if (!isRecord(details) || !Array.isArray(details.partResponses)) return false;
+	if (!isRecord(details)) return false;
+	if (typeof details.text === "string" && quoteInText(quote, details.text)) return true;
+	if (!Array.isArray(details.partResponses)) return false;
 	const strings: string[] = [];
 	collectResponseStrings(details.partResponses, strings);
 	return strings.some((value) => quoteInText(quote, value));
