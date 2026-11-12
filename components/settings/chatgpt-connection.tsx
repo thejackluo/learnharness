@@ -250,8 +250,14 @@ export function ChatGPTUIProvider({ children }: { children: React.ReactNode }) {
 		// completion, failure, or explicit cancellation releases the attempt.
 	}
 	async function finishPasteSignIn() {
-		const attempt = loginAttempt.current;
-		if (!bridge?.complete || !attempt || !owns(attempt) || (!attemptHasPhase(attempt, "starting") && !attemptHasPhase(attempt, "pending")) || !statusRef.current.pending || !statusRef.current.callbackPaste || (operation.current !== null && operation.current !== "login") || pasteBusy) return;
+		if (!bridge?.complete || (operation.current !== null && operation.current !== "login") || pasteBusy) return;
+		let attempt = loginAttempt.current;
+		if (!attempt && statusRef.current.pending && statusRef.current.callbackPaste && dialogRef.current?.kind === "connect") {
+			const owner = dialogRef.current;
+			attempt = { generation: ++generation.current, dialog: owner, registration, background, backgroundDirty, pending: true, phase: "pending" };
+			loginAttempt.current = attempt;
+		}
+		if (!attempt || !owns(attempt) || (!attemptHasPhase(attempt, "starting") && !attemptHasPhase(attempt, "pending")) || !statusRef.current.pending || !statusRef.current.callbackPaste) return;
 		if (attemptHasPhase(attempt, "starting")) { attempt.pending = true; attempt.phase = "pending"; }
 		setPasteBusy(true);
 		operation.current = "login";
@@ -329,6 +335,7 @@ export function ChatGPTUIProvider({ children }: { children: React.ReactNode }) {
 					<label className="block text-xs text-foreground" htmlFor="chatgpt-callback-url">Final sign-in address</label>
 					<input id="chatgpt-callback-url" data-testid="chatgpt-callback-url" type="text" autoComplete="off" spellCheck={false} value={callbackUrl} onInput={(event) => setCallbackUrl(event.currentTarget.value)} className="w-full rounded-sm border border-border bg-background px-2 py-1.5 text-xs" />
 					<Button variant="outline" size="sm" disabled={pasteBusy || (busy && operation.current !== "login") || !callbackUrl.trim() || !bridge?.complete} onClick={() => void finishPasteSignIn()}>Finish sign-in</Button>
+					<Button variant="ghost" size="sm" disabled={pasteBusy || (busy && operation.current !== "login")} onClick={close}>Cancel sign-in</Button>
 				</div>}
 				{context.error && <p role="alert" className="mt-3 text-xs text-red-400">{context.error}</p>}
 				{dialog.kind === "manage" && managed && <div className="mt-4 flex flex-wrap items-center justify-between gap-3" data-testid="chatgpt-account-strip">
@@ -369,8 +376,9 @@ export function ChatGPTConnection({ labelClassName }: { setup?: boolean; labelCl
 	const ui = useContext(Context);
 	const active = ui.status.accounts.find((a) => a.id === ui.status.activeId && a.connected);
 	const accounts = ui.status.accounts.filter((a) => a.connected);
+	const recoveringPaste = ui.status.pending && ui.status.callbackPaste === true;
 	return <div className="flex flex-col gap-2" data-testid="chatgpt-connection">
-		<ConnectionRow label="ChatGPT" labelClassName={labelClassName} actionTestid={active ? undefined : "chatgpt-login"} action={active ? "Manage…" : "Connect"} disabled={!ui.status.available || ui.busy || ui.status.pending} onAction={() => active ? ui.manage(active.id) : ui.connect()}>
+		<ConnectionRow label="ChatGPT" labelClassName={labelClassName} actionTestid={active && !recoveringPaste ? undefined : "chatgpt-login"} action={active && !recoveringPaste ? "Manage…" : "Connect"} disabled={!ui.status.available || ui.busy || (ui.status.pending && !recoveringPaste)} onAction={() => active && !recoveringPaste ? ui.manage(active.id) : ui.connect()}>
 			{active && <select aria-label="ChatGPT account" value={active.id} disabled={ui.busy || ui.status.pending} onChange={(event) => ui.select(event.target.value)} className="min-w-0 rounded-sm border border-border bg-background px-2 py-1 text-xs text-foreground">
 				{accounts.map((a) => <option key={a.id} value={a.id}>{a.email || "ChatGPT account"}</option>)}
 			</select>}
