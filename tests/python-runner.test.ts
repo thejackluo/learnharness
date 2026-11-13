@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { PYTHON_STARTUP_TIMEOUT_MS, runPythonCode } from "../components/python-runner.ts";
+import { PYTHON_STARTUP_TIMEOUT_MS, PYTHON_WORKER_URL, runPythonCode } from "../components/python-runner.ts";
 import type { AssessmentPart } from "../src/core/contracts/assessment.ts";
 import { PYTHON_HARNESS } from "../src/core/python-harness.ts";
 
@@ -28,14 +28,16 @@ test("Python runs use fresh workers and time out only tests without results", as
 	const workers: Array<{ terminated: boolean }> = [];
 	let created = 0;
 	let postedMessage: unknown;
+	const workerArgs: Array<{ url: string | URL; options?: WorkerOptions }> = [];
 	class FakeWorker {
 		onmessage: ((event: MessageEvent) => void) | null = null;
 		onerror: (() => void) | null = null;
 		onmessageerror: (() => void) | null = null;
 		terminated = false;
 
-		constructor(_url: URL, _options: WorkerOptions) {
+		constructor(url: string | URL, options?: WorkerOptions) {
 			created++;
+			workerArgs.push({ url, options });
 			workers.push(this);
 		}
 
@@ -67,6 +69,8 @@ test("Python runs use fresh workers and time out only tests without results", as
 			source: "source",
 			tests: part.tests.map(({ id, call, expected }) => ({ id, call, expected })),
 		});
+		assert.equal(workerArgs[0]?.url, PYTHON_WORKER_URL);
+		assert.deepEqual(workerArgs[0]?.options, { type: "module" });
 		assert.equal(workers[0]?.terminated, true);
 
 		const completed = await runPythonCode(part, "source");

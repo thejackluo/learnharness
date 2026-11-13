@@ -52,6 +52,11 @@ for (const asset of [
 		process.exit(1);
 	}
 }
+const pythonWorkerAsset = path.join("python-worker", "python-code.worker.mjs");
+if (!exists(path.join(STANDALONE, "public", pythonWorkerAsset))) {
+	console.error(`[build-server] Python worker missing from standalone public/: ${pythonWorkerAsset}`);
+	process.exit(1);
+}
 
 // 2) Safety: the repo's real data/ must NEVER ride along in the bundle.
 const leakedData = path.join(STANDALONE, "data");

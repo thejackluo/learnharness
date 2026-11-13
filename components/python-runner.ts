@@ -5,6 +5,7 @@ export type CodeExerciseRunner = (
 	source: string,
 ) => Promise<CodeTestResult[]>;
 
+export const PYTHON_WORKER_URL = "/python-worker/python-code.worker.mjs";
 export const PYTHON_STARTUP_TIMEOUT_MS = 60_000;
 
 type WorkerMessage =
@@ -33,7 +34,7 @@ function boundedResult(result: CodeTestResult): CodeTestResult {
 
 export const runPythonCode: CodeExerciseRunner = (part, source) => new Promise((resolve) => {
 	const results = new Map<string, CodeTestResult>();
-	const worker = new Worker(new URL("./python-code.worker.ts", import.meta.url), { type: "module" });
+	const worker = new Worker(/* turbopackIgnore: true */ PYTHON_WORKER_URL, { type: "module" });
 	let timeout: ReturnType<typeof setTimeout> | undefined;
 	let startupTimeout: ReturnType<typeof setTimeout> | undefined;
 	let settled = false;
