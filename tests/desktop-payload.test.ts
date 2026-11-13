@@ -29,6 +29,7 @@ function withPayload(test: (fixture: {
 		for (const asset of ["pyodide.js", "pyodide.mjs", "pyodide.asm.js", "pyodide.asm.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json"]) {
 			write(path.join("public", "pyodide", asset));
 		}
+		write(path.join("public", "python-worker", "python-code.worker.mjs"));
 		write(path.join(STANDALONE, PROMPT));
 		write(path.join(STANDALONE, "src", "agent", "prompts", "teacher", "20-teaching.md"));
 		test({ root, write, run: () => spawnSync(process.execPath, [path.join(root, "scripts", "build-server.mjs")], {
@@ -68,12 +69,13 @@ describe("desktop standalone payload", () => {
 	});
 
 	it("accepts a clean payload and is idempotent", () => {
-		withPayload(({ run }) => {
+		withPayload(({ root, run }) => {
 			for (let i = 0; i < 2; i++) {
 				const result = run();
 				assert.equal(result.status, 0, String(result.stderr));
 				assert.match(String(result.stdout), /server payload ready/);
 			}
+			assert.ok(fs.existsSync(path.join(root, STANDALONE, "public", "python-worker", "python-code.worker.mjs")));
 		});
 	});
 

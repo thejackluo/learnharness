@@ -317,9 +317,9 @@ export function createProberTools(
 		spawn: ctx.spawn,
 		searchAvailable: ctx.searchAvailable,
 	});
-	// Quizzing mechanics (owner 2026-09-27): free-recall swaps the probe
-	// quiz for the probe explain — one quizzing tool at a time, whichever
-	// the settings arm. ask stays always-on. The registry keys are the
+	// Quizzing mechanics: explicit choice/free selects one instrument; mixed
+	// carries both. With no explicit setting, both remain available. ask
+	// stays always-on. The registry keys are the
 	// PHASE names (probe/recall, owner 2026-10-09) — distinct from the
 	// teach tools so the schema boundary is visible to the model.
 	const mechanics = quizMechanics(enabled, mode);
@@ -438,15 +438,17 @@ export interface TeacherToolContext extends PlanToolContext {
  * future toggleables (question-tool variants, …) need no change here.
  * Absent/undefined = enabled — tests and old records see today's set.
  */
-/** The quizzing mechanics (owner 2026-09-27): `tools.explain === true` in
- *  the resolved settings ⇒ free-recall checks (explain armed, quiz dropped)
- *  — anything else ⇒ multiple choice, exactly today's set. Mechanics-
+/** Resolve the quizzing mode: an explicit assessment mode wins; otherwise
+ *  legacy `tools.explain: true` selects free response and `false` selects
+ *  choice. With neither setting, both instruments are enabled. Mechanics-
  *  managed, NOT individually toggleable: quiz/explain never pass through
  *  filterEnabledTools (the 2026-09-19 wedge ruling stands — a quiz-less
  *  prober collapses its assessment flow). */
 export function quizMechanics(enabled?: EnabledTools, mode?: "choice" | "free" | "mixed"): "choice" | "free" | "mixed" {
 	if (mode) return mode;
-	return enabled?.explain === true ? "free" : "choice";
+	if (enabled?.explain === true) return "free";
+	if (enabled?.explain === false) return "choice";
+	return "mixed";
 }
 
 /** Strip the mechanics keys so filterEnabledTools can never drop the
@@ -462,9 +464,9 @@ export function createTeacherTools(
 	enabled?: EnabledTools,
 	mode?: "choice" | "free" | "mixed",
 ): Record<string, AgentTool<any>> {
-	// Quizzing mechanics (owner 2026-09-27): free-recall swaps the teach
-	// quiz for the teach explain — one quizzing tool at a time, whichever
-	// the settings arm. ask stays always-on.
+	// Quizzing mechanics: explicit choice/free selects one instrument; mixed
+	// carries both. With no explicit setting, both remain available. ask
+	// stays always-on.
 	const mechanics = quizMechanics(enabled, mode);
 	// One turn-scoped map: an explain may link an activity posted earlier in
 	// the same turn, before persistence. `activity` (app-rendered declarative

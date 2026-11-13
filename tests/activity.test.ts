@@ -100,8 +100,9 @@ test("the activity tool persists validated data with no network, eval or helper 
 
 test("activity is registered for the teacher and survives hosted capability filtering; generated jobs do not", () => {
 	const ctx = { chatId: "chat-a", chatStore: store([]).chatStore, jobStore: {} as never, spawn: () => {} } as never;
-	// It rides with explain (the only way its exploration is assessed).
-	assert.equal(createTeacherTools(ctx).activity, undefined);
+	// It rides with explain (the only way its exploration is assessed), which
+	// is present in the default mixed mode.
+	assert.ok(createTeacherTools(ctx).activity && createTeacherTools(ctx).explain);
 	assert.equal(createTeacherTools(ctx, undefined, "choice").activity, undefined);
 	assert.ok(createTeacherTools(ctx, undefined, "free").activity);
 	const tools = createTeacherTools(ctx, undefined, "mixed");

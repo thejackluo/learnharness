@@ -1,8 +1,8 @@
-import { PYTHON_HARNESS } from "@/src/core";
 import { lockWorkerNetwork } from "./worker-network-lockdown";
 
 type PyodideModule = typeof import("pyodide");
 type WorkerRequest = {
+	harness: string;
 	source: string;
 	tests: Array<{ id: string; call: string; expected: string }>;
 };
@@ -33,6 +33,10 @@ async function runtime(): Promise<PythonRuntime> {
 
 workerScope.onmessage = async (event: MessageEvent<WorkerRequest>) => {
 	try {
+		if (typeof event.data?.harness !== "string") {
+			workerScope.postMessage({ type: "error", error: "Python harness is invalid." });
+			return;
+		}
 		const pyodide = await runtime();
 		lockWorkerNetwork(workerScope as unknown as Record<string, unknown>);
 		workerScope.postMessage({ type: "ready" });
@@ -40,7 +44,7 @@ workerScope.onmessage = async (event: MessageEvent<WorkerRequest>) => {
 		pyodide.globals.set("__lh_post_result", (json: string) => {
 			workerScope.postMessage({ type: "result", result: JSON.parse(json) });
 		});
-		await pyodide.runPythonAsync(PYTHON_HARNESS);
+		await pyodide.runPythonAsync(event.data.harness);
 		workerScope.postMessage({ type: "done" });
 	} catch (error) {
 		workerScope.postMessage({ type: "error", error: error instanceof Error ? `${error.name}: ${error.message}`.slice(0, 500) : "Python runtime failed." });
