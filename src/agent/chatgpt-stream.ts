@@ -7,7 +7,7 @@ import type { AdmissionScope, ChatGPTDispatchLifecycle } from "./chatgpt-request
 
 const USAGE = "https://chatgpt.com/settings/usage";
 export function chatGPTStreamError(message: string): string {
-	if (/subscription_sharing_usage_limit_exceeded|quota|429/.test(message)) return `ChatGPT plan usage limit reached. Manage usage at ${USAGE}. No API-key fallback was used.`;
+	if (/subscription_sharing_usage_limit_exceeded|quota|429|usage_limit_reached|rate_limit_exceeded|insufficient_quota|usage\s+limit|rate\s+limit/i.test(message)) return `ChatGPT plan usage limit reached. Manage usage at ${USAGE}. No API-key fallback was used.`;
 	if (/scope|authorization_context|permission/.test(message)) return "ChatGPT plan permission is missing. Reconnect in Providers and authorize plan use. No API-key fallback was used.";
 	if (/expired|invalid_grant|401|invalid_user/.test(message)) return "Your ChatGPT session expired. Reconnect in Providers. No API-key fallback was used.";
 	if (/background|Background/.test(message)) return "ChatGPT background use is off in this app. Enable Allow background use for all ChatGPT accounts in Providers to run this work. No API-key fallback was used.";
@@ -16,6 +16,14 @@ export function chatGPTStreamError(message: string): string {
 	if (/catalog|model/.test(message)) return "The selected model is unavailable for this ChatGPT account. Refresh Providers and explicitly choose an available model. No API-key fallback was used.";
 	if (/incomplete|terminal|interrupted|stop reason/.test(message)) return "ChatGPT returned an incomplete response. Retry when ready; no API-key fallback was used.";
 	return "ChatGPT request failed. Check your connection and ChatGPT usage, then retry. No API-key fallback was used.";
+}
+
+function safeFailureLogMessage(message: string): string {
+	return message
+		.replace(/\bBearer\s+\S+/gi, "Bearer [REDACTED]")
+		.replace(/\bsk-[A-Za-z0-9_-]+/g, "[REDACTED]")
+		.replace(/\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[REDACTED]")
+		.slice(0, 300);
 }
 
 /** Restrict the body at the final payload seam, even if caller samplingParams add fields. */
@@ -108,8 +116,10 @@ export function chatGPTStream(background: () => boolean, lifecycle?: ChatGPTDisp
 				}
 			} catch (err) {
 				if (terminal) return;
+				const rawMessage = err instanceof Error ? err.message : "";
+				console.warn(`[chatgpt] request failed: ${safeFailureLogMessage(rawMessage)}`);
 				if (!committed) lifecycle?.noDispatch(await chatGPTDenial(scope, controller, options?.signal?.aborted === true, purpose));
-				partial = { ...partial, stopReason: signal.aborted ? "aborted" : "error", errorMessage: chatGPTStreamError(err instanceof Error ? err.message : "") };
+				partial = { ...partial, stopReason: signal.aborted ? "aborted" : "error", errorMessage: chatGPTStreamError(rawMessage) };
 				output.push({ type: "error", reason: partial.stopReason as "error" | "aborted", error: partial });
 			} finally { release(); output.end(); }
 		})();

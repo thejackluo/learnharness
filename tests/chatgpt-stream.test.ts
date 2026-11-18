@@ -4,7 +4,7 @@ import { normalizeContext, type AssistantMessage, type Model } from "@earendil-w
 import { Type } from "typebox";
 import { piModels, piEngineForSpec } from "../src/agent/models.ts";
 import { chatGPTAbortController, chatGPTModels, refreshChatGPTModels } from "../src/agent/chatgpt-bridge.ts";
-import { chatGPTHistory, chatGPTPayload } from "../src/agent/chatgpt-stream.ts";
+import { chatGPTHistory, chatGPTPayload, chatGPTStreamError } from "../src/agent/chatgpt-stream.ts";
 
 const originalSend = Object.getOwnPropertyDescriptor(process, "send");
 const originalConnected = Object.getOwnPropertyDescriptor(process, "connected");
@@ -48,6 +48,14 @@ after(() => {
 const usage = { input_tokens: 10, output_tokens: 4, total_tokens: 14, input_tokens_details: { cached_tokens: 0 }, output_tokens_details: { reasoning_tokens: 0 } };
 const complete = (output: unknown[] = []) => ({ type: "response.completed", response: { id: "resp_scratch", status: "completed", output, usage } });
 const context = () => normalizeContext({ systemPrompt: "Scratch teacher instructions", messages: [{ role: "user", content: [{ type: "text", text: "Scratch learning material" }, { type: "image", data: "c2NyYXRjaA==", mimeType: "image/png" }], timestamp: 1 }], tools: [{ name: "scratch_tool", description: "Scratch local tool", parameters: Type.Object({ value: Type.String() }) }] });
+
+test("chatGPTStreamError recognizes usage-limit markers and keeps the generic fallback", () => {
+	const usageMessage = "ChatGPT plan usage limit reached. Manage usage at https://chatgpt.com/settings/usage. No API-key fallback was used.";
+	for (const message of ["usage_limit_reached", "rate_limit_exceeded", "insufficient_quota", "usage limit", "rate limit", "USAGE LIMIT", "RATE LIMIT"]) {
+		assert.equal(chatGPTStreamError(message), usageMessage, message);
+	}
+	assert.equal(chatGPTStreamError("unknown provider failure"), "ChatGPT request failed. Check your connection and ChatGPT usage, then retry. No API-key fallback was used.");
+});
 
 test("catalog intersects supported capabilities, without inventing model limits", () => {
 	assert.equal(chatGPTModels().length, 1);
@@ -100,13 +108,52 @@ test("mixed history never blanket-relabels API providers or reuses foreign reaso
 
 test("no terminal completed is never success; late quota/incomplete streams are actionable/redacted", async () => {
 	const engine = piEngineForSpec({ provider: "chatgpt", id: model.id }, false);
-	for (const events of [[{ type: "response.created", response: { id: "resp_partial" } }], [{ type: "response.incomplete", response: { status: "incomplete", output: [], incomplete_details: { reason: "max_output_tokens" }, usage } }], [{ type: "error", code: "subscription_sharing_usage_limit_exceeded", message: "secret scratch provider diagnostic" }]]) {
+	for (const events of [[{ type: "response.created", response: { id: "resp_partial" } }], [{ type: "response.incomplete", response: { status: "incomplete", output: [], incomplete_details: { reason: "max_output_tokens" }, usage } }], [{ type: "response.failed", response: { status: "failed", error: { code: "usage_limit_reached", message: "usage limit reached" } } }], [{ type: "error", code: "subscription_sharing_usage_limit_exceeded", message: "secret scratch provider diagnostic" }]]) {
 		responseEvents = events;
 		const result = await engine.streamFn(engine.model, context()).result();
 		assert.equal(result.stopReason, "error"); assert.equal(result.provider, "chatgpt");
 		assert(!result.errorMessage?.includes("secret scratch provider diagnostic"));
 		if (JSON.stringify(events).includes("usage_limit")) assert(result.errorMessage?.includes("https://chatgpt.com/settings/usage"));
 	}
+});
+
+test("HTTP 429 reaches the ChatGPT usage-limit mapper", async () => {
+	const engine = piEngineForSpec({ provider: "chatgpt", id: model.id }, false);
+	const warnings: string[] = [];
+	const originalWarn = console.warn;
+	console.warn = (...args) => { warnings.push(args.join(" ")); };
+	try {
+		const result = await engine.streamFn(engine.model, context(), {
+			fetch: async () => new Response(JSON.stringify({ error: { code: "temporary_failure", message: "try again" } }), { status: 429, headers: { "content-type": "application/json" } }),
+		}).result();
+		assert.equal(result.stopReason, "error");
+		assert.match(result.errorMessage ?? "", /^ChatGPT plan usage limit reached\./);
+		assert.match(warnings[0] ?? "", /429/);
+	} finally {
+		console.warn = originalWarn;
+	}
+});
+
+test("stream failure logs redact credentials and cap the raw message at 300 characters", async () => {
+	const engine = piEngineForSpec({ provider: "chatgpt", id: model.id }, false);
+	responseEvents = [{ type: "error", code: `Bearer abc.def sk-test123 eyJheader.payload.signature ${"x".repeat(400)}`, message: "synthetic provider failure" }];
+	const warnings: string[] = [];
+	const originalWarn = console.warn;
+	console.warn = (...args) => { warnings.push(args.join(" ")); };
+	try {
+		assert.equal((await engine.streamFn(engine.model, context()).result()).stopReason, "error");
+	} finally {
+		console.warn = originalWarn;
+	}
+	const warning = warnings[0] ?? "";
+	const prefix = "[chatgpt] request failed: ";
+	assert.ok(warning.startsWith(prefix));
+	const loggedMessage = warning.slice(prefix.length);
+	assert.equal(loggedMessage.length, 300);
+	assert.match(loggedMessage, /Bearer \[REDACTED\]/);
+	assert.ok(!loggedMessage.includes("abc.def"));
+	assert.ok(!loggedMessage.includes("sk-test123"));
+	assert.ok(!loggedMessage.includes("eyJheader"));
 });
 
 test("OAuth failure and background denial NEVER use ambient OPENAI_API_KEY", async () => {
