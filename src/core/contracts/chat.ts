@@ -29,6 +29,18 @@ import type { PlacementRun } from "./familiarity.ts";
  *  practice agent, its two tools, no extraction, no graph writes. */
 export type ChatKind = "teach" | "practice";
 
+export interface ChatTargetLink {
+	target: LearningTargetRef;
+	linkedAt: string;
+	suggestionCallId?: string;
+}
+
+export interface MapSuggestionDecision {
+	callId: string;
+	decision: "accepted" | "dismissed";
+	at: string;
+}
+
 export interface ChatRecord {
 	id: string;
 	title: string;
@@ -58,6 +70,10 @@ export interface ChatRecord {
 	 *  session from, at the objective revision current at creation. Absent
 	 *  on ordinary sessions. Never inferred from titles or content. */
 	target?: LearningTargetRef;
+	/** Append-only target history for mid-chat map links. */
+	targetLinks?: ChatTargetLink[];
+	/** Learner decisions on map-link and map-draft suggestions. */
+	mapSuggestionDecisions?: MapSuggestionDecision[];
 	/** A suggest-only automatic familiarity placement run. */
 	placement?: PlacementRun;
 	/** SCHEMA STAMP (schema-versioning wave, owner 2026-10-10): LAZY v1 —

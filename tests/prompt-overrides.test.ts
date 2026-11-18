@@ -198,6 +198,7 @@ describe("the source-derived segment list", () => {
 				"shared/26-target-evidence.md",
 				"shared/27-familiarity.md",
 				"shared/28-weakness-patterns.md",
+				"shared/29-map-links.md",
 				"shared/30-learner-files.md",
 				"shared/40-formatting.md",
 			],
@@ -208,6 +209,9 @@ describe("the source-derived segment list", () => {
 		assert.ok(weaknessPatterns);
 		assert.match(weaknessPatterns.sourceText, /note_pattern/);
 		assert.equal(prober.some((s) => s.path === "shared/28-weakness-patterns.md"), true);
+		assert.equal(teacher.some((s) => s.path === "shared/29-map-links.md"), true);
+		assert.equal(prober.some((s) => s.path === "shared/29-map-links.md"), true);
+		assert.equal(effectivePromptSegments("practice", {}).some((s) => s.path === "shared/29-map-links.md"), false);
 		assert.equal(effectivePromptSegments("practice", {}).some((s) => s.path === "shared/28-weakness-patterns.md"), false);
 		const sharedQuestionTools = prober.find((s) => s.path === "shared/20-question-tools.md");
 		assert.ok(sharedQuestionTools);

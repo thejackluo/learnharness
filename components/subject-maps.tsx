@@ -4,6 +4,7 @@ import { SubjectMapDraft } from "@/components/subject-map-draft";
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { SUBJECT_MAP_LIMITS, type LearningTargetRef, type SubjectMapSummary } from "@/src/core";
 
 type TargetLink = {
@@ -43,6 +44,9 @@ function issueList(body: Record<string, unknown>): string[] {
 
 /** The maps index: list, create an empty map, or preview → confirm a curriculum import. */
 export function SubjectMapsHome() {
+	const searchParams = useSearchParams();
+	const draftGoal = searchParams?.get("draftGoal") ?? null;
+	const draftFramework = searchParams?.get("draftFramework") ?? null;
 	const [maps, setMaps] = useState<SubjectMapSummary[] | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [issues, setIssues] = useState<string[]>([]);
@@ -54,6 +58,7 @@ export function SubjectMapsHome() {
 	const [importing, setImporting] = useState(false);
 	const [inputKey, setInputKey] = useState(0);
 	const mounted = useRef(true);
+	const draftRef = useRef<HTMLDivElement>(null);
 
 	const load = useCallback(async () => {
 		try {
@@ -74,6 +79,12 @@ export function SubjectMapsHome() {
 			mounted.current = false;
 		};
 	}, [load]);
+
+	useEffect(() => {
+		if (draftGoal !== null && typeof draftRef.current?.scrollIntoView === "function") {
+			draftRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+		}
+	}, [draftGoal, draftFramework]);
 
 	const created = (id: string) => {
 		window.location.assign(`/maps/${encodeURIComponent(id)}`);
@@ -254,7 +265,13 @@ export function SubjectMapsHome() {
 			</section>
 
 			<LearnerMapLinks />
-			<SubjectMapDraft />
+			<div ref={draftRef}>
+				<SubjectMapDraft
+					key={draftGoal === null ? "default" : `${draftGoal}\u0000${draftFramework ?? ""}`}
+					initialGoal={draftGoal ?? undefined}
+					initialFramework={draftFramework ?? undefined}
+				/>
+			</div>
 		</main>
 	);
 }

@@ -8,6 +8,7 @@ import { ToolCallCard } from "@/components/artifacts/tool-call-card";
 import { ProblemCard, ConcludeCard } from "@/components/practice-cards";
 import { EvaluationCard } from "@/components/assessment-card";
 import { ActivityCard } from "@/components/activity-card";
+import { MapDraftChip, MapLinkChip } from "@/components/map-link-chips";
 
 /**
  * Artifact renderer registry — the extension point for tool-part UI.
@@ -55,4 +56,6 @@ export const artifactRenderers: Record<string, ComponentType<ArtifactPartProps>>
 	// discipline (their results are pre-formatted strings too).
 	list_sessions: ToolCallCard,
 	list_propositions: ToolCallCard,
+	suggest_map_link: MapLinkChip,
+	suggest_map_draft: MapDraftChip,
 };

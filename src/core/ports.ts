@@ -68,6 +68,10 @@ export interface ChatStore {
 	 *  Replace-whole: the picker sends the complete settings object. */
 	saveSettings(id: string, settings: ChatSettings): void;
 	saveTargeting(id: string, targeting: { target?: LearningTargetRef; placement: PlacementRun }): void;
+	/** Link a chat to a target, preserving any earlier target history. */
+	linkTarget(id: string, target: LearningTargetRef, suggestionCallId: string, at: string): void;
+	/** Persist the learner's decision on a map suggestion. */
+	recordMapSuggestionDecision(id: string, callId: string, decision: "accepted" | "dismissed", at: string): boolean;
 	/** Rename a session (the header's click-to-edit title, 2026-09-17).
 	 * Like saveSettings: a rename is NOT conversation activity — updatedAt
 	 * stays put, so sidebar order never churns on a rename. */
