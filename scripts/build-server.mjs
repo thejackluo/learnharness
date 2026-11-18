@@ -80,6 +80,12 @@ for (const secret of ["auth.json", ...subscriptionSecrets, ".env", ".env.local"]
 	}
 }
 
+if (!exists(path.join(STANDALONE, "CHANGELOG.md"))) {
+	console.error("[build-server] Changelog missing from standalone output.");
+	console.error("             Check outputFileTracingIncludes in next.config.ts.");
+	process.exit(1);
+}
+
 // 2c) Payload curation (2026-10-11): the trace sweep can copy repo-root
 // dist/ (previous installers, recursively) and the development Electron
 // runtime (the demo helper's dev-only require). Neither belongs in the
