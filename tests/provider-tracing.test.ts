@@ -41,6 +41,7 @@ describe("standalone JavaScript tracing exclusions and native workaround policy"
 	});
 	it("retains exactly the narrow native-Turbopack closure workaround and existing runtime includes", () => {
 		assert.deepEqual(nextConfig.outputFileTracingIncludes!["*"], [
+			"CHANGELOG.md",
 			"node_modules/@puppeteer/browsers/lib/browser-data/**/*.js",
 			"node_modules/pdfjs-dist/legacy/**/*",
 			"node_modules/pdfjs-dist/standard_fonts/**/*",
