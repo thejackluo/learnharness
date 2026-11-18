@@ -1,6 +1,6 @@
 import { emit } from "@/src/core";
 import type { ChatRecord } from "@/src/core";
-import { getChat, requireOwnerRequest, runtimeMode, stores, targetPanelFor } from "@/src/server";
+import { getChat, isTurnRunning, requireOwnerRequest, runtimeMode, stores, targetPanelFor } from "@/src/server";
 
 const headers = { "Cache-Control": "private, no-store" };
 
@@ -26,12 +26,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 	if (runtimeMode() === "hosted" && !requireOwnerRequest(request)) {
 		return json({ error: "Sign in required." }, 401);
 	}
-	const { id } = await params;
-	const chat = getChat(id);
-	if (!chat) return json({ error: "Not found" }, 404);
-	if (chat.placement) return json({ error: "Map suggestions are unavailable in placement chats." }, 409);
-	if (chat.kind === "practice") return json({ error: "Map suggestions are unavailable in practice chats." }, 409);
-
 	const body = await request.json().catch(() => null);
 	if (
 		!isRecord(body) ||
@@ -40,6 +34,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 	) {
 		return json({ error: "Body must be { callId: string, decision: 'accept' | 'dismiss' }." }, 400);
 	}
+	const { id } = await params;
+	const chat = getChat(id);
+	if (!chat) return json({ error: "Not found" }, 404);
+	if (chat.placement) return json({ error: "Map suggestions are unavailable in placement chats." }, 409);
+	if (chat.kind === "practice") return json({ error: "Map suggestions are unavailable in practice chats." }, 409);
+
 	const callId = body.callId;
 	const toolResult = chat.messages.find((message): message is ToolResult =>
 		message.role === "toolResult" && message.toolCallId === callId && !message.isError,
@@ -47,16 +47,21 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 	if (!toolResult || (toolResult.toolName !== "suggest_map_link" && toolResult.toolName !== "suggest_map_draft")) {
 		return json({ error: "Map suggestion not found." }, 404);
 	}
-	if (chat.mapSuggestionDecisions?.some((decision) => decision.callId === callId)) {
-		return json({ error: "A decision was already recorded for this suggestion." }, 409);
-	}
 	if (body.decision === "accept" && toolResult.toolName !== "suggest_map_link") {
 		return json({ error: "Draft suggestions cannot be accepted as chat targets." }, 400);
+	}
+	if (body.decision === "accept" && isTurnRunning(id)) {
+		return json({ error: "The tutor is still replying — link once it finishes." }, 409);
+	}
+	if (chat.mapSuggestionDecisions?.some((decision) => decision.callId === callId)) {
+		return json({ error: "A decision was already recorded for this suggestion." }, 409);
 	}
 
 	const at = new Date().toISOString();
 	if (body.decision === "dismiss") {
-		stores.chatStore.recordMapSuggestionDecision(id, callId, "dismissed", at);
+		if (!stores.chatStore.recordMapSuggestionDecision(id, callId, "dismissed", at)) {
+			return json({ error: "A decision was already recorded for this suggestion." }, 409);
+		}
 	} else {
 		const details = isRecord(toolResult.details) ? toolResult.details : null;
 		const mapId = details?.mapId;
@@ -79,7 +84,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 			skillId,
 			skillRevision: skill.revision,
 		}, callId, at);
-		stores.chatStore.recordMapSuggestionDecision(id, callId, "accepted", at);
+		if (!stores.chatStore.recordMapSuggestionDecision(id, callId, "accepted", at)) {
+			return json({ error: "A decision was already recorded for this suggestion." }, 409);
+		}
 	}
 	emit("record-changed", { chatId: id });
 	const updated = getChat(id);

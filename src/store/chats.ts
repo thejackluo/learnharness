@@ -218,14 +218,16 @@ function linkTarget(id: string, target: LearningTargetRef, suggestionCallId: str
 	writeChat(record);
 }
 
-function recordMapSuggestionDecision(id: string, callId: string, decision: "accepted" | "dismissed", at: string): void {
+function recordMapSuggestionDecision(id: string, callId: string, decision: "accepted" | "dismissed", at: string): boolean {
 	const record = getChat(id);
 	if (!record) throw new Error(`Chat not found: ${id}`);
+	if (record.mapSuggestionDecisions?.some((entry) => entry.callId === callId)) return false;
 	record.mapSuggestionDecisions = [
 		...(record.mapSuggestionDecisions ?? []),
 		{ callId, decision, at },
 	];
 	writeChat(record);
+	return true;
 }
 
 /** Rename a session (the header's click-to-edit title, 2026-09-17). Like

@@ -12,7 +12,7 @@ process.env.LH_DATA_DIR = DATA_DIR;
 process.env.LH_RUNTIME = "local";
 process.env.LH_IGNORE_ENV_KEYS = "1";
 
-const [{ stores }, mapLinks, targetRoute, tools, mapTools, { practiceTools }, mapsApi] = await Promise.all([
+const [{ stores }, mapLinks, targetRoute, tools, mapTools, { practiceTools }, mapsApi, targets, turnLiveness] = await Promise.all([
 	import("../src/server/stores.ts"),
 	import("../src/server/map-links.ts"),
 	import("../app/api/chats/[id]/target/route.ts"),
@@ -20,6 +20,8 @@ const [{ stores }, mapLinks, targetRoute, tools, mapTools, { practiceTools }, ma
 	import("../src/agent/tools/map-links.ts"),
 	import("../src/agent/tools/practice.ts"),
 	import("../src/server/subject-maps.ts"),
+	import("../src/server/target-adaptation.ts"),
+	import("../src/server/turn-liveness.ts"),
 ]);
 
 test.after(() => fs.rmSync(DATA_DIR, { recursive: true, force: true }));
@@ -64,6 +66,21 @@ function suggestionResult(callId: string, toolName: "suggest_map_link" | "sugges
 
 function linkDetails(mapId: string, mapTitle: string, skillId: string, skillTitle: string, skillRevision = 1) {
 	return { mapId, mapTitle, skillId, skillTitle, skillRevision, reason: "The learner is studying this skill." };
+}
+
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	const promise = new Promise<T>((done) => { resolve = done; });
+	return { promise, resolve };
+}
+
+function deferredTargetRequest(chatId: string, body: Promise<unknown>): Request {
+	const request = new Request(`http://localhost/api/chats/${chatId}/target`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+	});
+	Object.defineProperty(request, "json", { value: () => body });
+	return request;
 }
 
 async function postTarget(chatId: string, callId: string, decision: "accept" | "dismiss") {
@@ -240,7 +257,8 @@ test("link and decision store writes reread records and seed creation targets", 
 	stores.chatStore.linkTarget(chat.id, linkedTarget, "accepted-call", "2026-02-01T00:00:00.000Z");
 	stores.chatStore.saveMessages(chat.id, []);
 	stores.chatStore.appendTurnUsage(chat.id, { id: "turn-1" } as never);
-	stores.chatStore.recordMapSuggestionDecision(chat.id, "accepted-call", "accepted", "2026-02-01T00:00:00.000Z");
+	assert.equal(stores.chatStore.recordMapSuggestionDecision(chat.id, "accepted-call", "accepted", "2026-02-01T00:00:00.000Z"), true);
+	assert.equal(stores.chatStore.recordMapSuggestionDecision(chat.id, "accepted-call", "dismissed", "2026-02-02T00:00:00.000Z"), false);
 	const saved = stores.chatStore.getChat(chat.id)!;
 	assert.deepEqual(saved.target, linkedTarget);
 	assert.deepEqual(saved.targetLinks, [
@@ -347,6 +365,74 @@ test("target API accepts with the current revision, dismisses, and rejects stale
 	assert.match((await retired.json() as { error: string }).error, /retired/);
 });
 
+test("accepting waits for the tutor turn while dismissal remains available", async () => {
+	const map = stores.subjectMapStore.create({
+		title: "Mid-turn map",
+		description: "",
+		skills: [
+			{ id: "first", title: "First", objective: "Explain first", revision: 1 },
+			{ id: "second", title: "Second", objective: "Explain second", revision: 1 },
+		],
+		edges: [],
+		goals: [],
+		retired: [],
+	});
+	const current = { kind: "subject-skill" as const, mapId: map.id, skillId: "first", skillRevision: 1 };
+	const chat = stores.chatStore.createChat("Mid-turn decisions", undefined, current);
+	stores.chatStore.saveMessages(chat.id, [
+		...suggestionResult("busy-accept", "suggest_map_link", linkDetails(map.id, map.title, "second", "Second")),
+		...suggestionResult("busy-dismiss", "suggest_map_draft", { subject: "Other subject", goal: "Learn the basics" }),
+	]);
+	assert.equal(turnLiveness.beginTurn(chat.id), true);
+	try {
+		const busy = await postTarget(chat.id, "busy-accept", "accept");
+		assert.equal(busy.status, 409);
+		assert.equal((await busy.json() as { error: string }).error, "The tutor is still replying — link once it finishes.");
+		assert.deepEqual(stores.chatStore.getChat(chat.id)?.target, current);
+		assert.equal(stores.chatStore.getChat(chat.id)?.mapSuggestionDecisions?.some(({ callId }) => callId === "busy-accept") ?? false, false);
+
+		const dismissed = await postTarget(chat.id, "busy-dismiss", "dismiss");
+		assert.equal(dismissed.status, 200);
+		assert.equal(stores.chatStore.getChat(chat.id)?.mapSuggestionDecisions?.find(({ callId }) => callId === "busy-dismiss")?.decision, "dismissed");
+	} finally {
+		turnLiveness.endTurn(chat.id);
+	}
+	const accepted = await postTarget(chat.id, "busy-accept", "accept");
+	assert.equal(accepted.status, 200);
+	assert.deepEqual(stores.chatStore.getChat(chat.id)?.target, { kind: "subject-skill", mapId: map.id, skillId: "second", skillRevision: 1 });
+	assert.equal(stores.chatStore.getChat(chat.id)?.mapSuggestionDecisions?.find(({ callId }) => callId === "busy-accept")?.decision, "accepted");
+});
+
+test("concurrent decisions for one suggestion produce one winner", async () => {
+	const map = stores.subjectMapStore.create({
+		title: "Concurrent map",
+		description: "",
+		skills: [{ id: "skill", title: "Skill", objective: "Explain", revision: 1 }],
+		edges: [],
+		goals: [],
+		retired: [],
+	});
+	const chat = stores.chatStore.createChat("Concurrent decisions");
+	stores.chatStore.saveMessages(chat.id, suggestionResult("concurrent-call", "suggest_map_link", linkDetails(map.id, map.title, "skill", "Skill")));
+
+	const firstBody = deferred<unknown>();
+	const secondBody = deferred<unknown>();
+	const params = { params: Promise.resolve({ id: chat.id }) };
+	const first = targetRoute.POST(deferredTargetRequest(chat.id, firstBody.promise), params);
+	const second = targetRoute.POST(deferredTargetRequest(chat.id, secondBody.promise), params);
+	secondBody.resolve({ callId: "concurrent-call", decision: "accept" });
+	const secondResponse = await second;
+	firstBody.resolve({ callId: "concurrent-call", decision: "accept" });
+	const firstResponse = await first;
+
+	assert.equal(secondResponse.status, 200);
+	assert.equal(firstResponse.status, 409);
+	const final = stores.chatStore.getChat(chat.id)!;
+	assert.deepEqual(final.target, { kind: "subject-skill", mapId: map.id, skillId: "skill", skillRevision: 1 });
+	assert.deepEqual(final.mapSuggestionDecisions?.map(({ callId, decision }) => [callId, decision]), [["concurrent-call", "accepted"]]);
+	assert.equal(final.targetLinks?.length, 1);
+});
+
 function answerMessages(callId: string, callAt: number, resultAt: number) {
 	return [
 		{
@@ -402,4 +488,37 @@ test("onTarget attribution uses the link current when the question was posed and
 
 	const legacy = { ...record, targetLinks: undefined, target: second } as unknown as ChatRecord;
 	assert.deepEqual(deriveChatObservations(legacy).find((item) => item.sourceCallId === "before-first-link")?.attributedTarget, second);
+});
+
+test("map adaptation keeps evidence from a chat relinked to another map", async () => {
+	const mapP = stores.subjectMapStore.create({
+		title: "Map P",
+		description: "",
+		skills: [{ id: "p-skill", title: "P skill", objective: "Explain P", revision: 1 }],
+		edges: [],
+		goals: [],
+		retired: [],
+	});
+	const mapC = stores.subjectMapStore.create({
+		title: "Map C",
+		description: "",
+		skills: [{ id: "c-skill", title: "C skill", objective: "Explain C", revision: 1 }],
+		edges: [],
+		goals: [],
+		retired: [],
+	});
+	const targetP = { kind: "subject-skill" as const, mapId: mapP.id, skillId: "p-skill", skillRevision: 1 };
+	const source = stores.chatStore.createChat("Relinked source", undefined, targetP);
+	const questionAt = Date.now() + 1000;
+	stores.chatStore.saveMessages(source.id, answerMessages("evidence-on-P", questionAt, questionAt + 200));
+	stores.chatStore.linkTarget(source.id, {
+		kind: "subject-skill",
+		mapId: mapC.id,
+		skillId: "c-skill",
+		skillRevision: 1,
+	}, "link-to-C", new Date(questionAt + 1000).toISOString());
+
+	const sessionP = stores.chatStore.createChat("Current P session", undefined, targetP);
+	const view = targets.targetAdaptationFor(stores.chatStore.getChat(sessionP.id)!)!;
+	assert.ok(view.sample.some((item) => item.chatTitle === "Relinked source" && item.via.includes("tutor")));
 });
