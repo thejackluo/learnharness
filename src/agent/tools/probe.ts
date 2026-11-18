@@ -52,13 +52,14 @@ export function probeDoneTool(ctx: ProbeDoneContext): Record<string, AgentTool<a
 			name: "probe_done",
 			label: "probe_done",
 			description:
-				"Conclude the probing phase and hand off to the teaching phase. Call this ONCE, when the probe is " +
-				"complete: every strand the lesson depends on is bracketed (a floor he reliably gets right AND a " +
-				"ceiling where it runs out), and his learning goal is concrete. The input IS the learner assessment — " +
-				"one strand per dependency the lesson will rest on, with your read of where his edge sits on it " +
-				"(floor, ceiling, misconceptions, what to build from). It streams to the learner live and becomes " +
-				"the handoff artifact the teacher plans from. Refused while a question is still open, and after " +
-				"the probe is already concluded. After it succeeds, say your closing sentence and end your turn.",
+				"Conclude the opening and hand off to the teaching phase. Call this ONCE, as soon as his learning goal is " +
+				"concrete and you have a reasonable read of where teaching should start. That read can be inferred from his " +
+				"profile, past results or how he talks; strands don't need to be fully bracketed. The input IS the learner " +
+				"assessment: one strand per dependency the lesson will rest on, with your read of where his edge sits on it " +
+				"(likely floor, likely ceiling, misconceptions, what to build from), marking what's inferred vs. shown by an " +
+				"answer. It streams to the learner live and becomes the handoff artifact the teacher plans from. Refused " +
+				"while a question is still open, and after the probe is already concluded. After it succeeds, say one short " +
+				"bridging sentence and end your turn.",
 			// The core-owned schema (contracts/probe.ts) — the SAME schema the UI
 			// parse seam (tool-parts.ts) runs, so boundary-valid ⇔ consumer-parseable.
 			parameters: probeDoneInputSchema,

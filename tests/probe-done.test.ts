@@ -84,6 +84,7 @@ describe("probe_done: the probe→planning seam", () => {
 		assert.equal(delivered[0]!.customType, "probe-handoff");
 		assert.equal(delivered[0]!.content, HANDOFF_TEXT);
 		assert.match(HANDOFF_TEXT, /start teaching the first node in the same reply/);
+		assert.match(tools.probe_done!.description, /strands don't need to be fully bracketed/);
 		assert.equal((delivered[0]!.details as { chatId: string }).chatId, chatId);
 	});
 
