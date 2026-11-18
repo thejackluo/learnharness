@@ -10,10 +10,15 @@ const suggestions = ["AP Physics 1", "AP Physics C: Mechanics", "AP Calculus BC"
 const FIELD = "rounded-sm border border-border bg-background px-2 py-1.5 text-sm";
 const BUTTON = "rounded-sm border border-border px-2.5 py-1.5 text-xs hover:bg-accent disabled:opacity-50";
 
-export function SubjectMapDraft({ previous, onSaved }: { previous?: SubjectMapV1; onSaved?: (map: SubjectMapV1) => void }) {
-	const [open, setOpen] = useState(false);
-	const [goal, setGoal] = useState("");
-	const [framework, setFramework] = useState("");
+export function SubjectMapDraft({ previous, onSaved, initialGoal, initialFramework }: {
+	previous?: SubjectMapV1;
+	onSaved?: (map: SubjectMapV1) => void;
+	initialGoal?: string;
+	initialFramework?: string;
+}) {
+	const [open, setOpen] = useState(initialGoal !== undefined);
+	const [goal, setGoal] = useState(initialGoal ?? "");
+	const [framework, setFramework] = useState(initialFramework ?? "");
 	const [instruction, setInstruction] = useState("");
 	const [syllabus, setSyllabus] = useState("");
 	const [file, setFile] = useState<File | null>(null);

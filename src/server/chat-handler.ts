@@ -57,6 +57,7 @@ import { learnerContextFor } from "./learner.ts";
 import { sessionTargetState, targetContextFor } from "./target-adaptation.ts";
 import { advancePlacement, placementContextFor, placementNudgeFor, suggestFamiliarityFromChat } from "./familiarity.ts";
 import { notePatternFromChat } from "./weakness-patterns.ts";
+import { mapSuggestionFeaturesForChat } from "./map-links.ts";
 import {
 	ChatInputError,
 	failedResponseAtEnd,
@@ -446,12 +447,14 @@ export async function handleChatInput(
 		: undefined;
 	const notePattern = (input: NotePatternToolInput) =>
 		notePatternFromChat(chatId, input);
+	const mapSuggestions = mapSuggestionFeaturesForChat(targeting, chatId);
+	const savedMapsContext = mapSuggestions.savedMapsContext;
 	const agentOpts: AgentBuildOptions = {
 		engine,
 		callPurpose,
 		requestCycle,
 		messages: asAgentMessages(agentMessages),
-		learnerContext: [learnerContextFor(chatId), targetContextFor(targeting), placementContextFor(targeting)].filter((part): part is string => !!part).join("\n\n") || undefined,
+		learnerContext: [learnerContextFor(chatId), targetContextFor(targeting), placementContextFor(targeting), savedMapsContext].filter((part): part is string => !!part).join("\n\n") || undefined,
 		onUsage: collectUsage,
 		toolToggles: effective.agent.tools,
 		assessmentMode: effective.agent.assessmentMode,
@@ -508,6 +511,8 @@ export async function handleChatInput(
 						sessionTarget,
 						...(suggestFamiliarity ? { suggestFamiliarity } : {}),
 						notePattern,
+						...(mapSuggestions.suggestMapLink ? { suggestMapLink: mapSuggestions.suggestMapLink } : {}),
+						...(mapSuggestions.suggestMapDraft ? { suggestMapDraft: mapSuggestions.suggestMapDraft } : {}),
 					},
 					agentOpts,
 				)
@@ -529,6 +534,8 @@ export async function handleChatInput(
 						sessionTarget,
 						...(suggestFamiliarity ? { suggestFamiliarity } : {}),
 						notePattern,
+						...(mapSuggestions.suggestMapLink ? { suggestMapLink: mapSuggestions.suggestMapLink } : {}),
+						...(mapSuggestions.suggestMapDraft ? { suggestMapDraft: mapSuggestions.suggestMapDraft } : {}),
 					},
 					agentOpts,
 				);

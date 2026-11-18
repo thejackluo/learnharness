@@ -7,6 +7,8 @@ import { SubjectMapEditor } from "../components/subject-map-editor.tsx";
 import { SubjectMapsHome } from "../components/subject-maps.tsx";
 import { SubjectMapDraft } from "../components/subject-map-draft.tsx";
 import { SubjectMapWorld } from "../components/subject-map-world.tsx";
+import { MapDraftChip, MapLinkChip } from "../components/map-link-chips.tsx";
+import { ChatActionsContext } from "../components/chat.tsx";
 import { FamiliaritySuggestions } from "../components/familiarity-suggestions.tsx";
 import { SessionTargetPanel } from "../components/target-adaptation.tsx";
 import type { LearnerObservation } from "../src/core/contracts/learner.ts";
@@ -809,5 +811,178 @@ test("skill launch checks model setup before creating a session and ignores a do
 		else delete (globalThis as { sessionStorage?: unknown }).sessionStorage;
 		if (originalLocation) Object.defineProperty(dom.window, "location", originalLocation);
 		else delete (dom.window as { location?: unknown }).location;
+	}
+});
+
+test("map-link chip accepts, shows the linked state, and dispatches the target change event", async () => {
+	const requests: { url: string; method: string; body?: string }[] = [];
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		const url = String(input);
+		requests.push({ url, method: init?.method ?? "GET", ...(typeof init?.body === "string" ? { body: init.body } : {}) });
+		if (init?.method === "POST") return Response.json({ mapSuggestions: { "link-call": "accepted" } });
+		return Response.json({ mapSuggestions: {} });
+	}) as typeof fetch;
+	const actions = { chatId: "chat-chip", syncFromServer: async () => {}, sendText: () => {}, openSetup: () => {} };
+	let changedForChat = false;
+	const onChanged = (event: Event) => {
+		changedForChat = (event as CustomEvent<{ chatId?: string }>).detail?.chatId === "chat-chip";
+	};
+	window.addEventListener("lh:chat-target-changed", onChanged);
+	try {
+		const { root, container } = await mount(createElement(ChatActionsContext.Provider, {
+			value: actions,
+			children: createElement(MapLinkChip, {
+				part: {
+					type: "tool-suggest_map_link",
+					state: "output-available",
+					toolCallId: "link-call",
+					output: { mapTitle: "<Systems>", skillTitle: "Processes" },
+				},
+			}),
+		}));
+		assert.match(container.textContent ?? "", /Use your <Systems> map → Processes\?/);
+		await click(button(container, "Link"));
+		assert.match(container.textContent ?? "", /Linked to <Systems> → Processes/);
+		assert.deepEqual(JSON.parse(requests.find((request) => request.method === "POST")!.body!), {
+			callId: "link-call",
+			decision: "accept",
+		});
+		assert.equal(changedForChat, true);
+		await act(async () => root.unmount());
+	} finally {
+		window.removeEventListener("lh:chat-target-changed", onChanged);
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("map-link chip shows server conflicts and error tool results render nothing", async () => {
+	globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+		if (init?.method === "POST") return Response.json({ error: "This skill was retired." }, { status: 409 });
+		return Response.json({ mapSuggestions: {} });
+	}) as typeof fetch;
+	const actions = { chatId: "chat-conflict", syncFromServer: async () => {}, sendText: () => {}, openSetup: () => {} };
+	try {
+		const { root, container } = await mount(createElement(ChatActionsContext.Provider, {
+			value: actions,
+			children: createElement(MapLinkChip, {
+				part: { type: "tool-suggest_map_link", state: "output-available", toolCallId: "conflict", output: { mapTitle: "Map", skillTitle: "Skill" } },
+			}),
+		}));
+		await click(button(container, "Link"));
+		assert.match(container.textContent ?? "", /This skill was retired\./);
+		await act(async () => root.unmount());
+		const { root: errorRoot, container: errorContainer } = await mount(createElement(ChatActionsContext.Provider, {
+			value: actions,
+			children: createElement(MapLinkChip, {
+				part: { type: "tool-suggest_map_link", state: "output-error", toolCallId: "error", output: { mapTitle: "Map", skillTitle: "Skill" } },
+			}),
+		}));
+		assert.equal(errorContainer.textContent, "");
+		await act(async () => errorRoot.unmount());
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("map-draft chip URL-encodes the prefill, omits absent framework, and dismisses", async () => {
+	const posts: string[] = [];
+	globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+		if (init?.method === "POST") {
+			posts.push(String(init.body));
+			return Response.json({ mapSuggestions: { "draft-call": "dismissed" } });
+		}
+		return Response.json({ mapSuggestions: {} });
+	}) as typeof fetch;
+	const actions = { chatId: "chat-draft", syncFromServer: async () => {}, sendText: () => {}, openSetup: () => {} };
+	try {
+		const { root, container } = await mount(createElement(ChatActionsContext.Provider, {
+			value: actions,
+			children: createElement(MapDraftChip, {
+				part: {
+					type: "tool-suggest_map_draft",
+					state: "output-available",
+					toolCallId: "draft-call",
+					output: { subject: "Vectors", goal: "Learn vectors & matrices", framework: "IB MYP" },
+				},
+			}),
+		}));
+		const anchor = container.querySelector<HTMLAnchorElement>("a")!;
+		assert.equal(anchor.textContent, "Draft a Vectors map?");
+		const params = new URLSearchParams(new URL(anchor.getAttribute("href")!, "http://localhost").search);
+		assert.equal(params.get("draftGoal"), "Learn vectors & matrices");
+		assert.equal(params.get("draftFramework"), "IB MYP");
+		anchor.addEventListener("click", (event) => event.preventDefault(), { once: true });
+		await click(anchor);
+		assert.equal(posts.length, 0, "opening the drafter does not record a decision");
+		await click(button(container, "Not now"));
+		assert.equal(posts.length, 1);
+		assert.deepEqual(JSON.parse(posts[0]!), { callId: "draft-call", decision: "dismiss" });
+		assert.equal(container.textContent, "", "dismissed draft chips disappear");
+		await act(async () => root.unmount());
+		const noFramework = await mount(createElement(ChatActionsContext.Provider, {
+			value: actions,
+			children: createElement(MapDraftChip, {
+				part: {
+					type: "tool-suggest_map_draft",
+					state: "output-available",
+					toolCallId: "draft-no-framework",
+					output: { subject: "Algebra", goal: "Study equations" },
+				},
+			}),
+		}));
+		const noFrameworkParams = new URLSearchParams(new URL(noFramework.container.querySelector("a")!.getAttribute("href")!, "http://localhost").search);
+		assert.equal(noFrameworkParams.has("draftFramework"), false);
+		await act(async () => noFramework.root.unmount());
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("prefilled map drafter waits for Generate before fetching", async () => {
+	const requests: { url: string; body?: unknown }[] = [];
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		requests.push({ url: String(input), ...(typeof init?.body === "string" ? { body: JSON.parse(init.body) } : {}) });
+		return Response.json({ draft: map, issues: [] });
+	}) as typeof fetch;
+	try {
+		const { root, container } = await mount(createElement(SubjectMapDraft, {
+			initialGoal: "Learn systems programming",
+			initialFramework: "OS course",
+		}));
+		assert.ok(container.querySelector('section[aria-label="Draft with AI"]'));
+		assert.equal(container.querySelector<HTMLInputElement>("#map-draft-framework")?.value, "OS course");
+		assert.equal(requests.length, 0);
+		await click(button(container, "Generate draft"));
+		assert.equal(requests.length, 1);
+		assert.equal(requests[0]?.url, "/api/subject-maps/drafts");
+		assert.deepEqual(requests[0]?.body, { goal: "Learn systems programming", framework: "OS course" });
+		await act(async () => root.unmount());
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("SessionTargetPanel refetches only for its own target-changed event", async () => {
+	let requests = 0;
+	globalThis.fetch = (async () => {
+		requests++;
+		return Response.json({ view: null, placement: null, mapSuggestions: {} });
+	}) as typeof fetch;
+	try {
+		const { root } = await mount(createElement(SessionTargetPanel, { chatId: "chat-own" }));
+		assert.equal(requests, 1);
+		await act(async () => {
+			window.dispatchEvent(new dom.window.CustomEvent("lh:chat-target-changed", { detail: { chatId: "chat-other" } }));
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		});
+		assert.equal(requests, 1);
+		await act(async () => {
+			window.dispatchEvent(new dom.window.CustomEvent("lh:chat-target-changed", { detail: { chatId: "chat-own" } }));
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		});
+		assert.equal(requests, 2);
+		await act(async () => root.unmount());
+	} finally {
+		globalThis.fetch = originalFetch;
 	}
 });

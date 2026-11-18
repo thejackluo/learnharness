@@ -84,6 +84,18 @@ function attribution(record: ChatRecord, onTarget: ReadonlySet<string>, callId: 
 	if (probe && record.placement) {
 		return { attributedTarget: { kind: "subject-skill", mapId: record.placement.mapId, skillId: probe.skillId, skillRevision: probe.revision } };
 	}
+	if (record.targetLinks) {
+		const posedAt = record.messages.find((message) =>
+			message.role === "assistant" &&
+			message.content.some((block) => block.type === "toolCall" && block.id === callId),
+		)?.timestamp;
+		if (posedAt === undefined) return {};
+		for (let index = record.targetLinks.length - 1; index >= 0; index--) {
+			const link = record.targetLinks[index]!;
+			if (Date.parse(link.linkedAt) <= posedAt) return { attributedTarget: link.target };
+		}
+		return {};
+	}
 	if (!record.target) return {};
 	const { kind, mapId, skillId, skillRevision } = record.target;
 	return { attributedTarget: { kind, mapId, skillId, skillRevision } };

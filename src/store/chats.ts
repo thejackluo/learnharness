@@ -206,6 +206,28 @@ function saveTargeting(id: string, targeting: { target?: LearningTargetRef; plac
 	writeChat(record);
 }
 
+function linkTarget(id: string, target: LearningTargetRef, suggestionCallId: string, at: string): void {
+	const record = getChat(id);
+	if (!record) throw new Error(`Chat not found: ${id}`);
+	if (!record.targetLinks && record.target) {
+		record.targetLinks = [{ target: record.target, linkedAt: record.createdAt }];
+	}
+	record.targetLinks ??= [];
+	record.targetLinks.push({ target, linkedAt: at, suggestionCallId });
+	record.target = target;
+	writeChat(record);
+}
+
+function recordMapSuggestionDecision(id: string, callId: string, decision: "accepted" | "dismissed", at: string): void {
+	const record = getChat(id);
+	if (!record) throw new Error(`Chat not found: ${id}`);
+	record.mapSuggestionDecisions = [
+		...(record.mapSuggestionDecisions ?? []),
+		{ callId, decision, at },
+	];
+	writeChat(record);
+}
+
 /** Rename a session (the header's click-to-edit title, 2026-09-17). Like
  * saveSettings, a rename is NOT conversation activity: updatedAt stays put
  * so sidebar order never churns. Same fallback as createChat — the empty
@@ -254,6 +276,8 @@ export const chatStore: ChatStore = {
 	saveTree,
 	saveSettings,
 	saveTargeting,
+	linkTarget,
+	recordMapSuggestionDecision,
 	renameChat,
 	deleteChat,
 	appendTurnUsage,

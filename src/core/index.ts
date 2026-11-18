@@ -92,4 +92,5 @@ export * from "./familiarity.ts";
 export * from "./map-draft-review.ts";
 export * from "./activity.ts";
 export * from "./adaptation.ts";
+export * from "./map-links.ts";
 export * from "./speech.ts";

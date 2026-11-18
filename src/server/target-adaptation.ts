@@ -111,12 +111,13 @@ export function targetAdaptationFor(record: Pick<ChatRecord, "id" | "target">): 
 	});
 }
 
-export function targetPanelFor(record: Pick<ChatRecord, "id" | "target" | "placement">) {
+export function targetPanelFor(record: Pick<ChatRecord, "id" | "target" | "placement" | "mapSuggestionDecisions">) {
 	return {
 		view: targetAdaptationFor(record),
 		placement: record.placement
 			? { mapId: record.placement.mapId, completed: Boolean(record.placement.completedAt) }
 			: null,
+		mapSuggestions: Object.fromEntries((record.mapSuggestionDecisions ?? []).map(({ callId, decision }) => [callId, decision])),
 	};
 }
 

@@ -20,21 +20,29 @@ export function SessionTargetPanel({ chatId, refreshKey }: { chatId: string; ref
 
 	useEffect(() => {
 		let live = true;
-		fetch(`/api/chats/${encodeURIComponent(chatId)}/target`, { cache: "no-store" })
-			.then(async (response) => {
-				if (!response.ok) throw new Error(String(response.status));
-				const body = (await response.json()) as { view?: TargetAdaptationView | null; placement?: PlacementPanel | null };
-				if (live) {
-					setView(body.view ?? null);
-					setPlacement(body.placement ?? null);
-					setError(false);
-				}
-			})
-			.catch(() => {
-				if (live) setError(true);
-			});
+		const refresh = () => {
+			void fetch(`/api/chats/${encodeURIComponent(chatId)}/target`, { cache: "no-store" })
+				.then(async (response) => {
+					if (!response.ok) throw new Error(String(response.status));
+					const body = (await response.json()) as { view?: TargetAdaptationView | null; placement?: PlacementPanel | null };
+					if (live) {
+						setView(body.view ?? null);
+						setPlacement(body.placement ?? null);
+						setError(false);
+					}
+				})
+				.catch(() => {
+					if (live) setError(true);
+				});
+		};
+		const onTargetChanged = (event: Event) => {
+			if ((event as CustomEvent<{ chatId?: string }>).detail?.chatId === chatId) refresh();
+		};
+		window.addEventListener("lh:chat-target-changed", onTargetChanged);
+		refresh();
 		return () => {
 			live = false;
+			window.removeEventListener("lh:chat-target-changed", onTargetChanged);
 		};
 	}, [chatId, refreshKey]);
 

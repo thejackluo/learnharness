@@ -31,6 +31,12 @@ import { healToolRecord } from "./tools/heal.ts";
 import { withTargetAttribution, type SessionTargetState } from "./tools/target-attribution.ts";
 import { suggestFamiliarityTool } from "./tools/suggest-familiarity.ts";
 import { notePatternTool, type NotePatternToolInput } from "./tools/note-pattern.ts";
+import {
+	suggestMapDraftTool,
+	suggestMapLinkTool,
+	type MapDraftSuggestionInput,
+	type MapLinkSuggestionInput,
+} from "./tools/map-links.ts";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { GraphStore } from "../core/ports.ts";
 
@@ -293,6 +299,8 @@ export interface ProberToolContext extends ProbeDoneContext {
 	sessionTarget?: SessionTargetState;
 	suggestFamiliarity?: (input: { skillId: string; quote: string }) => AgentToolResult | Promise<AgentToolResult>;
 	notePattern?: (input: NotePatternToolInput) => AgentToolResult | Promise<AgentToolResult>;
+	suggestMapLink?: (input: MapLinkSuggestionInput) => AgentToolResult | Promise<AgentToolResult>;
+	suggestMapDraft?: (input: MapDraftSuggestionInput) => AgentToolResult | Promise<AgentToolResult>;
 }
 
 /** The prober's tool set: probe quiz (no nodeId) + ask + the learner-fs
@@ -360,11 +368,12 @@ export function createProberTools(
 					: {}),
 				...(ctx.suggestFamiliarity ? { suggest_familiarity: suggestFamiliarityTool(ctx.suggestFamiliarity) } : {}),
 				...(ctx.notePattern ? { note_pattern: notePatternTool(ctx.notePattern) } : {}),
-				...done,
 			},
 				withoutMechanics(enabled),
 			),
 			...done,
+			...(ctx.suggestMapLink ? { suggest_map_link: suggestMapLinkTool(ctx.suggestMapLink) } : {}),
+			...(ctx.suggestMapDraft ? { suggest_map_draft: suggestMapDraftTool(ctx.suggestMapDraft) } : {}),
 		}));
 }
 
@@ -425,6 +434,8 @@ export interface TeacherToolContext extends PlanToolContext {
 	sessionTarget?: SessionTargetState;
 	suggestFamiliarity?: (input: { skillId: string; quote: string }) => AgentToolResult | Promise<AgentToolResult>;
 	notePattern?: (input: NotePatternToolInput) => AgentToolResult | Promise<AgentToolResult>;
+	suggestMapLink?: (input: MapLinkSuggestionInput) => AgentToolResult | Promise<AgentToolResult>;
+	suggestMapDraft?: (input: MapDraftSuggestionInput) => AgentToolResult | Promise<AgentToolResult>;
 }
 
 /**
@@ -478,26 +489,28 @@ export function createTeacherTools(
 	const quizzing: Record<string, AgentTool<any>> =
 		{ ...(mechanics !== "choice" ? { explain: withTargetAttribution(teachExplainToolFor(ctx, posted), ctx.sessionTarget), activity: activityTool(posted) } : {}), ...(mechanics !== "free" ? { quiz: withTargetAttribution(teachQuizToolFor(ctx), ctx.sessionTarget) } : {}) };
 	// healToolRecord — same standard as the prober's registry (above).
-	return capabilityFilter(healToolRecord(
-		filterEnabledTools(
-			{
-			...quizzing,
-			evaluate: evaluateTool(ctx),
-			ask_user_question: askUserQuestionTool,
-			// The learner-filesystem set is always-on (user-decided 2026-09,
-			// sources v1): the teacher locates and reads learner-referenced
-			// files on its own terms — nothing auto-injects. Read-only by
-			// construction (fs-shared.ts).
-			read: readTool,
-			ls: lsTool,
-			find: findTool,
-			grep: grepTool,
-			...planTools(ctx),
-			...jobTools({ chatId: ctx.chatId, jobStore: ctx.jobStore, spawn: ctx.spawn, searchAvailable: ctx.searchAvailable }),
-			...(ctx.suggestFamiliarity ? { suggest_familiarity: suggestFamiliarityTool(ctx.suggestFamiliarity) } : {}),
-			...(ctx.notePattern ? { note_pattern: notePatternTool(ctx.notePattern) } : {}),
-		},
-		withoutMechanics(enabled),
-		),
-	));
+	return capabilityFilter(healToolRecord({
+			...filterEnabledTools(
+				{
+					...quizzing,
+					evaluate: evaluateTool(ctx),
+					ask_user_question: askUserQuestionTool,
+					// The learner-filesystem set is always-on (user-decided 2026-09,
+					// sources v1): the teacher locates and reads learner-referenced
+					// files on its own terms — nothing auto-injects. Read-only by
+					// construction (fs-shared.ts).
+					read: readTool,
+					ls: lsTool,
+					find: findTool,
+					grep: grepTool,
+					...planTools(ctx),
+					...jobTools({ chatId: ctx.chatId, jobStore: ctx.jobStore, spawn: ctx.spawn, searchAvailable: ctx.searchAvailable }),
+					...(ctx.suggestFamiliarity ? { suggest_familiarity: suggestFamiliarityTool(ctx.suggestFamiliarity) } : {}),
+					...(ctx.notePattern ? { note_pattern: notePatternTool(ctx.notePattern) } : {}),
+				},
+				withoutMechanics(enabled),
+			),
+			...(ctx.suggestMapLink ? { suggest_map_link: suggestMapLinkTool(ctx.suggestMapLink) } : {}),
+			...(ctx.suggestMapDraft ? { suggest_map_draft: suggestMapDraftTool(ctx.suggestMapDraft) } : {}),
+		}));
 }

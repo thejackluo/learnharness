@@ -14,6 +14,7 @@ export * from "./familiarity-http.ts";
 export * from "./syllabus-upload.ts";
 export * from "./map-draft-http.ts";
 export * from "./target-adaptation.ts";
+export * from "./map-links.ts";
 export * from "./runtime.ts";
 export * from "./owner-auth.ts";
 export * from "./writer-lock.ts";

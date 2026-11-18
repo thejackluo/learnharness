@@ -95,7 +95,7 @@ test("session creation validates the target at the revision the learner saw", as
 	assert.equal(stores.chatStore.getChat(plain)?.target, undefined);
 	const view = await targetRoute.GET(new Request("http://localhost"), { params: Promise.resolve({ id: plain }) });
 	assert.equal(view.headers.get("Cache-Control"), "private, no-store");
-	assert.deepEqual(await view.json(), { view: null, placement: null });
+	assert.deepEqual(await view.json(), { view: null, placement: null, mapSuggestions: {} });
 	const practicePlacement = await createSession({ title: "Practice placement", kind: "practice", placement: { mapId: map.id } });
 	assert.equal(practicePlacement.status, 400);
 	assert.equal((await practicePlacement.json() as { code: string }).code, "invalid_placement");
@@ -111,6 +111,7 @@ test("session creation validates the target at the revision the learner saw", as
 	assert.deepEqual(await completedPlacementResponse.json(), {
 		view: null,
 		placement: { mapId: map.id, completed: true },
+		mapSuggestions: {},
 	});
 	const targetAndPlacement = await createSession({ title: "Both", target: threads, placement: { mapId: map.id } });
 	assert.equal(targetAndPlacement.status, 400);
