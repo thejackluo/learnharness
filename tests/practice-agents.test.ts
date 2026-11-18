@@ -361,6 +361,7 @@ describe("practice prompt composition (own directory + the formatting appendix)"
 		assert.match(teacher, /primary data/);
 		// the no-double-plan rule (owner-reported: plan drawn twice)
 		assert.match(teacher, /Never draw the plan again in your prose/);
+		assert.match(teacher, /Then start teaching right away/);
 		// plan rewriting is normal, not exceptional (continuous adaptation)
 		assert.match(teacher, /Rewriting is a normal, common event/);
 		// planning is the natural verification moment
@@ -373,13 +374,11 @@ describe("practice prompt composition (own directory + the formatting appendix)"
 		assert.match(teacher, /nothing to rush/, "the goal reiteration composes");
 	});
 
-	it("the prober doctrine steers difficulty by evidence (owner round, 2026-10-07)", () => {
+	it("the prober keeps the opening conversational and short", () => {
 		const prober = composeInstructions("prober");
-		assert.match(prober, /Enter near the top, not the bottom/);
-		assert.match(prober, /Strands inform each other/);
-		assert.match(prober, /never descending into already-bracketed territory/);
-		// the confidence + thinking signals are wired into question selection
-		assert.match(prober, /the verdict, his confidence, and his thinking field together set where the next question should sit/);
+		assert.match(prober, /The opening should feel like the first minute with a good tutor/);
+		assert.match(prober, /At most two or three checks in the whole opening/);
+		assert.match(prober, /As soon as the goal is concrete and you have a reasonable read of where to start.*call `probe_done`/);
 	});
 
 	it("the SHARED formatting guide composes (owner, 2026-10-04 late): LaTeX delimiters in every setting", () => {

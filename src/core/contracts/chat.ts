@@ -203,17 +203,15 @@ export interface TurnUsage {
  *  cue on the launch turn — the old one-liner read as a dispatch order
  *  ("author now") and the teacher skipped the deliberation the planning
  *  fragment asks for. So the wake paces it: reason out the optimal way to
- *  teach THIS person THIS thing BEFORE plan_init. Honest to the machinery
- *  — plan_init is still the first tool, the plan map still the first
- *  artifact, and presenting still ends the turn (the verdict death,
- *  2026-09-26: the learner's next message is a natural reply — a change
- *  request or the go-ahead). */
+ *  teach THIS person THIS thing BEFORE plan_init. The map remains the plan's
+ *  presentation, and the teacher starts the first node in the same reply;
+ *  learner approval is not a turn gate. */
 export const HANDOFF_TEXT =
 	"Next: plan the full teaching arc from my current understanding to the goal understanding. " +
 	"Apply the teaching methodology in your system prompt, and find the optimal way to teach me this. " +
 	"Find the unconditional truths, plan the motivated derivations/discoveries, so every reasoning step has to land as obviously true. " +
 	"Take your time here and really think this through. " +
-	"When it's genuinely reasoned out, call plan_init and present the plan; I'll accept it or ask for changes.";
+	"When it's genuinely reasoned out, call plan_init, say in a sentence or two how we'll approach it, and start teaching the first node in the same reply. Don't wait for my OK; I'll ask for changes if I want any.";
 
 export const PLACEMENT_NUDGE_TEXT =
 	"[Placement run — app note, not from the learner] The placement run is still in progress and no question is open. Ask the current placement probe from the placement context now, using onTarget: true.";

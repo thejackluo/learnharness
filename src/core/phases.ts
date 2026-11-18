@@ -13,10 +13,10 @@
  *            its answer: the block that poses the first node question is
  *            where teaching starts.
  *
- * There is no verdict gate anymore: presenting the plan ends the teacher's
- * turn, and the learner's next message is a natural reply (a change
- * request, or the go-ahead). The live indicator LAGS by design (owner
- * accepted): "teach" shows only once the first node's question is posed.
+ * There is no verdict gate: `plan_init` presents the map but does not end
+ * the teacher's turn; teaching may begin in that same reply. The live
+ * indicator LAGS by design (owner accepted): "teach" shows only once the
+ * first node's question is posed.
  * A teacher that never tags a quiz can no longer exist — nodeId is
  * schema-required at the teach quiz boundary (owner ruling 2026-09-26),
  * so the seam signal is structural, not prompt-mandated.
