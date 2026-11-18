@@ -26,9 +26,8 @@ export interface PlanToolContext {
  * WRITES the map and never tracks progress. One tool, plan_init, takes the
  * whole dependency map as a mermaid `graph TD` block:
  *
- *   - call it ONCE right after the probe concludes, to present the map (the
- *     LEARNER'S ACCEPTANCE of the presented plan, not this call, ends
- *     planning — docs/probe-teach-split.md §4)
+ *   - call it ONCE right after the probe concludes, to present the map; the
+ *     teacher may begin the first node in the same reply
  *   - statuses (current / visited / upcoming) are DERIVED from the quiz
  *     nodeId tags the teacher fires (contracts.ts derivePlanStatuses) — the
  *     teacher never declares them, and there is no "done" bookkeeping

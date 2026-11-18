@@ -83,6 +83,7 @@ describe("probe_done: the probe→planning seam", () => {
 		// the UI keys off customType; the chat id rides details.
 		assert.equal(delivered[0]!.customType, "probe-handoff");
 		assert.equal(delivered[0]!.content, HANDOFF_TEXT);
+		assert.match(HANDOFF_TEXT, /start teaching the first node in the same reply/);
 		assert.equal((delivered[0]!.details as { chatId: string }).chatId, chatId);
 	});
 
