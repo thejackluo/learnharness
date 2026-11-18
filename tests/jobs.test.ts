@@ -1501,9 +1501,10 @@ describe("prompt composition", () => {
 		const prober = composeInstructions("prober");
 		assert.ok(!prober.includes("There is no rush"), "the old no-rush framing is retired");
 		assert.ok(
-			prober.includes("every wasted question is resolution the final map doesn't get"),
-			"the efficiency-is-resolution directive is in",
+			prober.includes("the answer would change where teaching starts"),
+			"quick checks must change where teaching starts",
 		);
+		assert.ok(prober.includes("At most two or three checks in the whole opening"), "the opening caps quick checks");
 		assert.ok(!prober.includes("Question principles"), "the teach-phase fragment never composes into the prober");
 	});
 
