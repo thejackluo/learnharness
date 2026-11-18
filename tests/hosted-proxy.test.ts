@@ -78,6 +78,15 @@ test("hosted public login and health routes allow HEAD without a session", () =>
 	}
 });
 
+test("hosted changelog is not on the unauthenticated public allowlist", () => {
+	const response = proxy(new NextRequest("https://lh.invalid/changelog"));
+	assert.equal(response.status, 303);
+	assert.equal(response.headers.get("cache-control"), "private, no-store");
+	const location = new URL(response.headers.get("location")!);
+	assert.equal(location.pathname, "/login");
+	assert.equal(location.searchParams.get("next"), "/changelog");
+});
+
 test("RSC and prefetched private pages redirect with origin-locked, sanitized next values", () => {
 	const requestHeaders: Record<string, string>[] = [{ rsc: "1" }, { "next-router-prefetch": "1" }];
 	for (const headers of requestHeaders) {

@@ -58,6 +58,12 @@ if (!exists(path.join(STANDALONE, "public", pythonWorkerAsset))) {
 	process.exit(1);
 }
 
+if (!exists(path.join(STANDALONE, "CHANGELOG.md"))) {
+	console.error("[build-server] Changelog missing from standalone output.");
+	console.error("             Check outputFileTracingIncludes in next.config.ts.");
+	process.exit(1);
+}
+
 // 2) Safety: the repo's real data/ must NEVER ride along in the bundle.
 const leakedData = path.join(STANDALONE, "data");
 if (exists(leakedData)) {
