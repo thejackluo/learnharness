@@ -24,6 +24,7 @@ function withPayload(test: (fixture: {
 	try {
 		write(path.join("scripts", "build-server.mjs"), source);
 		write(path.join(STANDALONE, "server.js"));
+		write(path.join(STANDALONE, "CHANGELOG.md"));
 		write(path.join(".next", "static", "runtime.js"));
 		write(path.join("public", "asset.txt"));
 		for (const asset of ["pyodide.js", "pyodide.mjs", "pyodide.asm.js", "pyodide.asm.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json"]) {

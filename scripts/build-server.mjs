@@ -58,12 +58,6 @@ if (!exists(path.join(STANDALONE, "public", pythonWorkerAsset))) {
 	process.exit(1);
 }
 
-if (!exists(path.join(STANDALONE, "CHANGELOG.md"))) {
-	console.error("[build-server] Changelog missing from standalone output.");
-	console.error("             Check outputFileTracingIncludes in next.config.ts.");
-	process.exit(1);
-}
-
 // 2) Safety: the repo's real data/ must NEVER ride along in the bundle.
 const leakedData = path.join(STANDALONE, "data");
 if (exists(leakedData)) {
@@ -84,6 +78,12 @@ for (const secret of ["auth.json", ...subscriptionSecrets, ".env", ".env.local"]
 		console.error("             Check outputFileTracingExcludes in next.config.ts.");
 		process.exit(1);
 	}
+}
+
+if (!exists(path.join(STANDALONE, "CHANGELOG.md"))) {
+	console.error("[build-server] Changelog missing from standalone output.");
+	console.error("             Check outputFileTracingIncludes in next.config.ts.");
+	process.exit(1);
 }
 
 // 2c) Payload curation (2026-10-11): the trace sweep can copy repo-root
