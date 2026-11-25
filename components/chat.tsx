@@ -350,6 +350,16 @@ export function Chat({
 		return () => window.removeEventListener("lh:chat-renamed", onRenamed);
 	}, [chatId]);
 
+	// The sidebar's Archive/Unarchive patches this header's note in place.
+	useEffect(() => {
+		const onArchived = (e: Event) => {
+			const { id, archivedAt } = (e as CustomEvent<{ id: string; archivedAt: string | null }>).detail;
+			if (id === chatId) setArchivedAt(archivedAt ?? undefined);
+		};
+		window.addEventListener("lh:chat-archived", onArchived);
+		return () => window.removeEventListener("lh:chat-archived", onArchived);
+	}, [chatId]);
+
 	// The Esc chain's last link: abort the turn. The background runner
 	// decoupled turns from views, so the abort is ALWAYS the remote kill
 	// (POST /api/activity/abort — any in-flight turn dies server-side, our
@@ -837,6 +847,7 @@ export function Chat({
 			if (!res.ok) throw new Error(`unarchive failed: ${res.status}`);
 			const record = await res.json() as { archivedAt: string | null };
 			setArchivedAt(typeof record.archivedAt === "string" ? record.archivedAt : undefined);
+			window.dispatchEvent(new CustomEvent("lh:chat-archived", { detail: { id: chatId, archivedAt: record.archivedAt } }));
 		} catch (err) {
 			console.error("unarchive failed:", err);
 		}

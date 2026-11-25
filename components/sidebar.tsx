@@ -484,6 +484,21 @@ function SessionsSidebar() {
 		return () => window.removeEventListener("lh:chat-renamed", onRenamed);
 	}, []);
 
+	useEffect(() => {
+		const onArchived = (e: Event) => {
+			const { id, archivedAt } = (e as CustomEvent<{ id: string; archivedAt: string | null }>).detail;
+			setChats((prev) => prev?.map((c) => {
+				if (c.id !== id) return c;
+				const next = { ...c };
+				if (archivedAt) next.archivedAt = archivedAt;
+				else delete next.archivedAt;
+				return next;
+			}) ?? prev);
+		};
+		window.addEventListener("lh:chat-archived", onArchived);
+		return () => window.removeEventListener("lh:chat-archived", onArchived);
+	}, []);
+
 	/* INSTANT TURN-STATE (owner, sidebar round 2026-10-02): the open
 	   session broadcasts lh:turn-state the instant its turn starts
 	   (submitted — the optimistic machine's own flip) and at settle —
@@ -651,6 +666,7 @@ function SessionsSidebar() {
 				else delete next.archivedAt;
 				return next;
 			}) ?? prev);
+			window.dispatchEvent(new CustomEvent("lh:chat-archived", { detail: { id, archivedAt: body.archivedAt } }));
 		} catch (err) {
 			console.error("archive failed:", err);
 		}
