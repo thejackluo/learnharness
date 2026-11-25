@@ -325,7 +325,12 @@ export async function handleChatInput(
 	const learnerInput =
 		input.type === "text" || input.type === "answer" || input.type === "thinking" || input.type === "next";
 	const unarchiveAcceptedInput = () => {
-		if (record.archivedAt && learnerInput) stores.chatStore.setArchived(chatId, false);
+		if (!record.archivedAt || !learnerInput) return;
+		try {
+			stores.chatStore.setArchived(chatId, false);
+		} catch (err) {
+			console.error(`[chat ${chatId}] unarchive failed:`, err);
+		}
 	};
 
 	// THE PARALLEL-QUESTION GATE (owner, 2026-10-03 — the deepseek parallel

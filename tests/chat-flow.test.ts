@@ -410,6 +410,37 @@ describe("teacher chat flow (scripted model)", () => {
 		assert.equal(isTurnRunning(refusedChat.id), false);
 	});
 
+	it("continues accepted sends when unarchive bookkeeping fails", async () => {
+		const chat = createConfiguredChat("Test: unarchive bookkeeping failure");
+		createdChats.push(chat.id);
+		chatStore.setArchived(chat.id, true);
+		const setArchived = chatStore.setArchived;
+		chatStore.setArchived = (id, archived) => {
+			if (id === chat.id && !archived) throw new Error("synthetic unarchive failure");
+			return setArchived(id, archived);
+		};
+
+		try {
+			const first = await handleChatRequest(
+				post(chat.id, { type: "text", text: "first accepted send" }),
+				agentFactory(scriptedTeacher(() => [() => fauxAssistantMessage([fauxText("First reply.")])]).engine),
+			);
+			assert.equal(first.status, 200);
+			await drain(first);
+			assert.equal(isTurnRunning(chat.id), false, "the first turn settled despite bookkeeping failure");
+			assert.ok(chatStore.getChat(chat.id)?.archivedAt, "the failed archive write leaves archive state unchanged");
+
+			const next = await handleChatRequest(
+				post(chat.id, { type: "text", text: "second accepted send" }),
+				agentFactory(scriptedTeacher(() => [() => fauxAssistantMessage([fauxText("Second reply.")])]).engine),
+			);
+			assert.equal(next.status, 200, "a completed turn does not leave a stale 409 lock");
+			await drain(next);
+		} finally {
+			chatStore.setArchived = setArchived;
+		}
+	});
+
 	it("streams the toolCall partial before tool_execution_start/end (protocol pin for the 'Writing a question…' shimmer)", async () => {
 		// Wave D: the wire is VERBATIM pi AgentEvents. The client's writing
 		// indicator derives 'input-streaming' from a toolCall block seen in a
