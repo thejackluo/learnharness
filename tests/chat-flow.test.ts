@@ -1664,6 +1664,20 @@ describe("composer steering: POST /api/chats/[id]/steer", () => {
 		assert.equal((await steerPost(chat.id, { input: { type: "steer", id: "steer_1", text: "hi" } })).status, 409);
 	});
 
+	it("does not unarchive a refused learner steer", async () => {
+		const chat = createConfiguredChat("Test: refused archived steer");
+		createdChats.push(chat.id);
+		const archived = chatStore.setArchived(chat.id, true);
+
+		const invalid = await steerPost(chat.id, { input: { type: "steer", id: "", text: "hi" } });
+		assert.equal(invalid.status, 400);
+		assert.equal(chatStore.getChat(chat.id)?.archivedAt, archived.archivedAt);
+
+		const noTurn = await steerPost(chat.id, { input: { type: "steer", id: "steer_no_turn", text: "hi" } });
+		assert.equal(noTurn.status, 409);
+		assert.equal(chatStore.getChat(chat.id)?.archivedAt, archived.archivedAt);
+	});
+
 	it("200 + the live steering queue when a turn runs; the drain lands the card and the model sees it", async () => {
 		// A GATED engine (the scriptedTeacher seam): the first factory
 		// awaits our release, holding the turn open mid-generation so the
@@ -1693,11 +1707,13 @@ describe("composer steering: POST /api/chats/[id]/steer", () => {
 		// The turn starts and holds at the first model call.
 		const turnRes = await handleChatRequest(post(chat.id, { type: "text", text: "teach me" }), agentFactory(engine as never));
 		await waitFor(() => calls.length === 1, 8000, "first model call started");
+		chatStore.setArchived(chat.id, true);
 
 		// The steer lands mid-turn: 200, handed to the live agent.
 		const res = await steerPost(chat.id, { input: { type: "steer", id: "steer_live1", text: "also cover Venus" } });
 		assert.equal(res.status, 200);
 		assert.equal((await res.json() as { ok: boolean }).ok, true);
+		assert.equal(chatStore.getChat(chat.id)?.archivedAt, undefined);
 
 		// CONNECTION DIET B: the drain rides the reattach wire (the POST
 		// acked long ago). Attach BEFORE releasing — a live view.
