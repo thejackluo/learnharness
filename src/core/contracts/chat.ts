@@ -46,6 +46,7 @@ export interface ChatRecord {
 	title: string;
 	createdAt: string;
 	updatedAt: string;
+	archivedAt?: string;
 	messages: LhMessage[];
 	/** The session's kind — absent = teach (pre-practice records). */
 	kind?: ChatKind;
@@ -286,6 +287,7 @@ export interface ChatSummary {
 	title: string;
 	createdAt: string;
 	updatedAt: string;
+	archivedAt?: string;
 	/** Normalized kind (absent record field reads as teach). */
 	kind: ChatKind;
 	messageCount: number;

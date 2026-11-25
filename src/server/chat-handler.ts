@@ -92,6 +92,15 @@ function settlementErrorText(error: unknown): string {
 	return error instanceof TurnPersistenceError ? error.message : "An error occurred.";
 }
 
+export function unarchiveOnLearnerInput(chatId: string): void {
+	try {
+		const record = stores.chatStore.getChat(chatId);
+		if (record?.archivedAt) stores.chatStore.setArchived(chatId, false);
+	} catch (err) {
+		console.error(`[chat ${chatId}] unarchive failed:`, err);
+	}
+}
+
 const jobRunner = createJobRunner({
 	chatStore: stores.chatStore,
 	jobStore: stores.jobStore,
@@ -322,6 +331,9 @@ export async function handleChatInput(
 		throw err;
 	}
 
+	const learnerInput =
+		input.type === "text" || input.type === "answer" || input.type === "thinking" || input.type === "next";
+
 	// THE PARALLEL-QUESTION GATE (owner, 2026-10-03 — the deepseek parallel
 	// batch incident): an answer that leaves a SIBLING question dangling
 	// defers its wake. The dock advances to the next question (the client's
@@ -339,6 +351,7 @@ export async function handleChatInput(
 			console.error(`[chat ${chatId}] write-ahead persist failed:`, err);
 			return new Response("Your input could not be saved. Please try again.", { status: 500 });
 		}
+		if (learnerInput) unarchiveOnLearnerInput(chatId);
 		emit("record-changed", { chatId });
 		return settledTurnResponse(); // the cheap terminal — no beginTurn, no turn
 	}
@@ -372,6 +385,7 @@ export async function handleChatInput(
 		endTurn(chatId);
 		return new Response("Your input could not be saved. Please try again.", { status: 500 });
 	}
+	if (!stagedAutomatic && learnerInput) unarchiveOnLearnerInput(chatId);
 	// Visibility bookkeeping is not the canonical save. Its failure must
 	// neither misreport a saved input as lost nor prevent the turn running.
 	try {

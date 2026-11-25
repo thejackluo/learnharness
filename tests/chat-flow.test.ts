@@ -386,6 +386,57 @@ describe("teacher chat flow (scripted model)", () => {
 		await drain(ok);
 	});
 
+	it("unarchives after accepted learner input but not after a refused input", async () => {
+		const acceptedChat = createConfiguredChat("Test: accepted archived input");
+		createdChats.push(acceptedChat.id);
+		chatStore.setArchived(acceptedChat.id, true);
+		const accepted = await handleChatRequest(
+			post(acceptedChat.id, { type: "text", text: "continue the lesson" }),
+			agentFactory(scriptedTeacher(defaultLesson).engine),
+		);
+		assert.equal(accepted.status, 200);
+		assert.equal(chatStore.getChat(acceptedChat.id)?.archivedAt, undefined);
+		await drain(accepted);
+
+		const refusedChat = createConfiguredChat("Test: refused archived input");
+		createdChats.push(refusedChat.id);
+		const archived = chatStore.setArchived(refusedChat.id, true);
+		const refused = await handleChatRequest(
+			post(refusedChat.id, { type: "answer", toolCallId: "call-none", answer: { correct: true } }),
+			agentFactory(scriptedTeacher(defaultLesson).engine),
+		);
+		assert.equal(refused.status, 400);
+		assert.equal(chatStore.getChat(refusedChat.id)?.archivedAt, archived.archivedAt);
+		assert.equal(isTurnRunning(refusedChat.id), false);
+	});
+
+	it("continues accepted sends when unarchive bookkeeping fails", async () => {
+		const chat = createConfiguredChat("Test: unarchive bookkeeping failure");
+		createdChats.push(chat.id);
+		chatStore.setArchived(chat.id, true);
+		const setArchived = chatStore.setArchived;
+		chatStore.setArchived = (id, archived) => {
+			if (id === chat.id && !archived) throw new Error("synthetic unarchive failure");
+			return setArchived(id, archived);
+		};
+
+		try {
+			await drainTurn(
+				post(chat.id, { type: "text", text: "first accepted send" }),
+				agentFactory(scriptedTeacher(() => [() => fauxAssistantMessage([fauxText("First reply.")])]).engine),
+			);
+			assert.equal(isTurnRunning(chat.id), false, "the first turn settled despite bookkeeping failure");
+			assert.ok(chatStore.getChat(chat.id)?.archivedAt, "the failed archive write leaves archive state unchanged");
+
+			await drainTurn(
+				post(chat.id, { type: "text", text: "second accepted send" }),
+				agentFactory(scriptedTeacher(() => [() => fauxAssistantMessage([fauxText("Second reply.")])]).engine),
+			);
+		} finally {
+			chatStore.setArchived = setArchived;
+		}
+	});
+
 	it("streams the toolCall partial before tool_execution_start/end (protocol pin for the 'Writing a question…' shimmer)", async () => {
 		// Wave D: the wire is VERBATIM pi AgentEvents. The client's writing
 		// indicator derives 'input-streaming' from a toolCall block seen in a
@@ -1609,6 +1660,20 @@ describe("composer steering: POST /api/chats/[id]/steer", () => {
 		assert.equal((await steerPost(chat.id, { input: { type: "steer", id: "steer_1", text: "hi" } })).status, 409);
 	});
 
+	it("does not unarchive a refused learner steer", async () => {
+		const chat = createConfiguredChat("Test: refused archived steer");
+		createdChats.push(chat.id);
+		const archived = chatStore.setArchived(chat.id, true);
+
+		const invalid = await steerPost(chat.id, { input: { type: "steer", id: "", text: "hi" } });
+		assert.equal(invalid.status, 400);
+		assert.equal(chatStore.getChat(chat.id)?.archivedAt, archived.archivedAt);
+
+		const noTurn = await steerPost(chat.id, { input: { type: "steer", id: "steer_no_turn", text: "hi" } });
+		assert.equal(noTurn.status, 409);
+		assert.equal(chatStore.getChat(chat.id)?.archivedAt, archived.archivedAt);
+	});
+
 	it("200 + the live steering queue when a turn runs; the drain lands the card and the model sees it", async () => {
 		// A GATED engine (the scriptedTeacher seam): the first factory
 		// awaits our release, holding the turn open mid-generation so the
@@ -1638,11 +1703,13 @@ describe("composer steering: POST /api/chats/[id]/steer", () => {
 		// The turn starts and holds at the first model call.
 		const turnRes = await handleChatRequest(post(chat.id, { type: "text", text: "teach me" }), agentFactory(engine as never));
 		await waitFor(() => calls.length === 1, 8000, "first model call started");
+		chatStore.setArchived(chat.id, true);
 
 		// The steer lands mid-turn: 200, handed to the live agent.
 		const res = await steerPost(chat.id, { input: { type: "steer", id: "steer_live1", text: "also cover Venus" } });
 		assert.equal(res.status, 200);
 		assert.equal((await res.json() as { ok: boolean }).ok, true);
+		assert.equal(chatStore.getChat(chat.id)?.archivedAt, undefined);
 
 		// CONNECTION DIET B: the drain rides the reattach wire (the POST
 		// acked long ago). Attach BEFORE releasing — a live view.

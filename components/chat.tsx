@@ -217,6 +217,7 @@ function isSubagentSteer(m: LhViewMessage): boolean {
 export function Chat({
 	chatId,
 	title,
+	initialArchivedAt,
 	initialMessages,
 	initialError,
 	initialPrompt,
@@ -227,6 +228,7 @@ export function Chat({
 }: {
 	chatId: string;
 	title: string;
+	initialArchivedAt?: string;
 	initialMessages: LhMessage[];
 	/** Memory-only settlement notice supplied on reopening. */
 	initialError?: string;
@@ -284,6 +286,7 @@ export function Chat({
 	// must not churn), and the sidebar patch is instant via the window event —
 	// its 2.5s poll is only a backstop.
 	const [titleText, setTitleText] = useState(title);
+	const [archivedAt, setArchivedAt] = useState(initialArchivedAt);
 	const [renaming, setRenaming] = useState(false);
 	const [titleDraft, setTitleDraft] = useState("");
 	const titleInputRef = useRef<HTMLInputElement | null>(null);
@@ -345,6 +348,16 @@ export function Chat({
 		};
 		window.addEventListener("lh:chat-renamed", onRenamed);
 		return () => window.removeEventListener("lh:chat-renamed", onRenamed);
+	}, [chatId]);
+
+	// The sidebar's Archive/Unarchive patches this header's note in place.
+	useEffect(() => {
+		const onArchived = (e: Event) => {
+			const { id, archivedAt } = (e as CustomEvent<{ id: string; archivedAt: string | null }>).detail;
+			if (id === chatId) setArchivedAt(archivedAt ?? undefined);
+		};
+		window.addEventListener("lh:chat-archived", onArchived);
+		return () => window.removeEventListener("lh:chat-archived", onArchived);
 	}, [chatId]);
 
 	// The Esc chain's last link: abort the turn. The background runner
@@ -808,7 +821,8 @@ export function Chat({
 	const syncFromServer = useCallback(async () => {
 		const res = await fetch(`/api/chats/${chatId}`);
 		if (!res.ok) return;
-		const record = (await res.json()) as { messages?: LhMessage[]; turns?: TurnUsage[]; pricing?: SessionPricing; turnError?: string };
+		const record = (await res.json()) as { messages?: LhMessage[]; turns?: TurnUsage[]; pricing?: SessionPricing; turnError?: string; archivedAt?: string | null };
+		setArchivedAt(typeof record.archivedAt === "string" ? record.archivedAt : undefined);
 		if (Array.isArray(record.turns)) setTurns(record.turns);
 		setPricing(record.pricing);
 		if (!Array.isArray(record.messages)) return;
@@ -822,6 +836,22 @@ export function Chat({
 		// sync must never automatically replace a reply that failed to save.
 		continueIfOwed(record.messages);
 	}, [chatId, setMessages, continueIfOwed]);
+
+	const unarchiveChat = useCallback(async () => {
+		try {
+			const res = await fetch(`/api/chats/${chatId}`, {
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ archived: false }),
+			});
+			if (!res.ok) throw new Error(`unarchive failed: ${res.status}`);
+			const record = await res.json() as { archivedAt: string | null };
+			setArchivedAt(typeof record.archivedAt === "string" ? record.archivedAt : undefined);
+			window.dispatchEvent(new CustomEvent("lh:chat-archived", { detail: { id: chatId, archivedAt: record.archivedAt } }));
+		} catch (err) {
+			console.error("unarchive failed:", err);
+		}
+	}, [chatId]);
 
 	// The settled terminal's other half (stream-reattach wave): the
 	// transport resolved turn-settled — no turn running, the record is
@@ -1372,6 +1402,19 @@ export function Chat({
 							    drag surface (no carve-out) — the freed bar is grippable. */}
 							<div className="min-w-4 flex-1" aria-hidden="true" />
 					</>
+					)}
+					{archivedAt && (
+						<div className="lh-no-drag flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+							<span>Archived ·</span>
+							<button
+								type="button"
+								data-testid="chat-unarchive"
+								onClick={() => void unarchiveChat()}
+								className="rounded-sm underline underline-offset-2 transition-colors hover:text-foreground"
+							>
+								Unarchive
+							</button>
+						</div>
 					)}
 					{/* The plan chip (owner, plan-placement round): session-level
 					    structure beside the phase chip — access to the full-DAG popup
