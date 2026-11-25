@@ -421,21 +421,17 @@ describe("teacher chat flow (scripted model)", () => {
 		};
 
 		try {
-			const first = await handleChatRequest(
+			await drainTurn(
 				post(chat.id, { type: "text", text: "first accepted send" }),
 				agentFactory(scriptedTeacher(() => [() => fauxAssistantMessage([fauxText("First reply.")])]).engine),
 			);
-			assert.equal(first.status, 200);
-			await drain(first);
 			assert.equal(isTurnRunning(chat.id), false, "the first turn settled despite bookkeeping failure");
 			assert.ok(chatStore.getChat(chat.id)?.archivedAt, "the failed archive write leaves archive state unchanged");
 
-			const next = await handleChatRequest(
+			await drainTurn(
 				post(chat.id, { type: "text", text: "second accepted send" }),
 				agentFactory(scriptedTeacher(() => [() => fauxAssistantMessage([fauxText("Second reply.")])]).engine),
 			);
-			assert.equal(next.status, 200, "a completed turn does not leave a stale 409 lock");
-			await drain(next);
 		} finally {
 			chatStore.setArchived = setArchived;
 		}

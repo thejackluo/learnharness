@@ -58,15 +58,17 @@ test("archiving and unarchiving preserve file recency", () => {
 	fs.utimesSync(olderFile, olderTime, olderTime);
 	fs.utimesSync(newerFile, newerTime, newerTime);
 	const originalMtime = fs.statSync(olderFile).mtimeMs;
+	const pairByRecency = () =>
+		chatStore.listChatIdsByRecency().filter((id) => id === older.id || id === newer.id);
 
-	assert.equal(chatStore.listChatIdsByRecency()[0], newer.id);
+	assert.deepEqual(pairByRecency(), [newer.id, older.id]);
 
 	chatStore.setArchived(older.id, true);
-	assert.equal(chatStore.listChatIdsByRecency()[0], newer.id);
+	assert.deepEqual(pairByRecency(), [newer.id, older.id]);
 	assert.equal(fs.statSync(olderFile).mtimeMs, originalMtime);
 
 	chatStore.setArchived(older.id, false);
-	assert.equal(chatStore.listChatIdsByRecency()[0], newer.id);
+	assert.deepEqual(pairByRecency(), [newer.id, older.id]);
 	assert.equal(fs.statSync(olderFile).mtimeMs, originalMtime);
 });
 
