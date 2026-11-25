@@ -36,7 +36,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
 	const { id } = await params;
 	if (!getChat(id)) return Response.json({ error: "Not found" }, { status: 404 });
-	const body = (await req.json().catch(() => null)) as { title?: unknown } | null;
+	const body = (await req.json().catch(() => null)) as { title?: unknown; archived?: unknown } | null;
+	if (typeof body?.archived === "boolean") {
+		const record = stores.chatStore.setArchived(id, body.archived);
+		return Response.json({ archivedAt: record.archivedAt ?? null });
+	}
 	if (typeof body?.title !== "string" || body.title.trim() === "") {
 		return Response.json({ error: "title must be a non-empty string" }, { status: 400 });
 	}
@@ -96,4 +100,3 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
 		graphRevision: outcome.graphRevision,
 	});
 }
-

@@ -309,6 +309,7 @@ export function SessionRow({
 				"relative mb-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-accent",
 				active && "bg-accent",
 				kbdSelected && !active && "bg-accent/60 ring-1 ring-border",
+				chat.archivedAt && "opacity-60",
 			)}
 		>
 			<SessionStatus busy={chat.busy || chat.compacting} />
@@ -319,7 +320,14 @@ export function SessionRow({
 				    rule, finally applied to the picker too (owner, typography
 				    round): mono = chrome, Source Sans = human words. */}
 				<span className="block truncate font-prose text-(length:--lh-prose-size)">{chat.title}</span>
-				<span className="block text-xs text-muted-foreground">{sessionMeta(chat)}</span>
+				<span className="block text-xs text-muted-foreground">
+					{chat.archivedAt && (
+						<span className="mr-1 rounded-sm border border-border/60 px-1 text-[10px] uppercase tracking-wider">
+							Archived
+						</span>
+					)}
+					{sessionMeta(chat)}
+				</span>
 			</span>
 			{/* The dumbbell rides the FAR RIGHT (owner round 6, 2026-10-05) —
 			    was left of the name; right-aligned keeps the titles flush with
@@ -386,15 +394,20 @@ export function RenameRow({ chat, onCommit, onCancel }: { chat: ChatListItem; on
  *  snapshot, persisted in localStorage, defaulting to All. */
 export type SessionKindFilter = "teach" | "all" | "practice";
 const KIND_FILTER_KEY = "lh:session-kind-filter";
+const SHOW_ARCHIVED_KEY = "lh.sessions.showArchived";
 
 function SessionsSidebar() {
 	const { open, toggle } = useSidebar();
 	const [chats, setChats] = useState<ChatListItem[] | null>(null);
 	const [query, setQuery] = useState("");
 	const [kindFilter, setKindFilter] = useState<SessionKindFilter>("all");
+	const [showArchived, setShowArchived] = useState(false);
 	useEffect(() => {
 		const stored = window.localStorage.getItem(KIND_FILTER_KEY);
 		if (stored === "teach" || stored === "all" || stored === "practice") setKindFilter(stored);
+	}, []);
+	useEffect(() => {
+		if (window.localStorage.getItem(SHOW_ARCHIVED_KEY) === "true") setShowArchived(true);
 	}, []);
 	const setFilter = useCallback((f: SessionKindFilter) => {
 		setKindFilter(f);
@@ -418,17 +431,27 @@ function SessionsSidebar() {
 	const shown = useMemo(() => {
 		const q = query.trim();
 		let list = chats;
-		if (list && kindFilter !== "all") {
+		if (!list) return list;
+		if (kindFilter !== "all") {
 			list = list.filter((c) => (c.kind ?? "teach") === kindFilter);
 		}
-		if (!list) return list;
+		if (!showArchived) list = list.filter((c) => !c.archivedAt);
 		if (!q) return list;
 		return list
 			.map((c) => ({ c, score: fuzzyScore(q, c.title) }))
 			.filter((r): r is { c: (typeof list)[number]; score: number } => r.score !== null)
 			.sort((a, b) => b.score - a.score)
 			.map((r) => r.c);
-	}, [chats, query, kindFilter]);
+	}, [chats, query, kindFilter, showArchived]);
+
+	const archivedCount = useMemo(
+		() =>
+			chats?.filter(
+				(c) => c.archivedAt && (kindFilter === "all" || (c.kind ?? "teach") === kindFilter),
+			).length ?? 0,
+		[chats, kindFilter],
+	);
+	const allChatsArchived = !!chats?.length && chats.every((c) => !!c.archivedAt);
 
 	const refreshInFlightRef = useRef(false);
 	const refresh = useCallback(async () => {
@@ -493,7 +516,7 @@ function SessionsSidebar() {
 
 	/* PUSH (architecture S6, 2026-10-02): the 2.5s poll is RETIRED — the
 	   last standing network poll in the app. List truth arrives as
-	   events: chats-changed (create/rename/delete — the list-SHAPE
+	   events: chats-changed (create/rename/archive/delete — the list-SHAPE
 	   writes), and turn-started/turn-settled for EVERY chat (unfiltered:
 	   any chat's turn flips busy/order/phase in this list). Announced
 	   fetches ride the 250ms trailing debounce (the S4/S5 law); resync
@@ -535,12 +558,20 @@ function SessionsSidebar() {
 	const [kbdIndex, setKbdIndex] = useState<number | null>(null);
 	const searchRef = useRef<HTMLInputElement>(null);
 	const listRef = useRef<HTMLDivElement>(null);
+	const toggleShowArchived = useCallback(() => {
+		setShowArchived((shown) => {
+			const next = !shown;
+			window.localStorage.setItem(SHOW_ARCHIVED_KEY, String(next));
+			return next;
+		});
+		setKbdIndex(null);
+	}, []);
 
 	/* ── Wave 6 chunk A: context menu + inline rename + deletion ──
-	   Right-click a session row → MenuShell: the two management actions
+	   Right-click a session row → MenuShell: the management actions
 	   first (owner ruling), then — below a hairline — the extraction
 	   coverage block (owner-locked redesign 2026-09-24, order refined
-	   2026-09-24: Rename/Delete on top, the numbers + manual Extract
+	   2026-09-24: Archive/Rename/Export/Delete on top, the numbers + manual Extract
 	   affordance at the bottom). The anchor is the row that was
 	   right-clicked — assigned into a ref before the state flip so the
 	   shell measures it on its first (hidden) pass. */
@@ -554,6 +585,7 @@ function SessionsSidebar() {
 		ctxAnchorRef.current = e.currentTarget;
 		setCtxChatId(chat.id);
 	};
+	const ctxChat = ctxChatId === null ? undefined : chats?.find((c) => c.id === ctxChatId);
 
 	// The menu contract (agent-section's): any pointerdown outside the menu
 	// or its row closes it; Esc is CLAIMED so it never also aborts a turn
@@ -600,6 +632,27 @@ function SessionsSidebar() {
 			window.dispatchEvent(new CustomEvent("lh:chat-renamed", { detail: { id, title: t } }));
 		} catch (err) {
 			console.error("rename failed:", err); // keep the old title
+		}
+	}, []);
+
+	const updateArchived = useCallback(async (id: string, archived: boolean) => {
+		try {
+			const res = await fetch(`/api/chats/${id}`, {
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ archived }),
+			});
+			if (!res.ok) throw new Error(`archive failed: ${res.status}`);
+			const body = await res.json() as { archivedAt: string | null };
+			setChats((prev) => prev?.map((c) => {
+				if (c.id !== id) return c;
+				const next = { ...c };
+				if (body.archivedAt) next.archivedAt = body.archivedAt;
+				else delete next.archivedAt;
+				return next;
+			}) ?? prev);
+		} catch (err) {
+			console.error("archive failed:", err);
 		}
 	}, []);
 
@@ -809,7 +862,11 @@ function SessionsSidebar() {
 						<div className="px-2 py-4 text-xs text-muted-foreground">Loading…</div>
 					) : shown.length === 0 ? (
 						<div className="px-2 py-4 text-xs text-muted-foreground">
-							{query.trim() ? "No sessions match." : "No sessions yet."}
+							{query.trim()
+								? "No sessions match."
+								: !showArchived && allChatsArchived
+									? "All sessions are archived."
+									: "No sessions yet."}
 						</div>
 					) : (
 						shown.map((c, i) =>
@@ -834,6 +891,17 @@ function SessionsSidebar() {
 								/>
 							),
 						)
+					)}
+					{chats !== null && (archivedCount > 0 || showArchived) && (
+						<button
+							type="button"
+							data-testid="toggle-archived"
+							aria-pressed={showArchived}
+							onClick={toggleShowArchived}
+							className="mt-2 flex w-full items-center rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+						>
+							{showArchived ? `Hide archived (${archivedCount})` : `Show archived (${archivedCount})`}
+						</button>
 					)}
 				</div>
 
@@ -872,7 +940,7 @@ function SessionsSidebar() {
 				</div>
 
 				{/* The context menu (wave 6 + the extraction-UX redesign): the
-				    coverage block above, then exactly two management actions
+				    archive/rename/export/delete actions precede the coverage block
 				    (owner ruling — no more). MenuShell owns placement/focus/arrow
 				    cycling; the dismissal effect above owns the contract. */}
 				{ctxChatId !== null && (
@@ -882,9 +950,9 @@ function SessionsSidebar() {
 						preferredSide="down"
 						menuClass="flex w-52 flex-col gap-0.5 rounded-xl border bg-card p-2 text-xs shadow-xl"
 					>
-						{/* The two management actions first, then the extraction block
-						    (owner refinement round, 2026-09-24): Rename/Delete stay at the
-						    top, the coverage numbers + Extract affordance sit below the
+						{/* Management actions first, then the extraction block
+						    (owner refinement round, 2026-09-24): Archive, Rename, Export and Delete
+						    are at the top; the coverage numbers + Extract affordance sit below the
 						    hairline — the block is info + a stateful affordance, the
 						    actions above it. Fetched on menu open (the block mounts WITH
 						    the menu); 409 = benign. Renders nothing on a failed read. */}
@@ -899,6 +967,21 @@ function SessionsSidebar() {
 						>
 							Rename
 						</button>
+						{ctxChat && (
+							<button
+								type="button"
+								data-testid={ctxChat.archivedAt ? "ctx-unarchive" : "ctx-archive"}
+								onClick={() => {
+									const target = ctxChat;
+									setCtxChatId(null);
+									setKbdIndex(null);
+									void updateArchived(target.id, !target.archivedAt);
+								}}
+								className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent"
+							>
+								{ctxChat.archivedAt ? "Unarchive" : "Archive"}
+							</button>
+						)}
 						{/* Export as Markdown (owner, release polish 2026-10-06): the
 					    session-markdown engine's user-facing debut — same-origin
 						    anchor download; the route's Content-Disposition names the

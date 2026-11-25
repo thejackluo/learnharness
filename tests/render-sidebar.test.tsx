@@ -160,4 +160,10 @@ describe("SessionRow practice badge (practice sessions, 2026-10-04)", () => {
 		const html = render(item({ kind: "practice", pendingProblem: true }));
 		assert.match(html, /Problem waiting ·/);
 	});
+
+	it("archived rows are dimmed and marked in their meta line", () => {
+		const html = render(item({ archivedAt: "2026-01-03T00:00:00.000Z" }));
+		assert.match(html, /opacity-60/);
+		assert.match(html, /Archived/);
+	});
 });

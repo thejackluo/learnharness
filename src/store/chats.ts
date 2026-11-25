@@ -26,8 +26,8 @@ function chatFile(id: string): string {
 }
 
 /** THE SILENCE LAW (push S6, 2026-10-02): chats-changed announces ONLY
- *  list-SHAPE mutations — createChat, renameChat, deleteChat (below,
- *  each emits post-write). The content writers (saveMessages,
+ *  list-SHAPE mutations — createChat, renameChat, setArchived, deleteChat
+ *  (below, each emits post-write). The content writers (saveMessages,
  *  appendTurnUsage, appendExtractionUsage, saveSettings, saveTree) are
  *  DELIBERATELY SILENT: saveMessages fires per turn-persist and would
  *  spam the bus, and every list-visible change it causes (title, order,
@@ -244,6 +244,17 @@ function renameChat(id: string, title: string): ChatRecord {
 	return record;
 }
 
+/** Archive or unarchive a session without changing its sidebar activity order. */
+function setArchived(id: string, archived: boolean): ChatRecord {
+	const record = getChat(id);
+	if (!record) throw new Error(`Chat not found: ${id}`);
+	if (archived) record.archivedAt ??= new Date().toISOString();
+	else delete record.archivedAt;
+	writeChat(record);
+	emit("chats-changed", {});
+	return record;
+}
+
 /** Delete the session record file entirely (session-deletion wave 6,
  *  owner 2026-09-22). False when the id is unknown — the route turns that
  *  into a 404. The record's graph traces and jobs are the route's
@@ -281,6 +292,7 @@ export const chatStore: ChatStore = {
 	linkTarget,
 	recordMapSuggestionDecision,
 	renameChat,
+	setArchived,
 	deleteChat,
 	appendTurnUsage,
 	appendExtractionUsage,

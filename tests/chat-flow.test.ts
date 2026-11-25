@@ -386,6 +386,30 @@ describe("teacher chat flow (scripted model)", () => {
 		await drain(ok);
 	});
 
+	it("unarchives after accepted learner input but not after a refused input", async () => {
+		const acceptedChat = createConfiguredChat("Test: accepted archived input");
+		createdChats.push(acceptedChat.id);
+		chatStore.setArchived(acceptedChat.id, true);
+		const accepted = await handleChatRequest(
+			post(acceptedChat.id, { type: "text", text: "continue the lesson" }),
+			agentFactory(scriptedTeacher(defaultLesson).engine),
+		);
+		assert.equal(accepted.status, 200);
+		assert.equal(chatStore.getChat(acceptedChat.id)?.archivedAt, undefined);
+		await drain(accepted);
+
+		const refusedChat = createConfiguredChat("Test: refused archived input");
+		createdChats.push(refusedChat.id);
+		const archived = chatStore.setArchived(refusedChat.id, true);
+		const refused = await handleChatRequest(
+			post(refusedChat.id, { type: "answer", toolCallId: "call-none", answer: { correct: true } }),
+			agentFactory(scriptedTeacher(defaultLesson).engine),
+		);
+		assert.equal(refused.status, 400);
+		assert.equal(chatStore.getChat(refusedChat.id)?.archivedAt, archived.archivedAt);
+		assert.equal(isTurnRunning(refusedChat.id), false);
+	});
+
 	it("streams the toolCall partial before tool_execution_start/end (protocol pin for the 'Writing a question…' shimmer)", async () => {
 		// Wave D: the wire is VERBATIM pi AgentEvents. The client's writing
 		// indicator derives 'input-streaming' from a toolCall block seen in a
