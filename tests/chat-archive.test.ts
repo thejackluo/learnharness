@@ -48,6 +48,28 @@ test("chat archive stamps, preserves, and removes archivedAt without changing ac
 	}
 });
 
+test("archiving and unarchiving preserve file recency", () => {
+	const older = chatStore.createChat("Older chat");
+	const newer = chatStore.createChat("Newer chat");
+	const olderFile = path.join(DATA_DIR, "chats", `${older.id}.json`);
+	const newerFile = path.join(DATA_DIR, "chats", `${newer.id}.json`);
+	const olderTime = new Date("2024-01-01T00:00:00.000Z");
+	const newerTime = new Date("2024-01-02T00:00:00.000Z");
+	fs.utimesSync(olderFile, olderTime, olderTime);
+	fs.utimesSync(newerFile, newerTime, newerTime);
+	const originalMtime = fs.statSync(olderFile).mtimeMs;
+
+	assert.equal(chatStore.listChatIdsByRecency()[0], newer.id);
+
+	chatStore.setArchived(older.id, true);
+	assert.equal(chatStore.listChatIdsByRecency()[0], newer.id);
+	assert.equal(fs.statSync(olderFile).mtimeMs, originalMtime);
+
+	chatStore.setArchived(older.id, false);
+	assert.equal(chatStore.listChatIdsByRecency()[0], newer.id);
+	assert.equal(fs.statSync(olderFile).mtimeMs, originalMtime);
+});
+
 test("chat PUT archives, unarchives, rejects bad bodies and keeps rename behavior", async () => {
 	const chat = chatStore.createChat("Original title");
 	const originalUpdatedAt = chatStore.getChat(chat.id)!.updatedAt;

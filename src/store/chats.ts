@@ -248,9 +248,12 @@ function renameChat(id: string, title: string): ChatRecord {
 function setArchived(id: string, archived: boolean): ChatRecord {
 	const record = getChat(id);
 	if (!record) throw new Error(`Chat not found: ${id}`);
+	const file = chatFile(id);
+	const before = fs.statSync(file);
 	if (archived) record.archivedAt ??= new Date().toISOString();
 	else delete record.archivedAt;
 	writeChat(record);
+	fs.utimesSync(file, before.atime, before.mtime);
 	emit("chats-changed", {});
 	return record;
 }
